@@ -30,6 +30,7 @@ final class CardStore {
     }
     void reset(String id) {
         prefs.edit().remove("name:" + id).remove("cover:" + id).apply();
+        ArtworkCache.remove("cover:" + id);
         new AtomicFile(imageFile(id)).delete();
     }
     File imageFile(String id) {
@@ -41,8 +42,18 @@ final class CardStore {
     }
     Bitmap loadImage(String id) {
         if (!cover(id).equals("image")) return null;
-        try (InputStream in = new AtomicFile(imageFile(id)).openRead()) { return BitmapFactory.decodeStream(in); }
+        String key = "cover:" + id;
+        Bitmap cached = ArtworkCache.get(key);
+        if (cached != null) return cached;
+        // Imported covers are stored as JPEG, so they never carry alpha; RGB_565 halves the cost.
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        Bitmap decoded;
+        try (InputStream in = new AtomicFile(imageFile(id)).openRead()) { decoded = BitmapFactory.decodeStream(in, null, options); }
         catch (IOException e) { return null; }
+        if (decoded == null) return null;
+        ArtworkCache.put(key, decoded);
+        return decoded;
     }
     void importImage(String id, Uri uri) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;

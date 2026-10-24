@@ -60,6 +60,7 @@ public final class MainActivity extends Activity {
         if (!preferences.getBoolean("clock_style_v06", false)) preferences.edit().putBoolean("clock_style_v06",true).putInt("clock_size",96).putInt("ambient_transition",3).apply();
         AmbientIntegration.configure(this);
         cards = new CardStore(this);
+        ArtworkCache.configure(this);
         network = new NetworkPanel(this, this::showDialog);
         navigator = new SettingsNavigator(this);
         cover = new CoverManager(this);
@@ -105,6 +106,13 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
+    @Override public void onLowMemory() { super.onLowMemory(); ArtworkCache.clear(); }
+
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_BACKGROUND) ArtworkCache.clear();
+    }
+
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
@@ -133,7 +141,14 @@ public final class MainActivity extends Activity {
         final int generation = ++wallpaperGeneration;
         loader.execute(() -> {
             Bitmap ready = WallpaperSource.load(this);
-            handler.post(() -> { if (!isDestroyed() && generation == wallpaperGeneration) { home.wallpaper = ready; home.invalidate(); } });
+            handler.post(() -> {
+                if (!isDestroyed() && generation == wallpaperGeneration) {
+                    Bitmap previous = home.wallpaper;
+                    home.wallpaper = ready;
+                    if (previous != null && previous != ready && previous != home.wallpaper) previous.recycle();
+                    home.invalidate();
+                }
+            });
         });
     }
 
@@ -151,10 +166,14 @@ public final class MainActivity extends Activity {
         if (art == null && (resolve.activityInfo.icon != 0 || resolve.activityInfo.applicationInfo.icon != 0)) {
             try { art = resolve.loadIcon(pm); } catch (Exception ignored) { }
         }
+        String cacheKey = "pkg:" + tile.id + ":" + (tile.banner ? 1 : 0);
+        Bitmap cachedArtwork = ArtworkCache.get(cacheKey);
+        if (cachedArtwork != null) { tile.artwork = cachedArtwork; return tile; }
         if (art != null) {
             int w = tile.banner ? 480 : 192, h = tile.banner ? 270 : 192;
             tile.artwork = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(tile.artwork); art.setBounds(0, 0, w, h); art.draw(canvas);
+            ArtworkCache.put(cacheKey, tile.artwork);
         }
         return tile;
     }
