@@ -1,6 +1,6 @@
 {
-  "version": "0.9.2",
-  "apk_sha256": "9d1e11dd31a64ab4d06156f47a6658592c055417f758a6134d3c514aa36b515a",
+  "version": "0.10.0",
+  "apk_sha256": "0945c53f57a9492e229bd12af11b4bb82413356638e7a14ba0efc1b8a0cdaf5b",
   "checks": [
     {
       "name": "author_and_version_visible",
@@ -162,6 +162,46 @@
       "passed": true
     },
     {
+      "name": "recent_sort_is_default",
+      "passed": true
+    },
+    {
+      "name": "last_opened_first",
+      "passed": true
+    },
+    {
+      "name": "pinned_before_recent",
+      "passed": true
+    },
+    {
+      "name": "chinese_alphabetic_order",
+      "passed": true
+    },
+    {
+      "name": "custom_order_restored",
+      "passed": true
+    },
+    {
+      "name": "launch_does_not_change_custom_order",
+      "passed": true
+    },
+    {
+      "name": "pinned_before_custom",
+      "passed": true
+    },
+    {
+      "name": "switch_preserves_saved_custom_order",
+      "passed": true
+    },
+    {
+      "name": "icon_background_comes_from_border",
+      "passed": true
+    },
+    {
+      "name": "icon_background_fills_entire_card",
+      "passed": true
+    },
+    {
       "name": "wifi_result_handled",
       "passed": true
     },
@@ -176,10 +216,96 @@
     {
       "name": "obsolete_result_does_not_add_page",
       "passed": true
+    },
+    {
+      "name": "manual_exported_activity_is_launchable",
+      "passed": true
+    },
+    {
+      "name": "manual_private_activity_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "manual_entry_persists",
+      "passed": true
+    },
+    {
+      "name": "media_session_title_visible",
+      "passed": true
+    },
+    {
+      "name": "playing_state_visible",
+      "passed": true
+    },
+    {
+      "name": "transport_pause_reaches_session",
+      "passed": true
+    },
+    {
+      "name": "paused_state_updates",
+      "passed": true
+    },
+    {
+      "name": "released_session_removed",
+      "passed": true
+    }
+  ],
+  "feature_ui_checks": [
+    {
+      "name": "leftmost_add_card",
+      "passed": true
+    },
+    {
+      "name": "installed_app_library_visible",
+      "passed": true
+    },
+    {
+      "name": "manual_unrecognized_activity_visible",
+      "passed": true
+    },
+    {
+      "name": "manual_app_appears_in_tv_row",
+      "passed": true
+    },
+    {
+      "name": "per_card_actions_present",
+      "passed": true
+    },
+    {
+      "name": "pin_state_updates",
+      "passed": true
+    },
+    {
+      "name": "three_sort_modes_available",
+      "passed": true
+    },
+    {
+      "name": "hidden_app_can_be_restored",
+      "passed": true
+    },
+    {
+      "name": "manual_activity_launches",
+      "passed": true
+    },
+    {
+      "name": "uninstall_has_confirmation",
+      "passed": true
+    },
+    {
+      "name": "wifi_names_and_accessible_signal_icons",
+      "passed": true
+    },
+    {
+      "name": "media_card_remote_focus",
+      "passed": true
+    },
+    {
+      "name": "real_media_session_control_menu",
+      "passed": true
     }
   ],
   "motion_checks_passed": 10,
   "memory_tool_unit_checks_passed": 5,
   "independent_build_non_signature_entries_equal": 15,
-  "scope": "34 UI regressions use ADB-injected keys. Targeted checks force retained artwork cache and controlled settings/permission callbacks on Android 9. No newer Android TV, new reboot/cold boot, actual Wi-Fi switch, HDMI switch or 24-hour test in this release."
+  "scope": "34 general UI and 13 new-feature checks use ADB-injected input. 26 targeted checks run on Android 9 with a temporary same-signed fixture, including controlled media sessions. Real paused player metadata was observed. No new reboot/cold boot, actual Wi-Fi switch, HDMI switch, newer Android TV, physical-remote or 24-hour test in this release."
 }

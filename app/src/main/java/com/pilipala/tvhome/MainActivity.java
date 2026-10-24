@@ -24,6 +24,11 @@ public final class MainActivity extends Activity {
     NetworkPanel network;
     SettingsNavigator navigator;
     CoverManager cover;
+    AppLibrary library;
+    NowPlaying playback;
+    private final BroadcastReceiver playbackAccess = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { if(playback!=null)playback.refresh(); }
+    };
     private TvDialog activeDialog;
     private final ArrayList<TvDialog> dialogHistory = new ArrayList<>();
     int menuEpoch;
@@ -67,6 +72,9 @@ public final class MainActivity extends Activity {
         network = new NetworkPanel(this, this::showDialog);
         navigator = new SettingsNavigator(this);
         cover = new CoverManager(this);
+        library = new AppLibrary(this);
+        playback = new NowPlaying(this);
+        registerReceiver(playbackAccess, new IntentFilter(PlaybackListenerService.CHANGED));
         if (state != null) cover.pendingId = state.getString("pending_cover");
         fullscreen();
         home = new HomeView(this);
@@ -100,10 +108,12 @@ public final class MainActivity extends Activity {
         handler.removeCallbacks(clock); handler.post(clock); armIdle();
         if (ambientRequested) { ambientRequested = false; handler.removeCallbacks(idle); home.setIdle(true); }
         if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
+        if(playback!=null)playback.refresh();
+        if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
     }
 
     @Override protected void onPause() {
-        foreground = false; handler.removeCallbacks(idle); handler.removeCallbacks(clock);
+        foreground = false; if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (home != null) { home.stopMotion(); if (home.fade != null) home.fade.cancel(); if(home.previewFade!=null)home.previewFade.cancel(); }
         super.onPause();
@@ -119,6 +129,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
+        if (playback != null) { playback.stop(); unregisterReceiver(playbackAccess); }
         closeMenus();
         loader.shutdownNow();
         if (receiverRegistered) unregisterReceiver(packageChanges);
@@ -174,6 +185,10 @@ public final class MainActivity extends Activity {
             try { art = resolve.loadIcon(pm); } catch (Exception ignored) { }
         }
         String cacheKey = "pkg:" + tile.id + ":" + (tile.banner ? 1 : 0);
+        if (art != null && !tile.banner) {
+            tile.artwork = ArtworkStyle.card(art); tile.banner = true;
+            ArtworkCache.put("pkg:"+tile.id+":1",tile.artwork); return tile;
+        }
         if (art != null) {
             int w = tile.banner ? 480 : 192, h = tile.banner ? 270 : 192;
             tile.artwork = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
@@ -212,16 +227,18 @@ public final class MainActivity extends Activity {
                         if (r.activityInfo.exported && seen.add(tvPlayer)) { apps.tiles.add(applicationTile(r)); break; }
                     }
                 }
-                String saved = preferences.getString("order_tv", "");
-                final List<String> order = Arrays.asList(saved.isEmpty()
-                        ? new String[]{"com.fongmi.android.tv", "com.maric.adbkeeper", "com.netease.uuremote", "com.limelight.qiin", "com.xiaomi.mitv.tvplayer", "com.mitv.tvplayer"}
-                        : saved.split("\\|"));
-                Comparator<Tile> comparator = (a, b) -> {
-                    int ai = order.indexOf(a.id), bi = order.indexOf(b.id);
-                    if (ai < 0) ai = 1000; if (bi < 0) bi = 1000;
-                    return ai != bi ? ai - bi : a.label.compareToIgnoreCase(b.label);
-                };
-                Collections.sort(apps.tiles, comparator);
+                for(String id:cards.set("manual_apps")) {
+                    try {
+                        ComponentName component=ComponentName.unflattenFromString(cards.manual(id));
+                        if(component==null || !component.getPackageName().equals(id) || id.equals(getPackageName()))continue;
+                        ActivityInfo info=pm.getActivityInfo(component,0);
+                        if(!AppLibrary.launchable(this,info))continue;
+                        ResolveInfo resolved=new ResolveInfo();resolved.activityInfo=info;
+                        for(Iterator<Tile> it=apps.tiles.iterator();it.hasNext();)if(it.next().id.equals(id))it.remove();
+                        for(Iterator<Tile> it=others.tiles.iterator();it.hasNext();)if(it.next().id.equals(id))it.remove();
+                        apps.tiles.add(applicationTile(resolved));seen.add(id);
+                    } catch(PackageManager.NameNotFoundException|RuntimeException ignored) { }
+                }
                 final List<String> otherOrder = Arrays.asList(preferences.getString("order_other", "").split("\\|"));
                 Collections.sort(others.tiles, (a, b) -> {
                     int ai = otherOrder.indexOf(a.id), bi = otherOrder.indexOf(b.id);
@@ -247,6 +264,7 @@ public final class MainActivity extends Activity {
             Row favorites = new Row("收藏", "\ue838");
             for (Tile tile : catalog) {
                 tile.label = cards.name(tile.id, tile.label);
+                tile.pinned=cards.contains("pinned",tile.id);
                 String style = cards.cover(tile.id);
                 if (style.equals("image")) {
                     Bitmap custom = cards.loadImage(tile.id);
@@ -262,9 +280,12 @@ public final class MainActivity extends Activity {
                 Iterator<Tile> iterator = r.tiles.iterator();
                 while (iterator.hasNext()) if (cards.contains("hidden", iterator.next().id)) iterator.remove();
             }
-            sortSaved(inputs); sortSaved(favorites);
+            sortSaved(inputs); sortSaved(favorites); sortSaved(others);
+            AppOrder.sort(apps.tiles,preferences,cards);
+            Tile add=new Tile();add.id="__add_app__";add.label="添加应用";add.kind=2;add.tint=0xC022303C;add.glyph="\ue145";
+            apps.tiles.add(0,add); apps.selected=apps.tiles.size()>1?1:0;
+            result.add(apps);
             if (!favorites.tiles.isEmpty()) result.add(favorites);
-            if (!apps.tiles.isEmpty()) result.add(apps);
             if (!inputs.tiles.isEmpty()) result.add(inputs);
             if (!others.tiles.isEmpty()) result.add(others);
             handler.post(() -> {
@@ -285,20 +306,31 @@ public final class MainActivity extends Activity {
 
     private Tile copyTile(Tile source) {
         Tile t = new Tile(); t.id = source.id; t.label = source.label; t.intent = source.intent;
-        t.artwork = source.artwork; t.banner = source.banner; t.kind = source.kind; t.tint = source.tint; t.glyph = source.glyph;
+        t.pinned = source.pinned; t.artwork = source.artwork; t.banner = source.banner; t.kind = source.kind; t.tint = source.tint; t.glyph = source.glyph;
         return t;
     }
     private void sortSaved(Row row) {
         final List<String> order = Arrays.asList(preferences.getString(row.orderKey, "").split("\\|"));
         Collections.sort(row.tiles, (a, b) -> {
+            if(a.pinned!=b.pinned)return a.pinned?-1:1;
             int ai = order.indexOf(a.id), bi = order.indexOf(b.id);
             if (ai < 0) ai = 1000; if (bi < 0) bi = 1000;
             return ai == bi ? a.label.compareToIgnoreCase(b.label) : ai-bi;
         });
     }
 
+    void sortCurrentApps() {
+        for(Row r:home.rows)if(r.orderKey.equals("order_tv")) {
+            String focused=r.tiles.get(r.selected).id;
+            Tile add=r.tiles.remove(0);AppOrder.sort(r.tiles,preferences,cards);r.tiles.add(0,add);
+            for(int i=0;i<r.tiles.size();i++)if(r.tiles.get(i).id.equals(focused))r.selected=i;
+        }
+        home.ensureVisible();home.animateFocus();home.describeFocus();
+    }
+
     void launch(Tile tile) {
-        try { startActivity(tile.intent); }
+        if(tile.kind==2){library.show();return;}
+        try { startActivity(tile.intent); if(tile.kind==0)AppOrder.opened(preferences,tile.id); }
         catch (ActivityNotFoundException | SecurityException ex) { toast("暂时无法打开「" + tile.label + "」"); }
     }
 

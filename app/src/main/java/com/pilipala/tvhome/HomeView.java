@@ -14,12 +14,12 @@ final class Tile {
     android.content.Intent intent;
     Bitmap artwork;
     BitmapShader shader;
-    boolean banner;
+    boolean banner, pinned;
     int tint;
     String glyph;
     final MotionSpring emphasis = new MotionSpring(0, 22, 0.001f);
     String displayLabel, coverLabel;
-    int kind; // 0 installed application, 1 TV input
+    int kind; // 0 installed application, 1 TV input, 2 add application
 }
 
 /** A horizontal shelf of tiles such as "TV 应用" or "输入源". */
@@ -110,7 +110,9 @@ final class HomeView extends View {
         labelOpacity = host.preferences.getInt("label_opacity", host.preferences.getInt("label_mode", 0) == 1 ? 55 : 0) / 100f;
     }
     void describeFocus() {
-        if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
+        if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
+        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":"网络与 Wi-Fi");
+        else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
             setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
     }
@@ -122,7 +124,7 @@ final class HomeView extends View {
             Row r = rows.get(i); r.selected = Math.max(0, Math.min(r.selected, r.tiles.size() - 1));
             for (int j = 0; j < r.tiles.size(); j++) r.tiles.get(j).emphasis.snap(i == 0 && j == r.selected ? 1 : 0);
         }
-        ensureVisible(); animateFocus(); invalidate();
+        ensureVisible(); animateFocus(); describeFocus(); invalidate();
     }
 
     void setIdle(boolean value) {
@@ -208,6 +210,7 @@ final class HomeView extends View {
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
+            if(previewKey==null && host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
                 float selectedX = topSelected == 0 ? 132 : wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
@@ -239,6 +242,20 @@ final class HomeView extends View {
     }
 
     private int alphaColor(int color, float a) { return (color & 0x00FFFFFF) | (Math.round(Color.alpha(color) * a) << 24); }
+
+    private void drawPlayback(Canvas canvas,float opacity) {
+        NowPlaying.Item item=host.playback.item;
+        rect.set(112,192,742,310);
+        paint.setColor(alphaColor(row==-2?0xF2DCE8EF:0xDD182430,opacity));canvas.drawRoundRect(rect,24,24,paint);
+        int foreground=alphaColor(row==-2?0xFF17232D:0xFFF1F5F8,opacity);
+        if(item.artwork!=null && !item.artwork.isRecycled()) {
+            int save=canvas.save();Path clip=new Path();iconBounds.set(126,206,216,296);clip.addRoundRect(iconBounds,14,14,Path.Direction.CW);canvas.clipPath(clip);
+            artworkPaint.setAlpha(Math.round(255*opacity));canvas.drawBitmap(item.artwork,null,iconBounds,artworkPaint);canvas.restoreToCount(save);
+        } else icon(canvas,item.playing?"\ue037":"\ue034",171,251,44,foreground);
+        text(canvas,item.playing?"正在播放":"已暂停",238,225,18,bold,foreground,Paint.Align.LEFT);
+        text(canvas,clippedLabel(item.title,440,26),238,258,26,bold,foreground,Paint.Align.LEFT);
+        text(canvas,clippedLabel(item.source,440,18),238,287,18,normal,alphaColor(row==-2?0xB017232D:0xB0F1F5F8,opacity),Paint.Align.LEFT);
+    }
 
     private void drawEdge(Canvas canvas,float opacity){
         float a=Math.max(0,Math.min(1,edge.value))*opacity;
@@ -300,6 +317,10 @@ final class HomeView extends View {
             if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
             text(canvas, tile.coverLabel, x, y + 48 * zoom, 28 * zoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
         } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * zoom, alphaColor(Color.WHITE, opacity));
+        if(tile.pinned) {
+            paint.setColor(alphaColor(0xBB13202B,opacity));canvas.drawCircle(x+w/2-28*zoom,y-h/2+28*zoom,17*zoom,paint);
+            icon(canvas,"\ue838",x+w/2-28*zoom,y-h/2+28*zoom,22*zoom,alphaColor(0xFFFFD68A,opacity));
+        }
         if (emphasis > .005f || labelOpacity > 0) {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
@@ -345,8 +366,13 @@ final class HomeView extends View {
             return true;
         }
         if (rows.isEmpty()) { if (code == KeyEvent.KEYCODE_DPAD_UP) { row = -1; invalidate(); } return true; }
+        if (row == -2) {
+            if(code==KeyEvent.KEYCODE_DPAD_UP)row=-1;
+            else if(code==KeyEvent.KEYCODE_DPAD_DOWN)row=0;
+            describeFocus();ensureVisible();animateFocus();invalidate();return true;
+        }
         if (row == -1) {
-            if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = 0;
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = host.playback.item==null?0:-2;
             else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = 0;
             else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = 1;
             ensureVisible(); animateFocus();
@@ -357,10 +383,11 @@ final class HomeView extends View {
                 r.selected=Math.max(0,r.selected-1);
             }
             else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) r.selected = Math.min(r.tiles.size() - 1, r.selected + 1);
-            else if (code == KeyEvent.KEYCODE_DPAD_UP) row--;
+            else if (code == KeyEvent.KEYCODE_DPAD_UP) row=row==0&&host.playback.item!=null?-2:row-1;
             else if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = Math.min(rows.size() - 1, row + 1);
             ensureVisible(); animateFocus();
         }
+        describeFocus();
         if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty()) {
             String label = rows.get(row).tiles.get(rows.get(row).selected).label;
             setContentDescription(rows.get(row).title + "，" + label); announceForAccessibility(label);
@@ -373,7 +400,8 @@ final class HomeView extends View {
         if(edgeOpen&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)){edgeAction();return true;}
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
             if (longPressed) { longPressed = false; return true; }
-            if (row == -1) { if (topSelected == 0) host.settings(); else host.network.show(); }
+            if (row == -2) host.playback.controls();
+            else if (row == -1) { if (topSelected == 0) host.settings(); else host.network.show(); }
             else if (!rows.isEmpty()) { Row r = rows.get(row); if (!r.tiles.isEmpty()) host.launch(r.tiles.get(r.selected)); }
             return true;
         }
@@ -390,8 +418,9 @@ final class HomeView extends View {
             if(x>=88&&x<=420&&y>=465&&y<777){edgeSelected=Math.min(3,(int)((y-465)/78));edgeAction();}
             else edge(false);return true;
         }
-        if (y < 205 && x < 380) { host.settings(); return true; }
+        if (y < 175 && x < 380) { host.settings(); return true; }
         if (y < 205 && Math.abs(x-(clockScene.left(host.preferences)-70)) < 65) { host.network.show(); return true; }
+        if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}
         if (!rows.isEmpty() && y > 520 && y < 810) {
             Row r = rows.get(Math.max(0, row));
             int index = Math.round((x - 272 + r.scroll.value) / 350);

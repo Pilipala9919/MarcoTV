@@ -75,6 +75,13 @@ final class TvDialog extends Dialog {
         if (spec.items != null) for (int position = 0; position < itemOrder.size(); position++) {
             final int index = itemOrder.get(position);
             TextView item = row(spec.items[index], spec.single && index == spec.selected);
+            if (spec.signals != null && index < spec.signals.length && spec.signals[index] >= 0) {
+                item.setSingleLine(true); item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                SignalDrawable signal = new SignalDrawable(spec.signals[index]);
+                signal.setBounds(0, 0, dp(28), dp(24));
+                item.setCompoundDrawables(null, null, signal, null); item.setCompoundDrawablePadding(dp(20));
+                item.setContentDescription(spec.items[index] + "，信号" + new String[]{"弱", "一般", "良好", "强"}[spec.signals[index]]);
+            }
             if (spec.single) item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
                     super.onInitializeAccessibilityNodeInfo(host, info); info.setCheckable(true); info.setChecked(index == spec.selected);
@@ -191,7 +198,7 @@ final class TvDialog extends Dialog {
     static final class Builder {
         final Activity activity; String title="", message; String[] items; int selected=-1;
         boolean single; View view; DialogInterface.OnClickListener itemClick;
-        String orderKey,preview;String[] ids;
+        String orderKey,preview;String[] ids; int[] signals;
         final ArrayList<ButtonSpec> buttons = new ArrayList<>();
         Builder(Activity activity) { this.activity=activity; }
         Builder setTitle(String s) { title=s; return this; }
@@ -200,6 +207,7 @@ final class TvDialog extends Dialog {
         Builder setPreview(String key){preview=key;return this;}
         Builder setOrder(String key,String... stableIds){orderKey=key;ids=stableIds;return this;}
         Builder setItems(String[] a, DialogInterface.OnClickListener c) { items=a; itemClick=c; return this; }
+        Builder setSignals(int[] levels) { signals=levels; return this; }
         Builder setSingleChoiceItems(String[] a, int i, DialogInterface.OnClickListener c) { single=true; selected=i; return setItems(a,c); }
         Builder setPositiveButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_POSITIVE,c)); return this; }
         Builder setNegativeButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_NEGATIVE,c)); return this; }

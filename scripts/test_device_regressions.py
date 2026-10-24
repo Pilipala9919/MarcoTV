@@ -25,7 +25,9 @@ def main():
     manifest = folder / 'AndroidManifest.xml'
     manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.regression">
       <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
-      <application android:label="Marco TV regression checks" />
+      <application android:label="Marco TV regression checks">
+        <activity android:name="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="true" />
+      </application>
       <instrumentation android:name="com.pilipala.tvhome.DeviceRegressionChecks" android:targetPackage="com.pilipala.tvhome" />
     </manifest>''', encoding='utf-8')
     run(executable(TOOLS, 'aapt2'), 'link', '-o', folder / 'resources.apk', '--manifest', manifest, '-I', ANDROID)
@@ -57,7 +59,7 @@ def main():
                      'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
         print(output)
         (folder / 'result.txt').write_text(output, encoding='utf-8')
-        if 'OK 8 device regression checks' not in output or 'FAIL' in output:
+        if 'OK 26 device regression checks' not in output or 'FAIL' in output:
             raise RuntimeError('Device regression failed; see local result.txt')
     finally:
         if installed:

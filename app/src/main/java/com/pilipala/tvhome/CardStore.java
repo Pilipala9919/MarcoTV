@@ -21,6 +21,8 @@ final class CardStore {
         else prefs.edit().putString("name:" + id, value.trim()).apply();
     }
     String cover(String id) { return prefs.getString("cover:" + id, "original"); }
+    String manual(String id) { return prefs.getString("manual:"+id, ""); }
+    void manual(String id,String component) { prefs.edit().putString("manual:"+id,component).apply();toggle("manual_apps",id,true); }
     void cover(String id, String style) { prefs.edit().putString("cover:" + id, style).apply(); }
     Set<String> set(String key) { return new LinkedHashSet<>(prefs.getStringSet(key, Collections.emptySet())); }
     boolean contains(String key, String id) { return set(key).contains(id); }
