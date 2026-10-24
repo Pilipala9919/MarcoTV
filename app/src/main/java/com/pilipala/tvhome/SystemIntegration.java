@@ -43,9 +43,22 @@ final class SystemIntegration {
         }
     }
     static String currentHome(Context context) {
+        // CATEGORY_DEFAULT is required: OEM firmware keeps its launcher as the fallback
+        // answer without it, even when another home is the registered preference.
         ResolveInfo result = context.getPackageManager().resolveActivity(new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY);
+                .addCategory(Intent.CATEGORY_HOME).addCategory(Intent.CATEGORY_DEFAULT), PackageManager.MATCH_DEFAULT_ONLY);
         return result == null || result.activityInfo == null ? "" : new ComponentName(result.activityInfo.packageName, result.activityInfo.name).flattenToString();
+    }
+    static boolean homeIsOurs(Context context) {
+        // MIUI answers resolveActivity with its own launcher even when we hold the HOME
+        // preference, so read the preference table directly instead.
+        if (currentHome(context).startsWith(context.getPackageName() + "/")) return true;
+        ArrayList<IntentFilter> filters = new ArrayList<>();
+        ArrayList<ComponentName> names = new ArrayList<>();
+        try { context.getPackageManager().getPreferredActivities(filters, names, null); }
+        catch (RuntimeException e) { return false; }
+        for (ComponentName name : names) if (name.getPackageName().equals(context.getPackageName())) return true;
+        return false;
     }
     static void rememberHome(Context context) {
         if (prefs(context).contains("original_home")) return;
@@ -144,6 +157,7 @@ final class SystemIntegration {
     }
     static void show(Activity activity, DialogHost host) {
         SharedPreferences p = prefs(activity); rememberHome(activity);
+        boolean ownHome = homeIsOurs(activity);
         String[] items = {
                 "ADB 自动恢复：" + (p.getBoolean("adb_restore", false) ? "已开启" : "未开启"),
                 "立即检查 ADB", "设为默认桌面",
@@ -151,6 +165,8 @@ final class SystemIntegration {
                 "Home 键兼容模式：" + (p.getBoolean("home_compat", false) ? "已开启" : "未开启"),
                 "恢复原桌面", "查看运行状态", "调试与授权说明"};
         host.show(new TvDialog.Builder(activity).setTitle("开机与默认桌面")
+                .setMessage("当前默认桌面：" + (ownHome ? "Marco TV" : "厂商或其他桌面")
+                        + (ownHome ? "" : "\n部分电视在 Marco TV 更新后会重置此项，回到本页选择「设为默认桌面」即可恢复。"))
                 .setOrder("startup","adb","check_adb","home","boot","home_key","restore","status","help").setItems(items, (d, which) ->
                 activity.getWindow().getDecorView().post(() -> {
                     switch (which) {
@@ -241,7 +257,7 @@ final class SystemIntegration {
     private static void status(Activity activity, DialogHost host) {
         String base = "系统设置授权：" + (authorized(activity) ? "已授权" : "未授权")
                 + "\nADB 调试开关：" + (Settings.Global.getInt(activity.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1 ? "已开启" : "未开启")
-                + "\n系统默认桌面：" + (currentHome(activity).startsWith(activity.getPackageName() + "/") ? "Marco TV" : "厂商或其他桌面")
+                + "\n系统默认桌面：" + (homeIsOurs(activity) ? "Marco TV" : "厂商或其他桌面")
                 + "\nHome 键兼容：" + (prefs(activity).getBoolean("home_compat", false) ? "已开启" : "未开启")
                 + "\n最近开机恢复：" + stamp(prefs(activity).getLong("last_boot_time", 0))
                 + "\n最近恢复 ADB：" + stamp(prefs(activity).getLong("last_adb_restore", 0))
