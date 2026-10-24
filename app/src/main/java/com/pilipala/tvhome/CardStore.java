@@ -73,7 +73,9 @@ final class CardStore {
         try {
             stream = target.startWrite();
             if (!cropped.compress(Bitmap.CompressFormat.JPEG, 90, stream)) throw new IOException("保存封面失败");
-            target.finishWrite(stream); stream = null; cover(id, "image");
+            target.finishWrite(stream); stream = null;
+            ArtworkCache.remove("cover:" + id);
+            cover(id, "image");
         } finally {
             if (stream != null) target.failWrite(stream);
             decoded.recycle(); cropped.recycle();

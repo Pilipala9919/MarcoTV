@@ -1,10 +1,6 @@
 {
-  "version": "0.8.0",
-  "date": "2026-10-24",
-  "author": "Pilipala",
-  "device_model": "Xiaomi MiTV-ASTP0",
-  "android": "9",
-  "apk_sha256": "da1cc9381238a0e7bf3ded0f6b7c1766ef9ab0c42f57a58fdebeb10ac382848f",
+  "version": "0.9.2",
+  "apk_sha256": "9d1e11dd31a64ab4d06156f47a6658592c055417f758a6134d3c514aa36b515a",
   "checks": [
     {
       "name": "author_and_version_visible",
@@ -16,10 +12,6 @@
     },
     {
       "name": "repository_visible",
-      "passed": true
-    },
-    {
-      "name": "no_reference_brand_in_about",
       "passed": true
     },
     {
@@ -39,15 +31,103 @@
       "passed": true
     },
     {
-      "name": "left_actions_preserved",
+      "name": "left_edge_opens_actions",
       "passed": true
     },
     {
-      "name": "live_preview_preserved",
+      "name": "right_returns_to_card",
       "passed": true
     },
     {
-      "name": "home_exits_nested_preview",
+      "name": "third_level_details",
+      "passed": true
+    },
+    {
+      "name": "back_to_network",
+      "passed": true
+    },
+    {
+      "name": "back_to_device",
+      "passed": true
+    },
+    {
+      "name": "back_to_settings",
+      "passed": true
+    },
+    {
+      "name": "root_back_returns_to_desktop",
+      "passed": true
+    },
+    {
+      "name": "home_closes_all_menus",
+      "passed": true
+    },
+    {
+      "name": "preview_controls_at_bottom",
+      "passed": true
+    },
+    {
+      "name": "card_render_changes_live",
+      "passed": true
+    },
+    {
+      "name": "radius_restored",
+      "passed": true
+    },
+    {
+      "name": "slider_back_to_appearance",
+      "passed": true
+    },
+    {
+      "name": "appearance_back_restores_root_focus",
+      "passed": true
+    },
+    {
+      "name": "ambient_preview_visible",
+      "passed": true
+    },
+    {
+      "name": "ambient_slider_back_to_clock",
+      "passed": true
+    },
+    {
+      "name": "replay_remains_in_preview",
+      "passed": true
+    },
+    {
+      "name": "replay_does_not_duplicate_history",
+      "passed": true
+    },
+    {
+      "name": "long_press_enters_sort",
+      "passed": true
+    },
+    {
+      "name": "about_moved_first",
+      "passed": true
+    },
+    {
+      "name": "reordered_action_is_about",
+      "passed": true
+    },
+    {
+      "name": "about_returns_to_sorted_settings",
+      "passed": true
+    },
+    {
+      "name": "order_survives_process_restart",
+      "passed": true
+    },
+    {
+      "name": "original_root_order_restored",
+      "passed": true
+    },
+    {
+      "name": "async_status_back_to_system",
+      "passed": true
+    },
+    {
+      "name": "home_not_reopened_by_delayed_callbacks",
       "passed": true
     },
     {
@@ -60,5 +140,46 @@
     }
   ],
   "all_passed": true,
-  "scope": "ADB-injected keys and local UI inspection. No new normal reboot, cold boot or ADB-disable recovery test in this release."
+  "date": "2026-10-24",
+  "author": "Pilipala",
+  "device_model": "Xiaomi MiTV-ASTP0",
+  "android": "9",
+  "targeted_device_checks": [
+    {
+      "name": "retained_cache_branch_active",
+      "passed": true
+    },
+    {
+      "name": "reimport_replaces_cached_cover",
+      "passed": true
+    },
+    {
+      "name": "package_update_evicts_icon_and_banner",
+      "passed": true
+    },
+    {
+      "name": "package_update_keeps_unrelated_artwork",
+      "passed": true
+    },
+    {
+      "name": "wifi_result_handled",
+      "passed": true
+    },
+    {
+      "name": "wifi_return_restores_network_page",
+      "passed": true
+    },
+    {
+      "name": "home_discards_wifi_and_permission_results",
+      "passed": true
+    },
+    {
+      "name": "obsolete_result_does_not_add_page",
+      "passed": true
+    }
+  ],
+  "motion_checks_passed": 10,
+  "memory_tool_unit_checks_passed": 5,
+  "independent_build_non_signature_entries_equal": 15,
+  "scope": "34 UI regressions use ADB-injected keys. Targeted checks force retained artwork cache and controlled settings/permission callbacks on Android 9. No newer Android TV, new reboot/cold boot, actual Wi-Fi switch, HDMI switch or 24-hour test in this release."
 }

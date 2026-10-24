@@ -7,7 +7,7 @@ import java.io.*;
 
 /** Author, release identity and bundled licensing for offline access. */
 final class ProjectInfo {
-    static final String VERSION="0.9.1";
+    static final String VERSION="0.9.2";
     static final String AUTHOR="Pilipala";
     static final String REPOSITORY="https://github.com/Pilipala9919/MarcoTV";
     static final String FREE_NOTICE="本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。";

@@ -40,6 +40,12 @@ final class ArtworkCache {
 
     static void remove(String key) { if (key != null) ENTRIES.remove(key); }
 
+    static void invalidatePackage(String packageName) {
+        if (packageName == null) return;
+        String prefix = "pkg:" + packageName + ":";
+        for (String key : ENTRIES.snapshot().keySet()) if (key.startsWith(prefix)) ENTRIES.remove(key);
+    }
+
     /** True when the device cannot spare memory for cached artwork. */
     static boolean lean(Context context) {
         ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);

@@ -44,7 +44,10 @@ public final class MainActivity extends Activity {
         }
     };
     private final BroadcastReceiver packageChanges = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) { loadApplications(); }
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent.getData() != null) ArtworkCache.invalidatePackage(intent.getData().getSchemeSpecificPart());
+            loadApplications();
+        }
     };
 
     @Override public void onCreate(Bundle state) {
@@ -160,6 +163,10 @@ public final class MainActivity extends Activity {
         tile.intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 .setComponent(new ComponentName(tile.id, resolve.activityInfo.name))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        for (boolean banner : new boolean[]{true, false}) {
+            Bitmap cached = ArtworkCache.get("pkg:" + tile.id + ":" + (banner ? 1 : 0));
+            if (cached != null) { tile.artwork = cached; tile.banner = banner; return tile; }
+        }
         Drawable art = null;
         try { art = resolve.activityInfo.loadBanner(pm); } catch (Exception ignored) { }
         tile.banner = art != null;
@@ -167,8 +174,6 @@ public final class MainActivity extends Activity {
             try { art = resolve.loadIcon(pm); } catch (Exception ignored) { }
         }
         String cacheKey = "pkg:" + tile.id + ":" + (tile.banner ? 1 : 0);
-        Bitmap cachedArtwork = ArtworkCache.get(cacheKey);
-        if (cachedArtwork != null) { tile.artwork = cachedArtwork; return tile; }
         if (art != null) {
             int w = tile.banner ? 480 : 192, h = tile.banner ? 270 : 192;
             tile.artwork = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
@@ -334,6 +339,7 @@ public final class MainActivity extends Activity {
         presentDialog(dialogHistory.get(dialogHistory.size()-1));
     }
     private void closeMenus(){
+        if(network!=null)network.cancelPending();
         menuEpoch++;TvDialog previous=activeDialog;activeDialog=null;dialogHistory.clear();dialogOpen=false;
         if(previous!=null){previous.setOnDismissListener(null);previous.dismiss();}
         if(home!=null)home.preview(null);
@@ -350,6 +356,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (network.onActivityResult(request)) return;
         if (cover.onActivityResult(request, result, data)) return;
         if (request == PICK_WALLPAPER && result == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();

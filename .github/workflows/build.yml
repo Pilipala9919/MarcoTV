@@ -24,6 +24,8 @@ jobs:
         run: python scripts/build.py
       - name: Motion checks
         run: python scripts/test_motion.py
+      - name: Release tool regression checks
+        run: python scripts/test_release_tools.py
       - name: Public source checks
         run: python scripts/check_release.py
       - name: Package source

@@ -28,3 +28,7 @@ scripts/*
 !scripts/package.py
 .workbuddy/
 !scripts/measure_memory.py
+
+!scripts/test_release_tools.py
+!scripts/test_device_regressions.py
+!scripts/DeviceRegressionChecks.java

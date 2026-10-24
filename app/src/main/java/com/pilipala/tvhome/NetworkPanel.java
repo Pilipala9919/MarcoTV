@@ -17,14 +17,14 @@ import java.util.*;
 
 /** Local Wi-Fi controls for the Android 9 TV, with explicit unsupported states. */
 final class NetworkPanel {
-    static final int PERMISSION = 103;
-    private final Activity activity;
+    static final int PERMISSION = 103, WIFI_SETTINGS = 104;
+    private final MainActivity activity;
     private final SystemIntegration.DialogHost host;
     private final WifiManager wifi;
     private TvDialog visible;
     private boolean scanning;
     private boolean registered;
-    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int settingsEpoch = -1, permissionEpoch = -1;
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (scanning && WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(i.getAction())) {
@@ -36,13 +36,15 @@ final class NetworkPanel {
             }
         }
     };
-    NetworkPanel(Activity activity, SystemIntegration.DialogHost host) {
+    NetworkPanel(MainActivity activity, SystemIntegration.DialogHost host) {
         this.activity=activity; this.host=host;
         wifi=(WifiManager)activity.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
     }
     void close() {
+        cancelPending();
         if (registered) { activity.unregisterReceiver(updates); registered=false; }
     }
+    void cancelPending() { settingsEpoch = -1; permissionEpoch = -1; scanning = false; }
     private void toast(String text) { Toast.makeText(activity, text, Toast.LENGTH_LONG).show(); }
     private void present(TvDialog dialog) {
         if (visible != null && visible.isShowing()) visible.dismiss(); visible=dialog; host.show(dialog);
@@ -94,7 +96,7 @@ final class NetworkPanel {
     }
     private static final String WIFI_PANEL = "android.settings.panel.action.WIFI";
     private void toggle() {
-        if (Build.VERSION.SDK_INT>28) { systemManaged("开关 Wi-Fi", "新版 Android 禁止第三方桌面更改 Wi-Fi 开关。可以在这里打开电视自带的 Wi-Fi 设置，直接在系统中切换。"); return; }
+        if (Build.VERSION.SDK_INT>28) { systemManaged("开关 Wi-Fi", "为兼容此版本 Android，Marco TV 将 Wi-Fi 开关交给电视系统。请在系统设置中切换。"); return; }
         boolean enabled=wifi.isWifiEnabled();
         present(new TvDialog.Builder(activity).setTitle(enabled?"关闭 Wi-Fi？":"开启 Wi-Fi？")
                 .setMessage(enabled?"无线网络与无线调试连接会断开。可使用遥控器在这里重新开启。":"开启后可刷新附近网络。")
@@ -106,6 +108,7 @@ final class NetworkPanel {
     }
     private void scan() {
         if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            permissionEpoch = activity.menuEpoch;
             activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSION); return;
         }
         if (!wifi.isWifiEnabled()) { show("请先开启 Wi-Fi"); return; }
@@ -121,7 +124,11 @@ final class NetworkPanel {
         try { scanning=wifi.startScan(); show(scanning?"正在扫描，结果将在完成后更新":"扫描暂不可用，显示上次结果"); }
         catch (RuntimeException e) { scanning=false; show("扫描未获系统允许，请检查权限与定位开关"); }
     }
-    void permissionResult(boolean allowed) { if(allowed) scan(); else show("未授权查找附近网络，可继续查看连接状态"); }
+    void permissionResult(boolean allowed) {
+        int epoch = permissionEpoch; permissionEpoch = -1;
+        if (epoch < 0 || epoch != activity.menuEpoch) return;
+        if(allowed) scan(); else show("未授权查找附近网络，可继续查看连接状态");
+    }
     private static String security(ScanResult r) {
         String c=r.capabilities;
         if(c.contains("EAP"))return "企业网络";
@@ -132,7 +139,7 @@ final class NetworkPanel {
         return "开放网络";
     }
     private void choose(ScanResult result) {
-        if(Build.VERSION.SDK_INT>28) { systemManaged("连接此 Wi-Fi", "新版 Android 禁止第三方桌面保存或切换 Wi-Fi 网络。可以在这里打开电视自带的 Wi-Fi 设置，在系统中输入密码连接。"); return; }
+        if(Build.VERSION.SDK_INT>28) { systemManaged("连接此 Wi-Fi", "为兼容此版本 Android，Marco TV 将网络连接交给电视系统。请在系统设置中选择网络并输入密码。"); return; }
         String type=security(result);
         if (!type.equals("密码保护") && !type.equals("开放网络")) {
             present(new TvDialog.Builder(activity).setTitle(result.SSID).setMessage("此安全类型需要电视系统的网络配置。当前版本支持开放网络与 WPA/WPA2 个人网络。")
@@ -177,7 +184,7 @@ final class NetworkPanel {
     }
     private static String quote(String s) { return "\""+s.replace("\\","\\\\").replace("\"","\\\"")+"\""; }
     private static String unquote(String s) { return s==null?"":s.length()>1 && s.startsWith("\"") && s.endsWith("\"")?s.substring(1,s.length()-1):s; }
-    /** Newer Android versions forbid launchers from touching Wi-Fi, so hand the task to the system UI. */
+    /** Prefer the system UI on newer Android; manufacturer and target-SDK restrictions vary. */
     private void systemManaged(String action, String reason) {
         present(new TvDialog.Builder(activity).setTitle(action + "需通过电视设置")
                 .setMessage(reason + "\n\nMarco TV 仍可随时查看当前网络状态。")
@@ -185,11 +192,25 @@ final class NetworkPanel {
                 .setNegativeButton("返回网络",(d,w)->show()).create());
     }
     private void openWifiSettings() {
-        Intent intent = Build.VERSION.SDK_INT >= 29 ? new Intent(WIFI_PANEL) : new Intent(Settings.ACTION_WIFI_SETTINGS);
-        if (intent.resolveActivity(activity.getPackageManager()) == null) intent = new Intent(Settings.ACTION_WIFI_SETTINGS);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try { activity.startActivity(intent); toast("已打开电视的 Wi-Fi 设置"); }
-        catch (RuntimeException e) { toast("无法打开电视的 Wi-Fi 设置，请从电视主设置进入"); }
-        handler.postDelayed(this::show, 400);
+        String[] actions = Build.VERSION.SDK_INT >= 29
+                ? new String[]{WIFI_PANEL, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS}
+                : new String[]{Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS};
+        for (String action : actions) {
+            Intent intent = new Intent(action);
+            if (intent.resolveActivity(activity.getPackageManager()) == null) continue;
+            try {
+                settingsEpoch = activity.menuEpoch;
+                activity.startActivityForResult(intent, WIFI_SETTINGS);
+                return;
+            } catch (RuntimeException ignored) { settingsEpoch = -1; }
+        }
+        toast("无法打开电视的 Wi-Fi 设置，请从电视主设置进入");
+        show();
+    }
+    boolean onActivityResult(int request) {
+        if (request != WIFI_SETTINGS) return false;
+        int epoch = settingsEpoch; settingsEpoch = -1;
+        if (epoch >= 0 && epoch == activity.menuEpoch && !activity.isDestroyed() && !activity.isFinishing()) show();
+        return true;
     }
 }

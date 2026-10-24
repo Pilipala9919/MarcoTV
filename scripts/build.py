@@ -48,6 +48,16 @@ def build():
                            (ROOT/'licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
         shutil.copy2(original, licenses/name)
     for p in [BUILD, BUILD / 'classes', BUILD / 'dex', BUILD / 'resources', DIST]: p.mkdir(exist_ok=True, parents=True)
+    # Renamed or removed Java classes must not survive incremental local builds.
+    # Only delete compiler outputs inside the verified build directories.
+    for folder, pattern in [(BUILD / 'classes', '*.class'), (BUILD / 'dex', '*.dex')]:
+        boundary = folder.resolve()
+        if not boundary.is_relative_to(BUILD.resolve()):
+            raise RuntimeError('Generated output directory escapes build root')
+        for previous in folder.rglob(pattern):
+            if not previous.resolve().is_relative_to(boundary):
+                raise RuntimeError('Generated output escapes its directory')
+            previous.unlink()
     run(executable(TOOLS,'aapt2'), 'compile', '--dir', SOURCE / 'res', '-o', BUILD / 'resources.zip')
     run(executable(TOOLS,'aapt2'), 'link', '-o', BUILD / 'resources.apk', '--manifest', SOURCE / 'AndroidManifest.xml',
         '-I', ANDROID, '--auto-add-overlay', '-A', SOURCE / 'assets', BUILD / 'resources.zip')
