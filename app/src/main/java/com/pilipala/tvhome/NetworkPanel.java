@@ -24,6 +24,7 @@ final class NetworkPanel {
     private TvDialog visible;
     private boolean scanning;
     private boolean registered;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if (scanning && WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(i.getAction())) {
@@ -91,8 +92,9 @@ final class NetworkPanel {
         present(new TvDialog.Builder(activity).setTitle("连接详情").setMessage(currentSummary()+"\n\n网络配置由电视系统保存。Marco TV 不保存 Wi-Fi 密码。")
                 .setPositiveButton("返回网络",(d,w)->show()).create());
     }
+    private static final String WIFI_PANEL = "android.settings.panel.action.WIFI";
     private void toggle() {
-        if (Build.VERSION.SDK_INT>28) { unavailable(); return; }
+        if (Build.VERSION.SDK_INT>28) { systemManaged("开关 Wi-Fi", "新版 Android 禁止第三方桌面更改 Wi-Fi 开关。可以在这里打开电视自带的 Wi-Fi 设置，直接在系统中切换。"); return; }
         boolean enabled=wifi.isWifiEnabled();
         present(new TvDialog.Builder(activity).setTitle(enabled?"关闭 Wi-Fi？":"开启 Wi-Fi？")
                 .setMessage(enabled?"无线网络与无线调试连接会断开。可使用遥控器在这里重新开启。":"开启后可刷新附近网络。")
@@ -130,7 +132,7 @@ final class NetworkPanel {
         return "开放网络";
     }
     private void choose(ScanResult result) {
-        if(Build.VERSION.SDK_INT>28) { unavailable(); return; }
+        if(Build.VERSION.SDK_INT>28) { systemManaged("连接此 Wi-Fi", "新版 Android 禁止第三方桌面保存或切换 Wi-Fi 网络。可以在这里打开电视自带的 Wi-Fi 设置，在系统中输入密码连接。"); return; }
         String type=security(result);
         if (!type.equals("密码保护") && !type.equals("开放网络")) {
             present(new TvDialog.Builder(activity).setTitle(result.SSID).setMessage("此安全类型需要电视系统的网络配置。当前版本支持开放网络与 WPA/WPA2 个人网络。")
@@ -175,7 +177,19 @@ final class NetworkPanel {
     }
     private static String quote(String s) { return "\""+s.replace("\\","\\\\").replace("\"","\\\"")+"\""; }
     private static String unquote(String s) { return s==null?"":s.length()>1 && s.startsWith("\"") && s.endsWith("\"")?s.substring(1,s.length()-1):s; }
-    private void unavailable() { present(new TvDialog.Builder(activity).setTitle("此系统限制网络配置")
-            .setMessage("当前网络控制适配 Android 9 电视。此系统版本需要在电视系统设置中更改连接，Marco TV 仍可显示网络状态。")
-            .setNegativeButton("返回网络",(d,w)->show()).create()); }
+    /** Newer Android versions forbid launchers from touching Wi-Fi, so hand the task to the system UI. */
+    private void systemManaged(String action, String reason) {
+        present(new TvDialog.Builder(activity).setTitle(action + "需通过电视设置")
+                .setMessage(reason + "\n\nMarco TV 仍可随时查看当前网络状态。")
+                .setPositiveButton("打开 Wi-Fi 设置",(d,w)->openWifiSettings())
+                .setNegativeButton("返回网络",(d,w)->show()).create());
+    }
+    private void openWifiSettings() {
+        Intent intent = Build.VERSION.SDK_INT >= 29 ? new Intent(WIFI_PANEL) : new Intent(Settings.ACTION_WIFI_SETTINGS);
+        if (intent.resolveActivity(activity.getPackageManager()) == null) intent = new Intent(Settings.ACTION_WIFI_SETTINGS);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { activity.startActivity(intent); toast("已打开电视的 Wi-Fi 设置"); }
+        catch (RuntimeException e) { toast("无法打开电视的 Wi-Fi 设置，请从电视主设置进入"); }
+        handler.postDelayed(this::show, 400);
+    }
 }
