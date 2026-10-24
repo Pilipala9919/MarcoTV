@@ -204,14 +204,14 @@ final class HomeView extends View {
         if (contentAlpha > 0.005f) {
             int muted = alphaColor(0xC0FFFFFF, contentAlpha);
             float wifiX = clockScene.left(host.preferences) - 70;
-            icon(canvas, "\uee38", 132, 110, 40, muted);
+            icon(canvas, "\ue8b8", 132, 110, 40, muted);
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
-            icon(canvas, "\ue63c", wifiX, 110, 38, muted);
+            icon(canvas, "\ue63e", wifiX, 110, 38, muted);
             if (row == -1) {
                 float selectedX = topSelected == 0 ? 132 : wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
-                icon(canvas,topSelected==0?"\uee38":"\ue63c",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
+                icon(canvas,topSelected==0?"\ue8b8":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
             }
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
             else {
@@ -299,7 +299,7 @@ final class HomeView extends View {
             icon(canvas, tile.glyph, x, y - 20 * zoom, 60 * zoom, alphaColor(0xB0FFFFFF, opacity));
             if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
             text(canvas, tile.coverLabel, x, y + 48 * zoom, 28 * zoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
-        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue879", x, y, 112 * zoom, alphaColor(Color.WHITE, opacity));
+        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * zoom, alphaColor(Color.WHITE, opacity));
         if (emphasis > .005f || labelOpacity > 0) {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
