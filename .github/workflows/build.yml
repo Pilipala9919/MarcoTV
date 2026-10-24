@@ -1,0 +1,33 @@
+# Copyright (C) 2026 Pilipala
+# SPDX-License-Identifier: GPL-3.0-only
+name: Build Marco TV
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare official toolchain
+        run: python scripts/bootstrap.py
+      - name: Build and verify APK
+        run: python scripts/build.py
+      - name: Motion checks
+        run: python scripts/test_motion.py
+      - name: Public source checks
+        run: python scripts/check_release.py
+      - name: Package source
+        run: python scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarcoTV-CI-development-build
+          path: dist/*
+          retention-days: 7

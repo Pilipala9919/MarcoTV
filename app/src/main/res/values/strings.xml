@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="home_compat_description">优先直接响应遥控器 Home 键；系统未提供按键时，通过原桌面窗口检测打开 Marco TV。开启屏保时接管小米智能屏保画面。不读取屏幕内容。可在 Marco TV 设置中关闭。</string>
+</resources>

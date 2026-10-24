@@ -1,0 +1,29 @@
+name: 问题反馈
+description: 提供型号、版本和具体操作，帮助重现问题
+body:
+  - type: markdown
+    attributes:
+      value: "Marco TV 由 Pilipala 免费开源。请勿上传密码、密钥、完整序列号、MAC 或家庭网络信息。"
+  - type: input
+    id: device
+    attributes:
+      label: 品牌与完整型号
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: 系统、固件与 Marco TV 版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重现步骤与实际结果
+      description: Home 问题请说明是否使用实体遥控器；重启与待机分开描述。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果和去除个人信息的补充证据

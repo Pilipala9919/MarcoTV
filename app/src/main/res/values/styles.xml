@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <color name="home_background">#080307</color>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#E7DCE6</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/home_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

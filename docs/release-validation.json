@@ -1,0 +1,64 @@
+{
+  "version": "0.8.0",
+  "date": "2026-10-24",
+  "author": "Pilipala",
+  "device_model": "Xiaomi MiTV-ASTP0",
+  "android": "9",
+  "apk_sha256": "da1cc9381238a0e7bf3ded0f6b7c1766ef9ab0c42f57a58fdebeb10ac382848f",
+  "checks": [
+    {
+      "name": "author_and_version_visible",
+      "passed": true
+    },
+    {
+      "name": "free_open_source_notice",
+      "passed": true
+    },
+    {
+      "name": "repository_visible",
+      "passed": true
+    },
+    {
+      "name": "no_reference_brand_in_about",
+      "passed": true
+    },
+    {
+      "name": "offline_licenses_loaded",
+      "passed": true
+    },
+    {
+      "name": "license_back_to_about",
+      "passed": true
+    },
+    {
+      "name": "about_back_to_settings",
+      "passed": true
+    },
+    {
+      "name": "root_back_to_desktop",
+      "passed": true
+    },
+    {
+      "name": "left_actions_preserved",
+      "passed": true
+    },
+    {
+      "name": "live_preview_preserved",
+      "passed": true
+    },
+    {
+      "name": "home_exits_nested_preview",
+      "passed": true
+    },
+    {
+      "name": "installed_apk_matches_release",
+      "passed": true
+    },
+    {
+      "name": "no_runtime_crash",
+      "passed": true
+    }
+  ],
+  "all_passed": true,
+  "scope": "ADB-injected keys and local UI inspection. No new normal reboot, cold boot or ADB-disable recovery test in this release."
+}

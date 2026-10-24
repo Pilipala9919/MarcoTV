@@ -1,0 +1,21 @@
+Marco TV
+Copyright (C) 2026 Pilipala
+Author: Pilipala
+https://github.com/Pilipala9919/MarcoTV
+
+Marco TV source code, original documentation and bundled generated wallpapers
+are distributed under GPL-3.0-only, unless a file states a different license.
+See LICENSE for the complete license text.
+
+本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。
+此提示说明 Pilipala 的免费发行政策和退款建议，不额外限制 GPL 授予的权利。
+
+Third-party resources:
+- Material Design Icons font and TV icon geometry: Google / Material Design
+  Authors, Apache License 2.0. The unmodified license is in
+  licenses/Material-Icons-Apache-2.0.txt and bundled in the app.
+- Android system typefaces are supplied by the operating system; they are not
+  redistributed in this repository.
+- Other applications' icons and banners are read from installed packages at
+  runtime; they are not bundled with Marco TV. Their names and marks belong to
+  their respective owners.
