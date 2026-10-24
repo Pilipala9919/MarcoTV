@@ -26,3 +26,4 @@ scripts/*
 !scripts/public_files.py
 !scripts/check_release.py
 !scripts/package.py
+.workbuddy/
