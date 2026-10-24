@@ -13,7 +13,7 @@ def package():
     apk=ROOT/f'dist/MarcoTV-{version}.apk'; checksum=apk.with_suffix('.apk.sha256')
     digest=hashlib.sha256(apk.read_bytes()).hexdigest()
     if checksum.read_text().split()[0]!=digest:raise RuntimeError('APK checksum mismatch')
-    files.extend([apk,checksum]); output=ROOT/f'dist/MarcoTV-{version}-源码与安装包.zip'
+    files.extend([apk,checksum]); output=ROOT/f'dist/MarcoTV-{version}-source-and-apk.zip'
     manifest={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED,compresslevel=8) as archive:
         for p in files:archive.write(p,'MarcoTV/'+p.relative_to(ROOT).as_posix())
