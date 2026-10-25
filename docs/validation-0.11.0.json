@@ -1,0 +1,717 @@
+{
+  "version": "0.11.0",
+  "apk_sha256": "65d4f1acc80842b4d790f852a8fcae928774ffee5a7faaff9ea4ebc1bd3e80be",
+  "all_passed": true,
+  "date": "2026-10-25",
+  "author": "Pilipala",
+  "device_model": "Xiaomi MiTV-ASTP0",
+  "android": "9",
+  "targeted_device_checks": [
+    {
+      "name": "retained_cache_branch_active",
+      "passed": true
+    },
+    {
+      "name": "reimport_replaces_cached_cover",
+      "passed": true
+    },
+    {
+      "name": "package_update_evicts_icon_and_banner",
+      "passed": true
+    },
+    {
+      "name": "package_update_keeps_unrelated_artwork",
+      "passed": true
+    },
+    {
+      "name": "recent_sort_is_default",
+      "passed": true
+    },
+    {
+      "name": "last_opened_first",
+      "passed": true
+    },
+    {
+      "name": "pinned_before_recent",
+      "passed": true
+    },
+    {
+      "name": "chinese_alphabetic_order",
+      "passed": true
+    },
+    {
+      "name": "custom_order_restored",
+      "passed": true
+    },
+    {
+      "name": "launch_does_not_change_custom_order",
+      "passed": true
+    },
+    {
+      "name": "pinned_before_custom",
+      "passed": true
+    },
+    {
+      "name": "switch_preserves_saved_custom_order",
+      "passed": true
+    },
+    {
+      "name": "icon_background_comes_from_border",
+      "passed": true
+    },
+    {
+      "name": "icon_background_fills_entire_card",
+      "passed": true
+    },
+    {
+      "name": "wifi_result_handled",
+      "passed": true
+    },
+    {
+      "name": "wifi_return_restores_network_page",
+      "passed": true
+    },
+    {
+      "name": "home_discards_wifi_and_permission_results",
+      "passed": true
+    },
+    {
+      "name": "obsolete_result_does_not_add_page",
+      "passed": true
+    },
+    {
+      "name": "manual_exported_activity_is_launchable",
+      "passed": true
+    },
+    {
+      "name": "manual_private_activity_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "manual_entry_persists",
+      "passed": true
+    },
+    {
+      "name": "media_session_title_visible",
+      "passed": true
+    },
+    {
+      "name": "playing_state_visible",
+      "passed": true
+    },
+    {
+      "name": "transport_pause_reaches_session",
+      "passed": true
+    },
+    {
+      "name": "paused_state_updates",
+      "passed": true
+    },
+    {
+      "name": "released_session_removed",
+      "passed": true
+    },
+    {
+      "name": "home_gate_initially_allows_awake",
+      "passed": true
+    },
+    {
+      "name": "home_gate_blocks_power_transition",
+      "passed": true
+    },
+    {
+      "name": "home_gate_recovers_after_power_settles",
+      "passed": true
+    },
+    {
+      "name": "home_gate_blocks_screen_off",
+      "passed": true
+    },
+    {
+      "name": "home_gate_waits_for_wake_focus",
+      "passed": true
+    },
+    {
+      "name": "home_gate_allows_settled_wake",
+      "passed": true
+    },
+    {
+      "name": "home_first_press_is_immediate_single",
+      "passed": true
+    },
+    {
+      "name": "home_second_press_opens_recents",
+      "passed": true
+    },
+    {
+      "name": "home_third_press_starts_new_pair",
+      "passed": true
+    },
+    {
+      "name": "home_slow_press_is_single",
+      "passed": true
+    },
+    {
+      "name": "backup_includes_task_card_appearance",
+      "passed": true
+    },
+    {
+      "name": "backup_excludes_task_activation",
+      "passed": true
+    },
+    {
+      "name": "backup_excludes_system_permissions",
+      "passed": true
+    },
+    {
+      "name": "backup_image_roundtrip",
+      "passed": true
+    },
+    {
+      "name": "backup_missing_apps_reported",
+      "passed": true
+    },
+    {
+      "name": "backup_restores_settings",
+      "passed": true
+    },
+    {
+      "name": "backup_restores_cards",
+      "passed": true
+    },
+    {
+      "name": "backup_preserves_local_system_state",
+      "passed": true
+    },
+    {
+      "name": "restore_saves_previous_configuration",
+      "passed": true
+    },
+    {
+      "name": "settings_only_omits_images",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_path_traversal",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_unknown_schema",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_wrong_type",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_out_of_range",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_imported_local_path",
+      "passed": true
+    },
+    {
+      "name": "backup_rejects_missing_images",
+      "passed": true
+    },
+    {
+      "name": "rejected_backup_keeps_configuration",
+      "passed": true
+    },
+    {
+      "name": "interrupted_restore_rolls_back",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_omits_exception_message",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_removes_expired_records",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_caps_disk_use",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_toggle_persists",
+      "passed": true
+    },
+    {
+      "name": "diagnostics_can_be_disabled",
+      "passed": true
+    },
+    {
+      "name": "manual_add_focuses_new_card",
+      "passed": true
+    },
+    {
+      "name": "app_row_contains_only_real_apps",
+      "passed": true
+    },
+    {
+      "name": "recent_sort_includes_first_app",
+      "passed": true
+    },
+    {
+      "name": "left_drawer_starts_with_add_app",
+      "passed": true
+    },
+    {
+      "name": "drawer_right_returns_to_first_app",
+      "passed": true
+    },
+    {
+      "name": "remote_move_cancel_preserves_order",
+      "passed": true
+    },
+    {
+      "name": "home_cancels_uncommitted_move",
+      "passed": true
+    },
+    {
+      "name": "empty_app_row_can_open_add_menu",
+      "passed": true
+    },
+    {
+      "name": "media_prefers_active_playback",
+      "passed": true
+    },
+    {
+      "name": "media_hide_does_not_stop_playback",
+      "passed": true
+    },
+    {
+      "name": "media_hidden_card_can_return",
+      "passed": true
+    },
+    {
+      "name": "media_missing_cover_uses_app_icon",
+      "passed": true
+    },
+    {
+      "name": "media_manual_source_selection",
+      "passed": true
+    },
+    {
+      "name": "media_stale_pause_is_hidden",
+      "passed": true
+    }
+  ],
+  "earlier_candidate_feature_ui": {
+    "version": "0.11.0",
+    "apk_sha256": "e87879197d4cf55a805024b0dfad36c3d72593c6e70442644ff6904b644bd19f",
+    "checks": [
+      {
+        "name": "backup_menu_visible",
+        "passed": true
+      },
+      {
+        "name": "automatic_snapshot_created",
+        "passed": true
+      },
+      {
+        "name": "backup_export_available",
+        "passed": true
+      },
+      {
+        "name": "backup_external_file_created",
+        "passed": true
+      },
+      {
+        "name": "status_distinguishes_flags_and_services",
+        "passed": true
+      },
+      {
+        "name": "guide_step_one",
+        "passed": true
+      },
+      {
+        "name": "guide_explains_local_diagnostics",
+        "passed": true
+      },
+      {
+        "name": "guide_completes_to_home",
+        "passed": true
+      },
+      {
+        "name": "local_only_diagnostics_notice",
+        "passed": true
+      },
+      {
+        "name": "diagnostic_preview_visible",
+        "passed": true
+      },
+      {
+        "name": "diagnostic_export_available",
+        "passed": true
+      },
+      {
+        "name": "diagnostic_recording_can_disable",
+        "passed": true
+      },
+      {
+        "name": "diagnostic_recording_can_enable",
+        "passed": true
+      },
+      {
+        "name": "add_app_in_left_menu",
+        "passed": true
+      },
+      {
+        "name": "first_card_is_application",
+        "passed": true
+      },
+      {
+        "name": "app_search_at_top",
+        "passed": true
+      },
+      {
+        "name": "advanced_system_library",
+        "passed": true
+      },
+      {
+        "name": "remote_pick_up_card",
+        "passed": true
+      },
+      {
+        "name": "cancel_move_restores_card",
+        "passed": true
+      },
+      {
+        "name": "playback_source_and_hide_actions",
+        "passed": true
+      },
+      {
+        "name": "playback_source_list",
+        "passed": true
+      },
+      {
+        "name": "playback_hide_removes_card",
+        "passed": true
+      },
+      {
+        "name": "playback_hidden_card_restored",
+        "passed": true
+      }
+    ],
+    "all_passed": true
+  },
+  "restore_ui_checks": [
+    {
+      "name": "manual_full_snapshot_created",
+      "passed": true
+    },
+    {
+      "name": "restore_preview_before_change",
+      "passed": true
+    },
+    {
+      "name": "restore_returns_to_desktop",
+      "passed": true
+    },
+    {
+      "name": "restore_success_recorded",
+      "passed": true
+    }
+  ],
+  "recents_ui_checks": [
+    {
+      "name": "recents_settings_available",
+      "passed": true
+    },
+    {
+      "name": "double_home_enabled",
+      "passed": true
+    },
+    {
+      "name": "task_status_connected",
+      "passed": true
+    },
+    {
+      "name": "real_task_stack_opens",
+      "passed": true
+    },
+    {
+      "name": "recents_slider_changes",
+      "passed": true
+    },
+    {
+      "name": "recents_slider_restored",
+      "passed": true
+    },
+    {
+      "name": "home_exits_recents_settings",
+      "passed": true
+    },
+    {
+      "name": "double_home_intents_open_stack",
+      "passed": true
+    },
+    {
+      "name": "back_closes_stack",
+      "passed": true
+    }
+  ],
+  "earlier_candidate_general_ui": {
+    "version": "0.11.0",
+    "apk_sha256": "2980f7a04c9355ee843be21a5f8ed358e31e3ac979fcde0e615c89beeae214c0",
+    "checks": [
+      {
+        "name": "author_and_version_visible",
+        "passed": true
+      },
+      {
+        "name": "free_open_source_notice",
+        "passed": true
+      },
+      {
+        "name": "repository_visible",
+        "passed": true
+      },
+      {
+        "name": "offline_licenses_loaded",
+        "passed": true
+      },
+      {
+        "name": "license_back_to_about",
+        "passed": true
+      },
+      {
+        "name": "about_back_to_settings",
+        "passed": true
+      },
+      {
+        "name": "root_back_to_desktop",
+        "passed": true
+      },
+      {
+        "name": "left_edge_opens_actions",
+        "passed": true
+      },
+      {
+        "name": "right_returns_to_card",
+        "passed": true
+      },
+      {
+        "name": "third_level_details",
+        "passed": true
+      },
+      {
+        "name": "back_to_network",
+        "passed": true
+      },
+      {
+        "name": "back_to_device",
+        "passed": true
+      },
+      {
+        "name": "back_to_settings",
+        "passed": true
+      },
+      {
+        "name": "root_back_returns_to_desktop",
+        "passed": true
+      },
+      {
+        "name": "home_closes_all_menus",
+        "passed": true
+      },
+      {
+        "name": "preview_controls_at_bottom",
+        "passed": true
+      },
+      {
+        "name": "card_render_changes_live",
+        "passed": true
+      },
+      {
+        "name": "radius_restored",
+        "passed": true
+      },
+      {
+        "name": "slider_back_to_appearance",
+        "passed": true
+      },
+      {
+        "name": "appearance_back_restores_root_focus",
+        "passed": true
+      },
+      {
+        "name": "ambient_preview_visible",
+        "passed": true
+      },
+      {
+        "name": "ambient_slider_back_to_clock",
+        "passed": true
+      },
+      {
+        "name": "replay_remains_in_preview",
+        "passed": true
+      },
+      {
+        "name": "replay_does_not_duplicate_history",
+        "passed": true
+      },
+      {
+        "name": "long_press_enters_sort",
+        "passed": true
+      },
+      {
+        "name": "about_moved_first",
+        "passed": true
+      },
+      {
+        "name": "reordered_action_is_about",
+        "passed": true
+      },
+      {
+        "name": "about_returns_to_sorted_settings",
+        "passed": true
+      },
+      {
+        "name": "order_survives_process_restart",
+        "passed": true
+      },
+      {
+        "name": "original_root_order_restored",
+        "passed": true
+      },
+      {
+        "name": "async_status_back_to_system",
+        "passed": true
+      },
+      {
+        "name": "home_not_reopened_by_delayed_callbacks",
+        "passed": true
+      },
+      {
+        "name": "installed_apk_matches_release",
+        "passed": true
+      },
+      {
+        "name": "no_runtime_crash",
+        "passed": true
+      }
+    ],
+    "all_passed": true
+  },
+  "earlier_candidate_standby_wake": {
+    "apk_sha256": "2980f7a04c9355ee843be21a5f8ed358e31e3ac979fcde0e615c89beeae214c0",
+    "checks": [
+      {
+        "name": "starts_awake",
+        "passed": true
+      },
+      {
+        "name": "helper_running",
+        "passed": true
+      },
+      {
+        "name": "power_enters_sleep",
+        "passed": true
+      },
+      {
+        "name": "helper_survives_standby",
+        "passed": true
+      },
+      {
+        "name": "power_wakes_display",
+        "passed": true
+      },
+      {
+        "name": "wake_recovers_marco_home",
+        "passed": true
+      },
+      {
+        "name": "home_service_bound",
+        "passed": true
+      },
+      {
+        "name": "direction_keys_move_focus",
+        "passed": true
+      },
+      {
+        "name": "menu_key_opens_settings",
+        "passed": true
+      },
+      {
+        "name": "back_key_returns_home",
+        "passed": true
+      },
+      {
+        "name": "home_key_returns_marco",
+        "passed": true
+      }
+    ],
+    "all_passed": true,
+    "home_injection_wait_seconds": 2
+  },
+  "bridge_checks_passed": 4,
+  "real_task_action_checks_passed": 13,
+  "motion_checks_passed": 10,
+  "memory_tool_unit_checks_passed": 5,
+  "fresh_install_isolated_app": {
+    "test_apk_sha256": "52a9051b15d62322a8d71d8ea10803ab2ca3191a0007a7cc3adbd4c59216b0f4",
+    "scope": "Separate application id, same Java sources, isolated data; not the release binary.",
+    "checks": [
+      {
+        "name": "fresh_install_shows_guide",
+        "passed": true
+      },
+      {
+        "name": "fresh_guide_can_skip",
+        "passed": true
+      },
+      {
+        "name": "skipped_guide_stays_dismissed",
+        "passed": true
+      },
+      {
+        "name": "fresh_install_did_not_enable_home_service",
+        "passed": true
+      }
+    ],
+    "all_passed": true
+  },
+  "export_checks": {
+    "backup_zip_readable": true,
+    "diagnostic_report_readable": true,
+    "tested_identifiers_absent": true
+  },
+  "injected_swipe_ui_checks": [
+    {
+      "name": "fixture_card_selected",
+      "passed": true
+    },
+    {
+      "name": "fixture_system_task_exists",
+      "passed": true
+    },
+    {
+      "name": "injected_swipe_removes_fixture_system_task",
+      "passed": true
+    },
+    {
+      "name": "injected_swipe_removes_fixture_card",
+      "passed": true
+    }
+  ],
+  "independent_build_non_signature_entries_equal": 15,
+  "physical_remote_user_confirmation": {
+    "date": "2026-10-25",
+    "apk_sha256": "2980f7a04c9355ee843be21a5f8ed358e31e3ac979fcde0e615c89beeae214c0",
+    "source": "User confirmation in chat",
+    "response": "都正常",
+    "checks": [
+      "Home from another application",
+      "Double Home",
+      "Screen off and wake; no reported original-home flash or directional-key failure"
+    ],
+    "passed": true
+  },
+  "test_harness_cleanup": "OEM retained a dead Home accessibility binding after instrumentation restarted the app. Original enabled service binding was restored and Home UI checks rerun. Public test cleanup now restores this already-enabled binding without enabling new services.",
+  "scope": "Current APK: 73 targeted device checks, 4 restore UI checks, 9 recent-task UI checks, 4 injected-swipe UI checks, 4 bridge checks and 13 task action checks. Task tests cover entrance motion, opaque logo artwork, upward swipe and remote Up removal, retention of the other task of the same fixture application, and stale-card removal. This firmware does not provide snapshots; single-task standard fullscreen stacks use the Android 9 compatibility removal path. The 23 earlier feature UI checks, general UI, standby/wake and physical-remote results are retained with their ORIGINAL earlier-candidate APK hashes, not relabeled as current-binary tests. Fresh installation uses a separately identified clone APK. No new full reboot/cold boot, actual Wi-Fi switch, HDMI switch, Android 13 file picker or 24-hour test. No cloud service or automatic upload."
+}

@@ -16,7 +16,7 @@ final class RecentApps {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final Typeface bold=Typeface.create("sans-serif",Typeface.BOLD),normal=Typeface.create("sans-serif",Typeface.NORMAL);
     private final RectF rect=new RectF();
-    static final class Entry {int taskId;String id,name;Bitmap icon,snapshot,artwork;boolean removable;}
+    static final class Entry {int taskId;String id,name;Bitmap icon,snapshot,artwork;boolean removable;int background=0xFF243541;BitmapShader artworkShader;final Matrix artworkMatrix=new Matrix();}
     final ArrayList<Entry> entries=new ArrayList<>();
     boolean visible;int selected;private float position;private int generation;private boolean loading;private boolean canRemove;
     private String bridgeStatus="辅助服务尚未连接";
@@ -42,7 +42,7 @@ final class RecentApps {
                 for(int i=0;i<tasks.length()&&result.size()<20;i++){
                     org.json.JSONObject task=tasks.getJSONObject(i);String id=task.getString("package");
                     try{ApplicationInfo app=pm.getApplicationInfo(id,0);if(!app.enabled)continue;Entry e=new Entry();e.taskId=task.getInt("id");e.id=id;e.removable=task.optBoolean("removable",false);e.name=String.valueOf(app.loadLabel(pm));
-                        Drawable icon=app.loadIcon(pm);e.icon=Bitmap.createBitmap(128,128,Bitmap.Config.ARGB_8888);icon.setBounds(0,0,128,128);icon.draw(new Canvas(e.icon));e.artwork=ArtworkStyle.card(icon);
+                        Drawable icon=app.loadIcon(pm);e.icon=Bitmap.createBitmap(128,128,Bitmap.Config.ARGB_8888);icon.setBounds(0,0,128,128);icon.draw(new Canvas(e.icon));e.artwork=ArtworkStyle.card(icon);e.background=ArtworkStyle.background(e.icon);
                         try{org.json.JSONObject shot=TaskBridgeClient.task("snapshot",e.taskId);if(shot.optBoolean("available")){byte[] bytes=android.util.Base64.decode(shot.getString("image"),android.util.Base64.DEFAULT);e.snapshot=BitmapFactory.decodeByteArray(bytes,0,bytes.length);}}catch(Exception ignored){}
                         result.add(e);
                     }catch(PackageManager.NameNotFoundException ignored){}
@@ -113,11 +113,15 @@ final class RecentApps {
         if(abs<.5f){paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(3);paint.setColor(0xDDE0EDFA);c.drawRoundRect(rect,radius,radius,paint);paint.setStyle(Paint.Style.FILL);}
         paint.setColor(Color.WHITE);paint.setAlpha(255);
         RectF frame=new RectF(cx-w/2+20*zoom,cy-h/2+20*zoom,cx+w/2-20*zoom,cy+72*zoom);
-        int clip=c.save();Path path=new Path();path.addRoundRect(frame,Math.max(8,radius-12*zoom),Math.max(8,radius-12*zoom),Path.Direction.CW);c.clipPath(path);
-        paint.setColor(e.icon==null?0xFF243541:ArtworkStyle.background(e.icon));c.drawRect(frame,paint);paint.setColor(Color.WHITE);
         Bitmap visual=e.snapshot!=null?e.snapshot:e.artwork;
-        if(visual!=null){float ratio=Math.min(frame.width()/visual.getWidth(),frame.height()/visual.getHeight());float vw=visual.getWidth()*ratio,vh=visual.getHeight()*ratio;c.drawBitmap(visual,null,new RectF(frame.centerX()-vw/2,frame.centerY()-vh/2,frame.centerX()+vw/2,frame.centerY()+vh/2),paint);}
-        c.restoreToCount(clip);
+        // Draw the curved image boundary with Paint antialiasing. Hardware clipPath
+        // can leave stair-stepped edges on older TV GPUs, especially after rotation.
+        if(visual!=null){if(e.artworkShader==null)e.artworkShader=new BitmapShader(visual,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+            float ratio=Math.min(frame.width()/visual.getWidth(),frame.height()/visual.getHeight());
+            e.artworkMatrix.setScale(ratio,ratio);e.artworkMatrix.postTranslate(frame.centerX()-visual.getWidth()*ratio/2,frame.centerY()-visual.getHeight()*ratio/2);
+            e.artworkShader.setLocalMatrix(e.artworkMatrix);paint.setColor(Color.WHITE);paint.setShader(e.artworkShader);
+        }else paint.setColor(e.background);
+        float imageRadius=Math.max(8,radius-12*zoom);c.drawRoundRect(frame,imageRadius,imageRadius,paint);paint.setShader(null);
         text(c,fit(e.name,w-64*zoom,34*zoom),cx,cy+140*zoom,34*zoom,bold,0xFFF4F7FA,Paint.Align.CENTER);
         text(c,e.snapshot==null?"应用 Logo · 确定返回任务":"确定返回此任务",cx,cy+190*zoom,21*zoom,normal,0xFFCED8E4,Paint.Align.CENTER);c.restoreToCount(save);
     }

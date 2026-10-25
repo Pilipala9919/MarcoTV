@@ -25,9 +25,12 @@ def main():
     paths=[p.removeprefix('package:') for p in path.splitlines() if p.startswith('package:')]
     if len(paths)!=1 or not paths[0].startswith('/data/app/') or not paths[0].endswith('.apk'):raise RuntimeError('Unexpected APK path')
     command='CLASSPATH='+shlex.quote(paths[0])+' app_process /system/bin --nice-name=marcotv-task-bridge com.pilipala.tvhome.TaskBridgeServer '+match[1]+' '+user+' </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1 &'
-    shell(command);time.sleep(1)
-    result=shell('ps','-A')
-    if 'marcotv-task-bridge' not in result:
+    shell(command)
+    started=False
+    for _ in range(10):
+        time.sleep(.5)
+        if 'marcotv-task-bridge' in shell('ps','-A'):started=True;break
+    if not started:
         raise RuntimeError('Bridge did not start: '+shell('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:])
     print('Task bridge started. Open Marco TV > 最近任务与双击 Home > 检查任务服务.')
     print('The helper runs locally as ADB shell, survives ordinary standby, and must be restarted after a full reboot or APK update.')

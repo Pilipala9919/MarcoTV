@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome" android:versionCode="17" android:versionName="0.11.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome" android:versionCode="18" android:versionName="0.11.1">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
