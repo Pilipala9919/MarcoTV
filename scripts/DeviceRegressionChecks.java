@@ -26,6 +26,7 @@ import android.os.Looper;
 /** Runs only from a separately installed, same-signed test APK. Never bundled in Marco TV. */
 public final class DeviceRegressionChecks extends Instrumentation {
     private int passed;
+    private boolean bridgeOnly,taskActions;
     private void check(String name, boolean ok) {
         if (!ok) throw new AssertionError(name);
         passed++;
@@ -34,10 +35,12 @@ public final class DeviceRegressionChecks extends Instrumentation {
     private static Field field(Class<?> type, String name) throws Exception {
         Field field = type.getDeclaredField(name); field.setAccessible(true); return field;
     }
-    @Override public void onCreate(Bundle args) { super.onCreate(args); start(); }
+    @Override public void onCreate(Bundle args) { super.onCreate(args);bridgeOnly=args!=null&&"true".equals(args.getString("bridge_only"));taskActions=args!=null&&"true".equals(args.getString("task_actions"));start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            if(taskActions){taskActionChecks();result.putString("stream","OK "+passed+" task action checks\n");finish(-1,result);return;}
+            if(bridgeOnly){bridgeChecks();result.putString("stream","OK "+passed+" bridge checks\n");finish(-1,result);return;}
             cacheChecks();
             orderChecks();
             MainActivity activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class)
@@ -49,11 +52,19 @@ public final class DeviceRegressionChecks extends Instrumentation {
             });
             if (failure[0] != null) throw new AssertionError(failure[0]);
             playbackChecks(activity);
+            FeatureRegressionChecks.run(this,activity,this::check);
             result.putString("stream", "OK " + passed + " device regression checks\n");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("stream", "FAIL " + error + "\n"); finish(0, result);
         }
+    }
+    private void bridgeChecks()throws Exception{
+        for(int i=0;i<20;i++){try{TaskBridgeClient.request("status");break;}catch(Exception waiting){Thread.sleep(500);}}
+        org.json.JSONObject status=TaskBridgeClient.configure(getTargetContext());check("bridge_authenticated_connection",status.optBoolean("ok"));check("bridge_version_matches_app",ProjectInfo.VERSION.equals(status.optString("version")));
+        org.json.JSONArray tasks=TaskBridgeClient.request("list").getJSONArray("tasks");java.util.Set<Integer> ids=new java.util.HashSet<>();boolean valid=true;
+        for(int i=0;i<tasks.length();i++){org.json.JSONObject task=tasks.getJSONObject(i);valid&=task.getInt("id")>=0&&ids.add(task.getInt("id"))&&!task.getString("package").equals(getTargetContext().getPackageName());}
+        check("bridge_returns_unique_real_task_ids",valid);boolean rejected=false;try{TaskBridgeClient.task("switch",-1);}catch(Exception expected){rejected=true;}check("bridge_rejects_invalid_task",rejected);
     }
     private Tile tile(String id,String name) {Tile tile=new Tile();tile.id=id;tile.label=name;return tile;}
     private void orderChecks() {
@@ -100,7 +111,53 @@ public final class DeviceRegressionChecks extends Instrumentation {
         host.preferences.edit().remove("opened:"+id).apply();
         host.getSharedPreferences("cards",0).edit().remove("manual:"+id).apply();
     }
-    public static final class FixtureActivity extends android.app.Activity { }
+    public static final class FixtureActivity extends android.app.Activity {
+        @Override public void onCreate(Bundle state){super.onCreate(state);android.widget.TextView text=new android.widget.TextView(this);text.setText("Marco TV 测试任务 "+getIntent().getDataString());text.setTextSize(32);text.setTextColor(android.graphics.Color.WHITE);text.setBackgroundColor(0xff20364d);text.setGravity(android.view.Gravity.CENTER);setContentView(text);}
+    }
+    private java.util.ArrayList<Integer> fixtureTasks()throws Exception{
+        java.util.ArrayList<Integer> ids=new java.util.ArrayList<>();org.json.JSONArray tasks=TaskBridgeClient.request("list").getJSONArray("tasks");
+        for(int i=0;i<tasks.length();i++)if("com.pilipala.tvhome.regression".equals(tasks.getJSONObject(i).getString("package")))ids.add(tasks.getJSONObject(i).getInt("id"));return ids;
+    }
+    private void taskActionChecks()throws Exception{
+        for(int i=0;i<20;i++){try{TaskBridgeClient.configure(getTargetContext());break;}catch(Exception waiting){Thread.sleep(500);}}
+        try{
+            for(String name:new String[]{"A","B"}){getTargetContext().startActivity(new Intent().setComponent(new ComponentName("com.pilipala.tvhome.regression",FixtureActivity.class.getName())).setData(Uri.parse("marcotv-test:"+name)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NEW_DOCUMENT|Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Thread.sleep(700);}
+            java.util.ArrayList<Integer> ids=fixtureTasks();check("same_app_keeps_two_system_tasks",ids.size()==2&&!ids.get(0).equals(ids.get(1)));
+            int older=ids.get(1),newer=ids.get(0);check("snapshot_returns_explicit_availability",TaskBridgeClient.task("snapshot",older).has("available"));
+            TaskBridgeClient.task("switch",older);Thread.sleep(600);check("switch_moves_exact_task_to_front",TaskBridgeClient.request("list").getJSONArray("tasks").getJSONObject(0).getInt("id")==older);
+            MainActivity host=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));runOnMainSync(()->host.recents.show());
+            for(int i=0;i<40;i++){Thread.sleep(200);if(host.recents.entries.size()>=2)break;}
+            final int[] count={0};runOnMainSync(()->{for(RecentApps.Entry entry:host.recents.entries)if(entry.id.equals("com.pilipala.tvhome.regression"))count[0]++;});check("stack_keeps_both_tasks_of_same_app",count[0]==2);
+            runOnMainSync(()->{host.recents.move(1);host.recents.close();});check("stack_closes_to_home",!host.recents.visible);
+            final int[] entranceAlpha={0,0};final int sampleY=Math.round(555-245*host.recents.value("size",100)/100f);
+            runOnMainSync(()->{host.recents.show();Bitmap frame=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);host.recents.draw(new android.graphics.Canvas(frame),false);entranceAlpha[0]=Color.alpha(frame.getPixel(960,sampleY));frame.recycle();});
+            check("entrance_starts_below_final_card_position",entranceAlpha[0]<255);
+            Thread.sleep(host.recents.value("duration",280)+400);waitForIdleSync();
+            runOnMainSync(()->{Bitmap frame=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);host.recents.draw(new android.graphics.Canvas(frame),false);entranceAlpha[1]=Color.alpha(frame.getPixel(960,sampleY));frame.recycle();host.recents.close();});
+            check("entrance_settles_to_opaque_task_card",entranceAlpha[1]==255);
+            if(TaskBridgeClient.request("status").optBoolean("canRemove")){
+                runOnMainSync(()->host.recents.show());for(int i=0;i<40;i++){Thread.sleep(100);if(host.recents.entries.size()>=2)break;}
+                final boolean[] visuals={false,false};runOnMainSync(()->{
+                    for(int i=0;i<host.recents.entries.size();i++)if(host.recents.entries.get(i).taskId==older)host.recents.selected=i;host.recents.stop();
+                    RecentApps.Entry entry=host.recents.entries.get(host.recents.selected);visuals[1]=entry.snapshot!=null||entry.artwork!=null;
+                    Bitmap image=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);host.recents.draw(new android.graphics.Canvas(image),false);visuals[0]=Color.alpha(image.getPixel(690,600))==255;image.recycle();
+                    host.recents.touch(android.view.MotionEvent.ACTION_DOWN,960,600);host.recents.touch(android.view.MotionEvent.ACTION_MOVE,960,360);host.recents.touch(android.view.MotionEvent.ACTION_UP,960,280);
+                });check("task_card_background_is_opaque",visuals[0]);check("task_card_has_snapshot_or_logo",visuals[1]);
+                for(int i=0;i<30&&fixtureTasks().contains(older);i++)Thread.sleep(100);Thread.sleep(350);
+                check("swipe_removes_only_selected_task",!fixtureTasks().contains(older)&&fixtureTasks().contains(newer));
+                for(int i=0;i<40&&host.recents.entries.stream().anyMatch(e->e.taskId==older);i++){Thread.sleep(100);waitForIdleSync();}
+                check("removed_card_leaves_stack",host.recents.entries.stream().noneMatch(e->e.taskId==older));
+                boolean rejected=false;try{TaskBridgeClient.task("switch",older);}catch(Exception expected){rejected=true;}check("removed_task_cannot_reopen",rejected);
+                runOnMainSync(()->{for(int i=0;i<host.recents.entries.size();i++)if(host.recents.entries.get(i).taskId==newer)host.recents.selected=i;host.recents.stop();host.recents.key(android.view.KeyEvent.KEYCODE_DPAD_UP,new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,android.view.KeyEvent.KEYCODE_DPAD_UP));});
+                for(int i=0;i<30&&!fixtureTasks().isEmpty();i++)Thread.sleep(100);check("remote_up_clears_fixture_task",fixtureTasks().isEmpty());
+            }else{
+                boolean rejected=false;try{TaskBridgeClient.task("remove",older);}catch(Exception expected){rejected=true;}check("unavailable_remove_is_rejected",rejected);
+                check("denied_remove_keeps_both_tasks",fixtureTasks().contains(older)&&fixtureTasks().contains(newer));
+                check("remove_capability_is_explicit",TaskBridgeClient.request("status").has("canRemove"));
+                check("unavailable_remove_has_no_gesture_side_effect",fixtureTasks().size()==2);check("unavailable_remove_keeps_task_ids",fixtureTasks().containsAll(ids));check("unavailable_remove_stays_explicit",!TaskBridgeClient.request("status").optBoolean("canRemove"));
+            }
+        }finally{for(int id:fixtureTasks())try{TaskBridgeClient.task("remove",id);}catch(Exception ignored){}}
+    }
     private void playbackChecks(MainActivity host) throws Exception {
         final MediaSession[] session=new MediaSession[1];final boolean[] paused={false};
         runOnMainSync(()->{

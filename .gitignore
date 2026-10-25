@@ -32,3 +32,6 @@ scripts/*
 !scripts/test_release_tools.py
 !scripts/test_device_regressions.py
 !scripts/DeviceRegressionChecks.java
+
+!scripts/FeatureRegressionChecks.java
+!scripts/start_task_bridge.py

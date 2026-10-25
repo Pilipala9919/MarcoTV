@@ -6,8 +6,8 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 ROOT_FILES=['README.md','LICENSE','NOTICE','assets-notes.md','.gitignore',
             'CONTRIBUTING.md','SECURITY.md','CHANGELOG.md']
-SCRIPT_FILES=['bootstrap.py','build.py','setup_system.py','test_motion.py',
-              'MotionSpringChecks.java','public_files.py','check_release.py','package.py','measure_memory.py','test_release_tools.py','test_device_regressions.py','DeviceRegressionChecks.java']
+SCRIPT_FILES=['bootstrap.py','build.py','setup_system.py','start_task_bridge.py','test_motion.py',
+              'MotionSpringChecks.java','public_files.py','check_release.py','package.py','measure_memory.py','test_release_tools.py','test_device_regressions.py','DeviceRegressionChecks.java','FeatureRegressionChecks.java']
 
 def source_files():
     files=[ROOT/name for name in ROOT_FILES]

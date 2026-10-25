@@ -11,6 +11,7 @@ import android.util.Log;
 
 /** Local settings recovery only: no shell, root, unauthenticated listener, or ADB keys. */
 public final class RecoveryService extends Service {
+    static volatile boolean running;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private int retries;
     private final Runnable recover = () -> SystemIntegration.recover(this);
@@ -28,7 +29,7 @@ public final class RecoveryService extends Service {
         }
     };
     @Override public void onCreate() {
-        super.onCreate();
+        super.onCreate();running=true;Diagnostics.event("RECOVERY_SERVICE_STARTED");
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(new NotificationChannel(
                 "system_recovery", "开机恢复", NotificationManager.IMPORTANCE_LOW));
@@ -51,7 +52,7 @@ public final class RecoveryService extends Service {
         return START_STICKY;
     }
     @Override public void onDestroy() {
-        handler.removeCallbacksAndMessages(null);
+        running=false;handler.removeCallbacksAndMessages(null);
         getContentResolver().unregisterContentObserver(observer);
         super.onDestroy();
     }

@@ -48,6 +48,7 @@ final class TvDialog extends Dialog {
         TextView brand = text("M A R C O T V", 10, 0xFFB0B8C6); brand.setLetterSpacing(.1f);
         if(!preview)panel.addView(brand);
         TextView title = text(spec.title+(preview?" · 实时预览":""), preview?19:27, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
+        title.setMaxLines(2); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         title.setPadding(0, dp(preview?0:10), 0, dp(preview?5:16)); panel.addView(title);
         ScrollView scroll = new ScrollView(getContext()); scroll.setFillViewport(false); scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
@@ -75,6 +76,9 @@ final class TvDialog extends Dialog {
         if (spec.items != null) for (int position = 0; position < itemOrder.size(); position++) {
             final int index = itemOrder.get(position);
             TextView item = row(spec.items[index], spec.single && index == spec.selected);
+            if(spec.icons!=null&&index<spec.icons.length&&spec.icons[index]!=null){
+                android.graphics.drawable.Drawable icon=spec.icons[index];icon.setBounds(0,0,dp(32),dp(32));item.setCompoundDrawables(icon,null,null,null);item.setCompoundDrawablePadding(dp(14));item.setMaxLines(2);item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            }
             if (spec.signals != null && index < spec.signals.length && spec.signals[index] >= 0) {
                 item.setSingleLine(true); item.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 SignalDrawable signal = new SignalDrawable(spec.signals[index]);
@@ -198,7 +202,7 @@ final class TvDialog extends Dialog {
     static final class Builder {
         final Activity activity; String title="", message; String[] items; int selected=-1;
         boolean single; View view; DialogInterface.OnClickListener itemClick;
-        String orderKey,preview;String[] ids; int[] signals;
+        String orderKey,preview;String[] ids; int[] signals; android.graphics.drawable.Drawable[] icons;
         final ArrayList<ButtonSpec> buttons = new ArrayList<>();
         Builder(Activity activity) { this.activity=activity; }
         Builder setTitle(String s) { title=s; return this; }
@@ -207,6 +211,7 @@ final class TvDialog extends Dialog {
         Builder setPreview(String key){preview=key;return this;}
         Builder setOrder(String key,String... stableIds){orderKey=key;ids=stableIds;return this;}
         Builder setItems(String[] a, DialogInterface.OnClickListener c) { items=a; itemClick=c; return this; }
+        Builder setIcons(android.graphics.drawable.Drawable[] values){icons=values;return this;}
         Builder setSignals(int[] levels) { signals=levels; return this; }
         Builder setSingleChoiceItems(String[] a, int i, DialogInterface.OnClickListener c) { single=true; selected=i; return setItems(a,c); }
         Builder setPositiveButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_POSITIVE,c)); return this; }

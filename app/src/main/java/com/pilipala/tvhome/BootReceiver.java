@@ -15,6 +15,7 @@ public final class BootReceiver extends BroadcastReceiver {
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
         SystemIntegration.prefs(context).edit().putString("last_boot_action", action)
                 .putLong("last_boot_time", System.currentTimeMillis()).apply();
+        Diagnostics.event("BOOT_RECOVERY_REQUESTED");
         SystemIntegration.startRecovery(context);
         // Home preferences are credential-protected; ADB recovery can run before unlock.
         if (!Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) AmbientIntegration.configure(context);

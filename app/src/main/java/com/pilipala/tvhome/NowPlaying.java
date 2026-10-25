@@ -22,6 +22,20 @@ final class NowPlaying {
     private final ArrayList<MediaController> controllers=new ArrayList<>();
     private final ComponentName listener;
     private boolean observing;
+    private final Set<MediaSession.Token> hidden=new HashSet<>();
+    private final Map<MediaSession.Token,Long> pausedSince=new HashMap<>();
+    private MediaSession.Token preferred;
+    private final Runnable expire=new Runnable(){public void run(){if(host.foreground){publish();handler.postDelayed(this,20000);}}};
+    int availableCount(){int count=0;for(MediaController c:controllers)if(priority(c.getPlaybackState())>0)count++;return count;}
+    void hideCurrent(){if(item!=null)hidden.add(item.controller.getSessionToken());publish();}
+    void restoreHidden(){hidden.clear();pausedSince.clear();publish();}
+    private boolean eligible(MediaController c){
+        int rank=priority(c.getPlaybackState());MediaSession.Token token=c.getSessionToken();
+        if(rank==2)pausedSince.remove(token);
+        else if(rank==1&&!pausedSince.containsKey(token))pausedSince.put(token,android.os.SystemClock.elapsedRealtime());
+        return rank>0&&!hidden.contains(token)&&(rank!=1||android.os.SystemClock.elapsedRealtime()-pausedSince.get(token)<30*60*1000L);
+    }
+
     Item item;
     private final MediaSessionManager.OnActiveSessionsChangedListener sessions=this::replace;
     private final MediaController.Callback callback=new MediaController.Callback() {
@@ -43,7 +57,7 @@ final class NowPlaying {
         if(!host.foreground || !enabled() || !authorized() || manager==null) { stop();return; }
         try {
             if(!observing) { manager.addOnActiveSessionsChangedListener(sessions,listener,handler);observing=true; }
-            replace(manager.getActiveSessions(listener));
+            replace(manager.getActiveSessions(listener));handler.removeCallbacks(expire);handler.postDelayed(expire,20000);
         } catch(SecurityException error) { stop(); }
     }
     private void replace(List<MediaController> active) {
@@ -51,6 +65,8 @@ final class NowPlaying {
         if(active!=null)for(MediaController c:active) {
             controllers.add(c);c.registerCallback(callback,handler);
         }
+        Set<MediaSession.Token> activeTokens=new HashSet<>();for(MediaController c:controllers)activeTokens.add(c.getSessionToken());
+        hidden.retainAll(activeTokens);pausedSince.keySet().retainAll(activeTokens);if(preferred!=null&&!activeTokens.contains(preferred))preferred=null;
         publish();
     }
     static int priority(PlaybackState state) {
@@ -63,7 +79,7 @@ final class NowPlaying {
     }
     private void publish() {
         MediaController chosen=null;int score=0;
-        for(MediaController c:controllers) {int rank=priority(c.getPlaybackState());if(rank>score){chosen=c;score=rank;}}
+        for(MediaController c:controllers) {if(!eligible(c))continue;int rank=priority(c.getPlaybackState())+(c.getSessionToken().equals(preferred)?10:0);if(rank>score){chosen=c;score=rank;}}
         item=chosen==null?null:describe(chosen);
         if(host.home!=null) {
             if(host.home.row==-2) {
@@ -82,6 +98,10 @@ final class NowPlaying {
             CharSequence title=data.getDescription().getTitle();if(title!=null&&title.length()>0)result.title=title.toString();
             result.artwork=data.getDescription().getIconBitmap();
         }
+        if(result.artwork==null)try {
+            android.graphics.drawable.Drawable icon=host.getPackageManager().getApplicationIcon(result.packageName);
+            result.artwork=Bitmap.createBitmap(96,96,Bitmap.Config.ARGB_8888);icon.setBounds(0,0,96,96);icon.draw(new android.graphics.Canvas(result.artwork));
+        }catch(Exception ignored){}
         result.playing=priority(controller.getPlaybackState())==2;return result;
     }
     void stop() {
@@ -92,9 +112,11 @@ final class NowPlaying {
     }
     void settings() {
         host.showDialog(new TvDialog.Builder(host).setTitle("正在播放卡片")
-                .setMessage("在桌面左上显示其他应用提供的媒体标题、封面和状态。仅使用系统媒体会话，不读取或保存普通通知内容。\n\n通知使用权："+(authorized()?"已允许":"未允许")+"\n没有提供媒体会话的应用无法显示。")
-                .setItems(new String[]{"显示卡片："+(enabled()?"开启":"关闭"),"打开通知使用权设置"},(d,w)->{
+                .setMessage("在桌面左上显示其他应用提供的媒体标题、封面和状态。仅使用系统媒体会话，不读取或保存普通通知内容。\n\n通知使用权："+(authorized()?"已允许":"未允许")+"\n没有提供媒体会话的应用无法显示。暂停会话在观察 30 分钟后收起，可手动恢复。")
+                .setItems(new String[]{"显示卡片："+(enabled()?"开启":"关闭"),"打开通知使用权设置","选择播放来源","恢复暂时隐藏的卡片"},(d,w)->{
                     if(w==0){host.preferences.edit().putBoolean("now_playing",!enabled()).apply();refresh();settings();}
+                    else if(w==2)sources();
+                    else if(w==3){restoreHidden();settings();}
                     else try {host.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));}
                     catch(RuntimeException error){host.toast("电视未提供此授权页面，请按安装说明使用 ADB 授权");}
                 }).setNegativeButton("返回",null).create());
@@ -103,13 +125,27 @@ final class NowPlaying {
         final Item selected=item;if(selected==null){host.toast("当前没有可用的播放会话");return;}
         PlaybackState state=selected.controller.getPlaybackState();long actions=state==null?0:state.getActions();
         boolean canToggle=(actions&(PlaybackState.ACTION_PLAY_PAUSE|(selected.playing?PlaybackState.ACTION_PAUSE:PlaybackState.ACTION_PLAY)))!=0;
-        String[] choices=canToggle?new String[]{"返回播放应用",selected.playing?"暂停":"继续播放"}:new String[]{"返回播放应用"};
+        ArrayList<String> choices=new ArrayList<>();choices.add("返回播放应用");
+        if(canToggle)choices.add(selected.playing?"暂停":"继续播放");
+        choices.add("选择播放来源");choices.add("暂时隐藏此卡片");
         host.showDialog(new TvDialog.Builder(host).setTitle(selected.title).setMessage(selected.source+" · "+(selected.playing?"正在播放":"已暂停"))
-                .setItems(choices,(d,w)->{
+                .setItems(choices.toArray(new String[0]),(d,w)->{
+                    String action=choices.get(w);
                     if(w==0)open(selected);
-                    else {try {if(selected.playing)selected.controller.getTransportControls().pause();else selected.controller.getTransportControls().play();}
-                        catch(RuntimeException error){host.toast("播放应用未响应控制");}}
+                    else if(action.equals("选择播放来源"))sources();
+                    else if(action.equals("暂时隐藏此卡片")){hidden.add(selected.controller.getSessionToken());publish();host.exitMenus();host.toast("卡片已隐藏，播放不受影响；可在播放卡片设置中恢复");}
+                    else try {
+                        if(priority(selected.controller.getPlaybackState())==2)selected.controller.getTransportControls().pause();else selected.controller.getTransportControls().play();
+                    }catch(RuntimeException error){Diagnostics.event("MEDIA_CONTROL_FAILED");host.toast("播放应用未响应控制");}
                 }).setNegativeButton("返回",null).create());
+    }
+    void sources(){
+        ArrayList<MediaController> active=new ArrayList<>();for(MediaController c:controllers)if(priority(c.getPlaybackState())>0)active.add(c);
+        String[] names=new String[active.size()+1];names[0]="自动选择 · 正在播放优先";
+        for(int i=0;i<active.size();i++){Item entry=describe(active.get(i));names[i+1]=entry.source+" · "+(entry.playing?"播放中":"已暂停")+"\n"+entry.title;}
+        host.showDialog(new TvDialog.Builder(host).setTitle("选择播放来源").setMessage("选择来源只改变桌面展示，不会停止其他播放器。暂时隐藏仅在本次 Marco TV 进程中保留。")
+            .setItems(names,(d,w)->{preferred=w==0?null:active.get(w-1).getSessionToken();if(preferred!=null){hidden.remove(preferred);pausedSince.remove(preferred);}publish();host.exitMenus();})
+            .setNegativeButton("返回",null).create());
     }
     private void open(Item selected) {
         try {

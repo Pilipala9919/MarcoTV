@@ -27,3 +27,8 @@ body:
     id: expected
     attributes:
       label: 预期结果和去除个人信息的补充证据
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: 本地诊断报告（可选）
+      description: 可从设置中的本地诊断预览后导出。请检查内容再附上，不要上传私人备份 ZIP、图片、账号、密码或完整系统日志。

@@ -25,6 +25,12 @@ public final class MainActivity extends Activity {
     SettingsNavigator navigator;
     CoverManager cover;
     AppLibrary library;
+    LocalFiles files;
+    BackupPanel backups;
+    HealthPanel health;
+    RecentApps recents;
+    private final HomePressTracker homePressTracker=new HomePressTracker();
+    String focusAfterLoad;
     NowPlaying playback;
     private final BroadcastReceiver playbackAccess = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { if(playback!=null)playback.refresh(); }
@@ -42,7 +48,7 @@ public final class MainActivity extends Activity {
     boolean foreground;
     private boolean dialogOpen;
     private boolean receiverRegistered;
-    private final Runnable idle = () -> { if (foreground && !dialogOpen) home.setIdle(true); };
+    private final Runnable idle = () -> { if (foreground && !dialogOpen && !home.isMoving() && !recents.visible) home.setIdle(true); };
     private final Runnable clock = new Runnable() {
         @Override public void run() {
             if (foreground) { home.invalidate(); handler.postDelayed(this, 1000); }
@@ -57,6 +63,9 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        Diagnostics.init(this);
+        try {BackupStore.recoverInterrupted(this);} catch(Exception e){Diagnostics.event("RESTORE_ROLLBACK_FAILED");}
+        boolean firstInstall=getSharedPreferences("home",0).getAll().isEmpty();
         SystemIntegration.rememberHome(this);
         SystemIntegration.refreshHomeService(this);
         SystemIntegration.startRecovery(this);
@@ -73,6 +82,8 @@ public final class MainActivity extends Activity {
         navigator = new SettingsNavigator(this);
         cover = new CoverManager(this);
         library = new AppLibrary(this);
+        files = new LocalFiles(this);backups=new BackupPanel(this);health=new HealthPanel(this);
+        recents=new RecentApps(this);
         playback = new NowPlaying(this);
         registerReceiver(playbackAccess, new IntentFilter(PlaybackListenerService.CHANGED));
         if (state != null) cover.pendingId = state.getString("pending_cover");
@@ -89,6 +100,9 @@ public final class MainActivity extends Activity {
         f.addDataScheme("package");
         registerReceiver(packageChanges, f);
         receiverRegistered = true;
+        if(getIntent().hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())homePressTracker.press(SystemClock.elapsedRealtime(),preferences.getInt("recent_double_ms",400));
+        if(getIntent().getBooleanExtra("recent_apps",false))handler.post(recents::show);
+        if(firstInstall&&!getSharedPreferences("onboarding",0).getBoolean("done",false))handler.post(()->{if(foreground)health.guide(0);});
     }
 
     private void fullscreen() {
@@ -100,7 +114,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onResume() {
-        super.onResume(); foreground = true; fullscreen();
+        super.onResume(); foreground = true; Diagnostics.foreground(true); fullscreen();
+        TaskBridgeClient.sync(this);
+        if(getIntent().getBooleanExtra("wake_recovery",false)){getIntent().removeExtra("wake_recovery");Diagnostics.event("WAKE_HOME_RESTORED");}
         if (AmbientIntegration.enabled(this)) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (home != null) { home.setIdle(false); home.requestFocus(); }
@@ -113,13 +129,14 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
-        foreground = false; if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
+        foreground = false; Diagnostics.foreground(false); if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if(recents!=null)recents.stop();
         if (home != null) { home.stopMotion(); if (home.fade != null) home.fade.cancel(); if(home.previewFade!=null)home.previewFade.cancel(); }
         super.onPause();
     }
 
-    @Override public void onLowMemory() { super.onLowMemory(); ArtworkCache.clear(); }
+    @Override public void onLowMemory() { super.onLowMemory(); Diagnostics.event("MEMORY_PRESSURE"); ArtworkCache.clear(); }
 
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);
@@ -138,15 +155,20 @@ public final class MainActivity extends Activity {
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
+        boolean recent=intent.getBooleanExtra("recent_apps",false);
+        if(!intent.getBooleanExtra("home_press_handled",false)&&intent.hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())recent=homePressTracker.press(SystemClock.elapsedRealtime(),preferences.getInt("recent_double_ms",400));
+        else if(!intent.hasCategory(Intent.CATEGORY_HOME))homePressTracker.reset();
+        recents.close();
         closeMenus();
         ambientRequested = intent.getBooleanExtra("ambient", false);
         if (home != null) { home.setIdle(false); home.resetToApps(); if (ambientRequested && foreground) { home.setIdle(true); ambientRequested=false; } }
+        if(recent)recents.show();
     }
 
     void armIdle() {
         handler.removeCallbacks(idle);
         int seconds = preferences.getInt("idle_seconds", 30);
-        if (foreground && !dialogOpen && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle, seconds * 1000L);
+        if (foreground && !dialogOpen && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle, seconds * 1000L);
     }
 
     void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); }
@@ -282,8 +304,6 @@ public final class MainActivity extends Activity {
             }
             sortSaved(inputs); sortSaved(favorites); sortSaved(others);
             AppOrder.sort(apps.tiles,preferences,cards);
-            Tile add=new Tile();add.id="__add_app__";add.label="添加应用";add.kind=2;add.tint=0xC022303C;add.glyph="\ue145";
-            apps.tiles.add(0,add); apps.selected=apps.tiles.size()>1?1:0;
             result.add(apps);
             if (!favorites.tiles.isEmpty()) result.add(favorites);
             if (!inputs.tiles.isEmpty()) result.add(inputs);
@@ -298,6 +318,7 @@ public final class MainActivity extends Activity {
                             for (int j = 0; j < r.tiles.size(); j++) if (r.tiles.get(j).id.equals(focusedId)) { home.row = i; r.selected = j; }
                         }
                     }
+                    if(focusAfterLoad!=null){for(int i=0;i<result.size();i++)if(result.get(i).orderKey.equals("order_tv"))for(int j=0;j<result.get(i).tiles.size();j++)if(result.get(i).tiles.get(j).id.equals(focusAfterLoad)){home.row=i;result.get(i).selected=j;}focusAfterLoad=null;}
                     home.ensureVisible(); home.animateFocus(); home.describeFocus(); home.invalidate();
                 }
             });
@@ -320,22 +341,22 @@ public final class MainActivity extends Activity {
     }
 
     void sortCurrentApps() {
-        for(Row r:home.rows)if(r.orderKey.equals("order_tv")) {
+        for(Row r:home.rows)if(r.orderKey.equals("order_tv")&&!r.tiles.isEmpty()) {
             String focused=r.tiles.get(r.selected).id;
-            Tile add=r.tiles.remove(0);AppOrder.sort(r.tiles,preferences,cards);r.tiles.add(0,add);
+            AppOrder.sort(r.tiles,preferences,cards);
             for(int i=0;i<r.tiles.size();i++)if(r.tiles.get(i).id.equals(focused))r.selected=i;
         }
         home.ensureVisible();home.animateFocus();home.describeFocus();
     }
 
     void launch(Tile tile) {
-        if(tile.kind==2){library.show();return;}
         try { startActivity(tile.intent); if(tile.kind==0)AppOrder.opened(preferences,tile.id); }
-        catch (ActivityNotFoundException | SecurityException ex) { toast("暂时无法打开「" + tile.label + "」"); }
+        catch (ActivityNotFoundException | SecurityException ex) { Diagnostics.event("APP_OPEN_FAILED"); toast("暂时无法打开「" + tile.label + "」"); }
     }
 
     // Entry points used by HomeView; the panels live in SettingsNavigator.
-    void settings() { navigator.settings(); }
+    void settings() { backups.autoSnapshot(); Diagnostics.event("SETTINGS_OPENED"); navigator.settings(); }
+    void exitMenus(){closeMenus();home.requestFocus();armIdle();}
     void tileOptions() { navigator.tileOptions(); }
     void appearanceSettings() { navigator.appearanceSettings(); }
     void ambientSettings() { navigator.ambientSettings(); }
@@ -371,6 +392,7 @@ public final class MainActivity extends Activity {
         presentDialog(dialogHistory.get(dialogHistory.size()-1));
     }
     private void closeMenus(){
+        if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
         menuEpoch++;TvDialog previous=activeDialog;activeDialog=null;dialogHistory.clear();dialogOpen=false;
         if(previous!=null){previous.setOnDismissListener(null);previous.dismiss();}
@@ -380,6 +402,7 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(request, permissions, grants);
         if (request == NetworkPanel.PERMISSION) { network.permissionResult(grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED); return; }
+        if (request == LocalFiles.READ) {files.permission(grants);return;}
         if (request == CoverManager.READ_COVER) cover.onPermissionResult(grants);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -388,6 +411,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (files.result(request,result,data)) return;
         if (network.onActivityResult(request)) return;
         if (cover.onActivityResult(request, result, data)) return;
         if (request == PICK_WALLPAPER && result == RESULT_OK && data != null && data.getData() != null) {

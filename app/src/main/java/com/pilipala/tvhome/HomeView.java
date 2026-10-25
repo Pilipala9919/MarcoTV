@@ -19,7 +19,7 @@ final class Tile {
     String glyph;
     final MotionSpring emphasis = new MotionSpring(0, 22, 0.001f);
     String displayLabel, coverLabel;
-    int kind; // 0 installed application, 1 TV input, 2 add application
+    int kind; // 0 installed application, 1 TV input
 }
 
 /** A horizontal shelf of tiles such as "TV 应用" or "输入源". */
@@ -50,6 +50,24 @@ final class HomeView extends View {
     private float uiAlpha = 1, ambientProgress;
     private final ClockScene clockScene = new ClockScene();
     private boolean idleMode, wakingKey, longPressed;
+    private Row movingRow;
+    private ArrayList<Tile> moveOriginal;
+    private int moveOriginalIndex;
+    private boolean swallowMoveKey;
+    boolean isMoving(){return movingRow!=null;}
+    void beginMove(){
+        if(row<0||rows.isEmpty()||rows.get(row).tiles.isEmpty())return;
+        movingRow=rows.get(row);moveOriginal=new ArrayList<>(movingRow.tiles);moveOriginalIndex=movingRow.selected;
+        describeFocus();host.toast("左右移动 · 确定放下 · 返回取消");invalidate();
+    }
+    private void finishMove(boolean save){
+        if(movingRow==null)return;
+        if(save){StringBuilder order=new StringBuilder();for(Tile t:movingRow.tiles){if(order.length()>0)order.append('|');order.append(t.id);}
+            android.content.SharedPreferences.Editor edit=host.preferences.edit().putString(movingRow.orderKey,order.toString());
+            if(movingRow.orderKey.equals("order_tv"))edit.putString("tv_sort","custom");edit.apply();
+        }else{movingRow.tiles=moveOriginal;movingRow.selected=moveOriginalIndex;}
+        movingRow=null;moveOriginal=null;ensureVisible();animateFocus();describeFocus();invalidate();
+    }
     ValueAnimator fade;
     private final RectF rect = new RectF();
     private final RectF iconBounds = new RectF();
@@ -65,11 +83,11 @@ final class HomeView extends View {
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
     private boolean edgeOpen;
     private int edgeSelected;
-    private final String[] edgeItems={"编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
+    private final String[] edgeItems={"添加应用","编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
     void edge(boolean open){edgeOpen=open;edge.target(open?1:0);animateFocus();describeFocus();}
     private void edgeAction(){
         int action=edgeSelected;edge(false);
-        if(action==0)host.tileOptions();else if(action==1)host.appearanceSettings();else if(action==2)host.ambientSettings();else host.settings();
+        if(action==0)host.library.show();else if(action==1)host.tileOptions();else if(action==2)host.appearanceSettings();else if(action==3)host.ambientSettings();else host.settings();
     }
     private String previewKey;
     private float previewAmbient;
@@ -110,14 +128,19 @@ final class HomeView extends View {
         labelOpacity = host.preferences.getInt("label_opacity", host.preferences.getInt("label_mode", 0) == 1 ? 55 : 0) / 100f;
     }
     void describeFocus() {
-        if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
+        if(host.recents!=null&&host.recents.visible){host.recents.describe();return;}
+        if(movingRow!=null)setContentDescription("移动卡片，"+movingRow.tiles.get(movingRow.selected).label+"，左右移动，确定保存，返回取消");
+        else if(edgeOpen)setContentDescription("分类操作栏，"+edgeItems[edgeSelected]);
+        else if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
         else if(row==-1)setContentDescription(topSelected==0?"桌面设置":"网络与 Wi-Fi");
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
             setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
+        else setContentDescription("TV 应用，暂无应用，按左键展开菜单添加应用");
     }
 
     void resetToApps() {
+        finishMove(false);swallowMoveKey=false;
         edgeOpen=false;edge.snap(0);
         stopMotion(); row = 0; section.snap(0);
         for (int i = 0; i < rows.size(); i++) {
@@ -201,6 +224,7 @@ final class HomeView extends View {
             paint.setAlpha(255); canvas.drawBitmap(wallpaper, null, rect, paint);
         }
         canvas.save(); canvas.translate((getWidth() - 1920 * scale) / 2, offsetY); canvas.scale(scale, scale);
+        if(host.recents.visible||(previewKey!=null&&previewKey.startsWith("recent_"))){host.recents.draw(canvas,previewKey!=null);canvas.restore();return;}
         paint.setColor(Color.argb(ClockScene.dim(host.preferences,ambient),0,0,0)); canvas.drawRect(0,0,1920,1080,paint);
         clockScene.draw(canvas,host.preferences,ambient);
         if (contentAlpha > 0.005f) {
@@ -210,6 +234,7 @@ final class HomeView extends View {
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
+            if(movingRow!=null)text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
             if(previewKey==null && host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
                 float selectedX = topSelected == 0 ? 132 : wifiX;
@@ -260,14 +285,14 @@ final class HomeView extends View {
     private void drawEdge(Canvas canvas,float opacity){
         float a=Math.max(0,Math.min(1,edge.value))*opacity;
         canvas.save();canvas.translate(-80*(1-edge.value),0);
-        paint.setColor(alphaColor(0xEE17222E,a));rect.set(70,390,438,875);canvas.drawRoundRect(rect,28,28,paint);
+        paint.setColor(alphaColor(0xEE17222E,a));rect.set(70,390,438,953);canvas.drawRoundRect(rect,28,28,paint);
         text(canvas,rows.get(Math.max(0,row)).title,100,438,25,bold,alphaColor(0xFFDCE8EE,a),Paint.Align.LEFT);
         for(int i=0;i<edgeItems.length;i++){
             float y=465+i*78;
             if(i==edgeSelected){paint.setColor(alphaColor(0xFFE4F0F5,a));rect.set(88,y,420,y+65);canvas.drawRoundRect(rect,16,16,paint);}
             text(canvas,edgeItems[i],110,y+42,25,normal,alphaColor(i==edgeSelected?0xFF152331:0xFFCDD7E0,a),Paint.Align.LEFT);
         }
-        text(canvas,"右键返回卡片",100,838,19,normal,alphaColor(0xFFA1B3C3,a),Paint.Align.LEFT);canvas.restore();
+        text(canvas,"右键返回卡片",100,916,19,normal,alphaColor(0xFFA1B3C3,a),Paint.Align.LEFT);canvas.restore();
     }
 
     private void text(Canvas canvas, String text, float x, float y, float size, Typeface font, int color, Paint.Align align) {
@@ -283,6 +308,7 @@ final class HomeView extends View {
     private void drawRow(Canvas canvas, Row r, float y, float opacity) {
         icon(canvas, r.symbol, 136, y - 172, 48, alphaColor(Color.WHITE, opacity));
         text(canvas, r.title, 176, y - 165, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
+        if(r.tiles.isEmpty())text(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xC0FFFFFF,opacity),Paint.Align.LEFT);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
         for (int i = 0; i < r.tiles.size(); i++) if (i != raised) drawTile(canvas, r.tiles.get(i), 272 + i * 350 - r.scroll.value, y, opacity);
@@ -340,6 +366,7 @@ final class HomeView extends View {
     }
 
     @Override public boolean onKeyDown(int code, KeyEvent event) {
+        if(host.recents.visible)return host.recents.key(code,event);
         boolean navigation = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
                 || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
                 || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
@@ -347,6 +374,18 @@ final class HomeView extends View {
         if (!navigation) return super.onKeyDown(code, event);
         if (idleMode) { wakingKey = true; setIdle(false); return true; }
         host.armIdle();
+        if(movingRow!=null){
+            swallowMoveKey=true;
+            if(code==KeyEvent.KEYCODE_BACK)finishMove(false);
+            else if(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)finishMove(true);
+            else if(code==KeyEvent.KEYCODE_DPAD_LEFT||code==KeyEvent.KEYCODE_DPAD_RIGHT){
+                int from=movingRow.selected,to=from+(code==KeyEvent.KEYCODE_DPAD_LEFT?-1:1);
+                if(to>=0&&to<movingRow.tiles.size()){
+                    if(movingRow.tiles.get(from).pinned!=movingRow.tiles.get(to).pinned)host.toast("置顶卡片优先，请先调整置顶状态");
+                    else {Collections.swap(movingRow.tiles,from,to);movingRow.selected=to;ensureVisible();animateFocus();describeFocus();}
+                }
+            }invalidate();return true;
+        }
         if(edgeOpen){
             if(code==KeyEvent.KEYCODE_DPAD_RIGHT||code==KeyEvent.KEYCODE_BACK)edge(false);
             else if(code==KeyEvent.KEYCODE_DPAD_UP)edgeSelected=Math.max(0,edgeSelected-1);
@@ -382,7 +421,7 @@ final class HomeView extends View {
                 if(r.selected==0&&event.getRepeatCount()==0){edgeSelected=0;edge(true);setContentDescription("分类操作栏，"+edgeItems[0]);return true;}
                 r.selected=Math.max(0,r.selected-1);
             }
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) r.selected = Math.min(r.tiles.size() - 1, r.selected + 1);
+            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) r.selected = Math.max(0,Math.min(r.tiles.size() - 1, r.selected + 1));
             else if (code == KeyEvent.KEYCODE_DPAD_UP) row=row==0&&host.playback.item!=null?-2:row-1;
             else if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = Math.min(rows.size() - 1, row + 1);
             ensureVisible(); animateFocus();
@@ -396,6 +435,8 @@ final class HomeView extends View {
     }
 
     @Override public boolean onKeyUp(int code, KeyEvent event) {
+        if(host.recents.visible)return host.recents.key(code,event);
+        if(swallowMoveKey){swallowMoveKey=false;return true;}
         if (wakingKey) { wakingKey = false; return true; }
         if(edgeOpen&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)){edgeAction();return true;}
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
@@ -409,13 +450,15 @@ final class HomeView extends View {
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
+        if(host.recents.visible){host.recents.touch(event.getAction(),(event.getX()-(getWidth()-1920*scale)/2)/scale,(event.getY()-offsetY)/scale);return true;}
         if (event.getAction() != MotionEvent.ACTION_UP) return true;
         if (idleMode) { setIdle(false); return true; }
+        if(movingRow!=null){finishMove(true);return true;}
         host.armIdle();
         float x = (event.getX() - (getWidth() - 1920 * scale) / 2) / scale;
         float y = (event.getY() - offsetY) / scale;
         if(edgeOpen){
-            if(x>=88&&x<=420&&y>=465&&y<777){edgeSelected=Math.min(3,(int)((y-465)/78));edgeAction();}
+            if(x>=88&&x<=420&&y>=465&&y<465+edgeItems.length*78){edgeSelected=Math.min(edgeItems.length-1,(int)((y-465)/78));edgeAction();}
             else edge(false);return true;
         }
         if (y < 175 && x < 380) { host.settings(); return true; }

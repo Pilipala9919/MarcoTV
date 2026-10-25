@@ -89,6 +89,7 @@ final class CoverManager {
                     host.handler.post(() -> { if (!host.isDestroyed()) { host.loadApplications(); host.toast("封面已保存"); } });
                 }
             } catch (IOException | RuntimeException e) {
+                Diagnostics.event("IMAGE_IMPORT_FAILED");
                 host.handler.post(() -> { if (!host.isDestroyed()) host.toast("图片无法读取，请换一张图片"); });
             }
         });

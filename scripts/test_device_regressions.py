@@ -9,6 +9,8 @@ import argparse
 import json
 import os
 import subprocess
+import shlex
+import time
 import zipfile
 from pathlib import Path
 from build import ROOT, BUILD, SOURCE, JDK, ANDROID, TOOLS, env, executable, run
@@ -18,6 +20,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--adb', default='adb')
     parser.add_argument('--serial', required=True)
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument('--bridge-only', action='store_true', help='Read-only task bridge checks; does not open TV UI')
+    modes.add_argument('--task-actions', action='store_true', help='Create, switch and remove two temporary fixture tasks; never remove user tasks')
     args = parser.parse_args()
     folder = BUILD / 'device-regression'
     for name in ['', 'classes', 'dex']:
@@ -33,7 +38,7 @@ def main():
     run(executable(TOOLS, 'aapt2'), 'link', '-o', folder / 'resources.apk', '--manifest', manifest, '-I', ANDROID)
     run(executable(JDK / 'bin', 'javac'), '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
         '-classpath', str(ANDROID) + os.pathsep + str(BUILD / 'classes.jar'), '-d', folder / 'classes',
-        ROOT / 'scripts/DeviceRegressionChecks.java')
+        ROOT / 'scripts/DeviceRegressionChecks.java', ROOT / 'scripts/FeatureRegressionChecks.java')
     with zipfile.ZipFile(folder / 'classes.jar', 'w') as archive:
         for file in (folder / 'classes').rglob('*.class'):
             archive.write(file, file.relative_to(folder / 'classes').as_posix())
@@ -52,19 +57,37 @@ def main():
         return subprocess.run([args.adb, '-s', args.serial, *map(str, command)], capture_output=True,
                               text=True, encoding='utf-8', errors='replace', timeout=120, check=True).stdout
     installed = False
+    accessibility_before=adb('shell','settings','get','secure','enabled_accessibility_services').strip()
     try:
+        if not args.bridge_only and 'mWakefulness=Awake' not in adb('shell','dumpsys','power'):
+            raise RuntimeError('TV is not awake. UI tests were not run; no wake command is sent automatically.')
         if 'Success' not in adb('install', '-r', folder / 'checks.apk'): raise RuntimeError('Test APK install failed')
         installed = True
-        output = adb('shell', 'am', 'instrument', '-w',
+        output = adb('shell', 'am', 'instrument', '-w', '-e', 'bridge_only', str(args.bridge_only).lower(), '-e', 'task_actions', str(args.task_actions).lower(),
                      'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
         print(output)
-        (folder / 'result.txt').write_text(output, encoding='utf-8')
-        if 'OK 26 device regression checks' not in output or 'FAIL' in output:
+        (folder / ('task-result.txt' if args.task_actions else 'bridge-result.txt' if args.bridge_only else 'result.txt')).write_text(output, encoding='utf-8')
+        expected='OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 73 device regression checks'
+        if expected not in output or 'FAIL' in output:
             raise RuntimeError('Device regression failed; see local result.txt')
     finally:
         if installed:
             adb('uninstall', 'com.pilipala.tvhome.regression')
-            adb('shell', 'am', 'start', '-n', 'com.pilipala.tvhome/.MainActivity')
+            # Some Android 9 OEM builds leave a dead accessibility binding after
+            # instrumentation restarts the target. Rebind only our previously
+            # enabled service, preserving every other service and any user edit.
+            current=adb('shell','settings','get','secure','enabled_accessibility_services').strip()
+            own={'com.pilipala.tvhome/.HomeKeyService','com.pilipala.tvhome/com.pilipala.tvhome.HomeKeyService'}
+            if current==accessibility_before and any(item in own for item in current.split(':')):
+                bindings=adb('shell','dumpsys','activity','services','com.pilipala.tvhome.HomeKeyService')
+                if 'DEAD com.pilipala.tvhome/' in bindings:
+                    remaining=':'.join(item for item in current.split(':') if item not in own)
+                    try:
+                        adb('shell','settings','put','secure','enabled_accessibility_services',shlex.quote(remaining));time.sleep(1)
+                    finally:
+                        adb('shell','settings','put','secure','enabled_accessibility_services',shlex.quote(current))
+                    time.sleep(2)
+            if not args.bridge_only:adb('shell', 'am', 'start', '-n', 'com.pilipala.tvhome/.MainActivity')
 
 
 if __name__ == '__main__':

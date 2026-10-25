@@ -33,6 +33,7 @@ final class SystemIntegration {
         return p.getBoolean("adb_restore", false) || p.getBoolean("home_compat", false) || p.getBoolean("managed_home", false);
     }
     static void startRecovery(Context context) {
+        TaskBridgeClient.sync(context);
         Intent intent = new Intent(context, RecoveryService.class);
         if (!needsRecovery(context)) { context.stopService(intent); return; }
         try {
@@ -116,7 +117,7 @@ final class SystemIntegration {
                 boolean written = Settings.Global.putInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 1);
                 if (!written) throw new IllegalStateException("ADB setting rejected");
                 p.edit().putLong("last_adb_restore", System.currentTimeMillis()).apply();
-                Log.i(TAG, "Restored adb_enabled=1");
+                Diagnostics.event("ADB_SWITCH_RESTORED");Log.i(TAG, "Restored adb_enabled=1");
             }
             if (p.getBoolean("managed_home", false) || p.getBoolean("home_compat", false)) {
                 Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
@@ -130,6 +131,7 @@ final class SystemIntegration {
             p.edit().remove("last_error").putLong("last_check", System.currentTimeMillis()).apply();
         } catch (RuntimeException e) {
             p.edit().putString("last_error", "恢复失败：" + e.getClass().getSimpleName()).apply();
+            Diagnostics.event("SYSTEM_RECOVERY_FAILED");
             Log.w(TAG, "Settings recovery failed", e);
         }
     }

@@ -22,9 +22,9 @@ final class SettingsNavigator {
     TvDialog settingsDialog() {
         int idleSeconds = host.preferences.getInt("idle_seconds", 30);
         String idleLabel = idleSeconds == 0 ? "不隐藏" : idleSeconds + " 秒";
-        String[] options = {"时钟与屏保", "壁纸图库", "更换本地壁纸", "设备设置", "关于 Marco TV", "开机与默认桌面", "卡片外观", "恢复隐藏的卡片"};
+        String[] options = {"时钟与屏保", "壁纸图库", "更换本地壁纸", "设备设置", "关于 Marco TV", "开机与默认桌面", "卡片外观", "恢复隐藏的卡片", "备份与恢复", "设置状态与引导", "本地诊断", "最近任务与双击 Home"};
         TvDialog dialog = new TvDialog.Builder(host).setTitle("桌面设置")
-                .setOrder("main","clock","wallpapers","local_wallpaper","device","about","startup","cards","hidden")
+                .setOrder("main","clock","wallpapers","local_wallpaper","device","about","startup","cards","hidden","backup","health","diagnostics","recents")
                 .setItems(options, (d, which) -> {
                     switch (which) {
                         case 0: host.handler.post(this::ambientSettings); break;
@@ -37,6 +37,10 @@ final class SettingsNavigator {
                         case 5: host.handler.post(this::systemPanel); break;
                         case 6: host.handler.post(this::appearanceSettings); break;
                         case 7: host.handler.post(this::hiddenCards); break;
+                        case 8: host.backups.show(); break;
+                        case 9: host.health.status(); break;
+                        case 10: host.health.diagnostics(); break;
+                        case 11: host.recents.settings(); break;
                     }
                 }).setNegativeButton("返回", null).create();
         return dialog;
@@ -137,25 +141,25 @@ final class SettingsNavigator {
         Row row = host.home.rows.get(host.home.row);
         if (row.tiles.isEmpty()) return;
         Tile tile = row.tiles.get(row.selected);
-        if(tile.kind==2){host.library.show();return;}
         boolean favorite = host.cards.contains("favorites", tile.id);
-        String[] options = {"向左移动", "向右移动", "重命名", "更换封面", favorite ? "取消收藏" : "加入收藏", "单独卡片设置", "恢复默认外观", tile.kind == 1 ? "打开输入源" : "应用信息"};
+        String[] options = {"向左移动", "向右移动", "重命名", "更换封面", favorite ? "取消收藏" : "加入收藏", "单独卡片设置", "恢复默认外观", tile.kind == 1 ? "打开输入源" : "应用信息", "拿起并移动卡片"};
         host.showDialog(new TvDialog.Builder(host).setTitle(tile.label).setItems(options, (d, which) -> {
             if (which < 2) {
                 int current=row.tiles.indexOf(tile),next=current+(which==0?-1:1);
-                if(next>=0&&next<row.tiles.size()&&row.tiles.get(next).kind!=2) {
+                if(next>=0&&next<row.tiles.size()) {
                     if(host.cards.contains("pinned",tile.id)!=host.cards.contains("pinned",row.tiles.get(next).id)) {
                         host.toast("置顶卡片优先显示；请先调整置顶状态");return;
                     }
                     Collections.swap(row.tiles,current,next);row.selected=next;
                     StringBuilder order=new StringBuilder();
-                    for(Tile t:row.tiles)if(t.kind!=2){if(order.length()>0)order.append('|');order.append(t.id);}
+                    for(Tile t:row.tiles){if(order.length()>0)order.append('|');order.append(t.id);}
                     android.content.SharedPreferences.Editor editor=host.preferences.edit().putString(row.orderKey,order.toString());
                     if(row.orderKey.equals("order_tv")) {editor.putString("tv_sort","custom");host.toast("已切换为纯自定义排序");}
                     editor.apply();host.home.ensureVisible();host.home.animateFocus();host.home.describeFocus();
                 }
             } else host.handler.post(() -> {
                 switch (which) {
+                    case 8: host.exitMenus();host.home.beginMove();break;
                     case 2: renameCard(tile); break;
                     case 3: coverOptions(tile); break;
                     case 4: host.cards.toggle("favorites", tile.id, !favorite); host.loadApplications(); host.toast(favorite ? "已取消收藏" : "已加入收藏，可在收藏分组中打开"); break;
@@ -186,7 +190,9 @@ final class SettingsNavigator {
                     if(w==0){host.cards.toggle("pinned",tile.id,!pinned);host.loadApplications();cardSettings(tile);}
                     else if(w==1)host.showDialog(new TvDialog.Builder(host).setTitle("隐藏「"+tile.label+"」？")
                             .setMessage("从桌面与收藏中隐藏，不卸载应用。可在桌面设置中恢复。")
-                            .setPositiveButton("隐藏",(dialog,button)->{host.cards.toggle("hidden",tile.id,true);host.loadApplications();})
+                            .setPositiveButton("隐藏",(dialog,button)->{host.cards.toggle("hidden",tile.id,true);host.loadApplications();host.showDialog(new TvDialog.Builder(host).setTitle("卡片已隐藏").setMessage("可立即撤销，也可在设置中恢复。")
+                            .setPositiveButton("撤销隐藏",(x,y)->{host.cards.toggle("hidden",tile.id,false);host.focusAfterLoad=tile.id;host.exitMenus();host.loadApplications();})
+                            .setNegativeButton("返回桌面",(x,y)->host.exitMenus()).create());})
                             .setNegativeButton("返回",null).create());
                     else if(w==2)sorting();else uninstall(tile);
                 }).setNegativeButton("返回",null).create());
@@ -198,7 +204,7 @@ final class SettingsNavigator {
                 .setSingleChoiceItems(AppOrder.LABELS,selected,(d,w)->{
                     if(AppOrder.MODES[w].equals("custom")&&host.preferences.getString("order_tv","").isEmpty()) {
                         for(Row row:host.home.rows)if(row.orderKey.equals("order_tv")) {
-                            StringBuilder order=new StringBuilder();for(Tile t:row.tiles)if(t.kind!=2){if(order.length()>0)order.append('|');order.append(t.id);}
+                            StringBuilder order=new StringBuilder();for(Tile t:row.tiles){if(order.length()>0)order.append('|');order.append(t.id);}
                             host.preferences.edit().putString("order_tv",order.toString()).apply();
                         }
                     }
