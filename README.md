@@ -8,6 +8,12 @@
 
 作者：**Pilipala** · 版本：**0.11.1** · 协议：[GPL-3.0-only](LICENSE)
 
+[![Marco TV 桌面，示例卡片与实机界面](docs/showcase/assets/01-desktop.webp)](https://pilipala9919.github.io/MarcoTV/showcase/)
+
+**[打开完整产品展示](https://pilipala9919.github.io/MarcoTV/showcase/)** · [GitHub 图文版：24 个模块逐项介绍](docs/产品介绍与功能展示.md)
+
+38 张当前版本实机截图，按日常桌面、外观与操作、系统与媒体、维护与隐私分类。支持搜索、切换截图和放大查看。桌面及播放使用示例内容，私人应用、网络与记录已遮挡。
+
 ## 下载与说明
 
 - [下载安装包（Releases）](https://github.com/Pilipala9919/MarcoTV/releases/latest)
