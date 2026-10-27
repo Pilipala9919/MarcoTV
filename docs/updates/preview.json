@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "versionCode": 22,
-  "versionName": "0.12.0-rc.3",
+  "versionCode": 24,
+  "versionName": "0.12.0-rc.4",
   "minSdk": 23,
-  "size": 8144150,
-  "sha256": "41e8b0ebb338288a9f2ff57f799aa9af2ce1b9952a2a808a5ef85d1f3d834f8f",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0-rc.3/MarcoTV-0.12.0-rc.3.apk",
+  "size": 8148246,
+  "sha256": "76e18deb1ba684553682f7e5a8d4fd0c2dd8021bdc81532c85b1725572e5bb0b",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0-rc.4/MarcoTV-0.12.0-rc.4.apk",
   "prerelease": true,
-  "notes": "新增软件更新、签名与完整性校验、升级前备份；支持下载中断续传和有限次数重试。合并应用启动入口查询并提供分项诊断，TCL Android 11 待该机复测。更新后最近任务辅助服务仍需电脑重新启动。"
+  "notes": "镜像优先下载与官方源回退、断点续传、同签名及完整性校验、安装前本地备份。更新后最近任务辅助服务仍需电脑重新启动。TCL Android 11 应用入口兼容仍待该机复测。"
 }
