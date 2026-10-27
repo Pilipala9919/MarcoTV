@@ -6,7 +6,7 @@
 
 > **本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。**
 
-作者：**Pilipala** · 版本：**0.12.0-rc.2（预览版，更新与入口兼容预览）** · 协议：[GPL-3.0-only](LICENSE)
+作者：**Pilipala** · 版本：**0.12.0-rc.3（预览版，更新与入口兼容预览）** · 协议：[GPL-3.0-only](LICENSE)
 
 [![Marco TV 桌面，示例卡片与实机界面](docs/showcase/assets/01-desktop.webp)](https://pilipala9919.github.io/MarcoTV/showcase/)
 

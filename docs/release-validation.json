@@ -1,12 +1,12 @@
 {
-  "version": "0.12.0-rc.2",
+  "version": "0.12.0-rc.3",
   "date": "2026-10-27",
   "author": "Pilipala",
   "release_channel": "prerelease",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "6925eca6ddf6ffbd360e2020c43bef05d6b963a178ec3410224751c003f50814",
+  "apk_sha256": "41e8b0ebb338288a9f2ff57f799aa9af2ce1b9952a2a808a5ef85d1f3d834f8f",
   "automated": {
     "device_on_development_build": {
       "passed": 85,
@@ -122,7 +122,7 @@
     }
   },
   "local_checks": {
-    "update_policy": 23,
+    "update_policy": 30,
     "settings_migration": 16,
     "motion": 10,
     "release_tools": 5
@@ -132,12 +132,12 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Device regression ran on code 20 development build with the same implementation. Code 21 release APK passed candidate validation. Public feed download and system installer end-to-end checks will be recorded separately after release publication.",
+  "validation_scope": "Device regression uses code 20 development build; code 22 release APK candidate validation and final public download/install results are separately scoped. Network timeout handling was observed, prompting resumable transfer support. Final public installation still pending.",
   "not_verified": [
     "TCL 75T 8G Max Android 11 launch routes",
     "Huawei HD65DESA",
     "physical remote and reboot on this release",
     "long duration performance",
-    "public feed end-to-end installation at initial release"
+    "public feed end-to-end installation at initial rc.3 release"
   ]
 }

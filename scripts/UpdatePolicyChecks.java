@@ -8,7 +8,7 @@ public final class UpdatePolicyChecks {
     static String good="https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0/MarcoTV-0.12.0.apk";
     static void invalid(String name,int code,String version,int sdk,long size,String hash,String url,boolean preview,String channel){boolean failed=false;
         try{UpdatePolicy.validate(code,version,sdk,size,hash,url,preview,channel);}catch(IllegalArgumentException e){failed=true;}check(name,failed);}
-    public static void main(String[] args){String hash=new String(new char[64]).replace('\0','a');
+    public static void main(String[] args)throws Exception{String hash=new String(new char[64]).replace('\0','a');
         UpdatePolicy.validate(21,"0.12.0",23,123,hash,good,false,"stable");check("official_release_allowed",UpdatePolicy.apkUrl(good));
         check("higher_code_is_update",UpdatePolicy.newer(21,20));check("same_code_not_reinstalled",!UpdatePolicy.newer(20,20));check("downgrade_rejected",!UpdatePolicy.newer(19,20));
         invalid("preview_not_sent_to_stable",21,"0.12.0-rc.2",23,123,hash,good,true,"stable");
@@ -23,6 +23,11 @@ public final class UpdatePolicyChecks {
         check("redirect_to_http_rejected",!UpdatePolicy.transferUrl("http://github.com/asset"));
         check("redirect_to_localhost_rejected",!UpdatePolicy.transferUrl("https://localhost/asset"));
         check("redirect_to_other_site_rejected",!UpdatePolicy.transferUrl("https://example.org/asset"));
+        check("valid_range_continues",UpdatePolicy.resumeOffset(20,206,"bytes 20-99/100",100)==20);
+        check("ignored_range_restarts_without_append",UpdatePolicy.resumeOffset(20,200,null,100)==0);
+        for(String range:new String[]{"bytes 0-99/100","bytes 20-98/100","bytes 20-99/101",null,"bytes 20-999999999999999999999999/100"}){
+            boolean rejected=false;try{UpdatePolicy.resumeOffset(20,206,range,100);}catch(java.io.IOException e){rejected=true;}check("bad_range_rejected_"+passed,rejected);
+        }
         System.out.println("OK "+passed+" update policy checks");
     }
 }

@@ -20,4 +20,12 @@ final class UpdatePolicy {
             ||(!"stable".equals(channel)&&!"preview".equals(channel))||("stable".equals(channel)&&preview))throw new IllegalArgumentException("Invalid update metadata");
     }
     static boolean newer(int offered,int installed){return offered>installed;}
+    static long resumeOffset(long requested,int status,String range,long size)throws java.io.IOException{
+        if(requested<0||requested>=size)throw new java.io.IOException("invalid offset");
+        if(status==200)return 0;
+        if(status!=206||requested==0||range==null)throw new java.io.IOException("invalid range response");
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("bytes ([0-9]+)-([0-9]+)/([0-9]+)").matcher(range);
+        try{if(!m.matches()||Long.parseLong(m.group(1))!=requested||Long.parseLong(m.group(2))!=size-1||Long.parseLong(m.group(3))!=size)throw new java.io.IOException("range mismatch");}
+        catch(NumberFormatException e){throw new java.io.IOException("range number",e);}return requested;
+    }
 }

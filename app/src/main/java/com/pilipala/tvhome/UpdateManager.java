@@ -28,7 +28,7 @@ final class UpdateManager {
     final Context context;final SharedPreferences prefs;
     final ExecutorService worker=Executors.newSingleThreadExecutor();final Handler main=new Handler(Looper.getMainLooper());
     volatile Release available;volatile String message="尚未检查更新";volatile boolean busy;volatile int percent=-1;
-    private volatile boolean cancel;private Runnable listener;private long noticedCode;
+    private volatile boolean cancel;private volatile HttpURLConnection activeConnection;private Runnable listener;private long noticedCode;
     boolean cancelled(){return cancel;}
     void resetCancellation(){cancel=false;}
     private UpdateManager(Context c){context=c;prefs=c.getSharedPreferences("updates",0);
@@ -52,7 +52,7 @@ final class UpdateManager {
     boolean consumeNotice(){Release r=available;if(r==null||r.code<=installedCode(context)||noticedCode==r.code||"off".equals(mode()))return false;noticedCode=r.code;return true;}
     void setMode(String value){if(!Arrays.asList("notify","download","off").contains(value))return;prefs.edit().putString("mode",value).apply();if("off".equals(value))cancel=true;changed();}
     synchronized boolean setChannel(String value){if(busy||!Arrays.asList("stable","preview").contains(value))return false;
-        prefs.edit().putString("channel",value).remove("metadata").remove("download_sha").remove("last_attempt").apply();available=null;apk().delete();noticedCode=0;message="渠道已切换，请检查更新";changed();return true;}
+        prefs.edit().putString("channel",value).remove("metadata").remove("download_sha").remove("last_attempt").apply();available=null;apk().delete();new File(folder(),"release.part").delete();prefs.edit().remove("partial_sha").apply();noticedCode=0;message="渠道已切换，请检查更新";changed();return true;}
     void automatic(){if(!"off".equals(mode())&&System.currentTimeMillis()-prefs.getLong("last_attempt",0)>=6*60*60*1000L)check(false);}
     synchronized void check(boolean manual){if(busy)return;busy=true;cancel=false;message="正在检查更新…";percent=-1;changed();
         final String channel=channel();prefs.edit().putLong("last_attempt",System.currentTimeMillis()).apply();
@@ -63,29 +63,47 @@ final class UpdateManager {
             else if(r.minSdk>Build.VERSION.SDK_INT){clearOffer();message="发现新版，但其系统版本要求不适合本机，已停止下载";}
             else{available=r;message="发现新版 "+r.version;prefs.edit().putString("metadata",data.toString()).apply();
                 if("download".equals(mode())&&!ready())downloadFile(r);}
-        }catch(InterruptedIOException e){message=cancel?"已取消，当前版本不受影响":"网络连接超时，请稍后重试";}
+        }catch(InterruptedIOException e){message=cancel?"已取消，当前版本不受影响":"网络连接超时；若已有下载进度，再次下载可继续";}
         catch(Exception e){message="检查或下载失败，请检查网络后重试；现有版本仍可使用";Diagnostics.event("UPDATE_CHECK_FAILED");}
         finally{busy=false;percent=-1;changed();}});
     }
     synchronized void download(){if(busy||available==null)return;Release r=available;if(r.minSdk>Build.VERSION.SDK_INT||r.code<=installedCode(context))return;
-        busy=true;cancel=false;worker.execute(()->{try{downloadFile(r);}catch(InterruptedIOException e){message=cancel?"下载已取消":"下载超时，请稍后重试";}catch(Exception e){message="下载或校验失败，未安装。请重试或从官方发布页下载";Diagnostics.event("UPDATE_DOWNLOAD_FAILED");}finally{busy=false;percent=-1;changed();}});
+        busy=true;cancel=false;worker.execute(()->{try{downloadFile(r);}catch(InterruptedIOException e){message=cancel?"下载已取消":"下载超时，已保留进度，可再次下载继续";}catch(Exception e){message="下载或校验失败，未安装。请重试或从官方发布页下载";Diagnostics.event("UPDATE_DOWNLOAD_FAILED");}finally{busy=false;percent=-1;changed();}});
     }
     private void clearOffer(){available=null;prefs.edit().remove("metadata").remove("download_sha").apply();apk().delete();}
-    void cancel(){cancel=true;message="正在取消…";changed();}
+    void cancel(){cancel=true;HttpURLConnection active=activeConnection;if(active!=null)workerCancel(active);message="正在取消…";changed();}
+    private void workerCancel(HttpURLConnection active){new Thread(active::disconnect,"MarcoTV-cancel-update").start();}
     private void downloadFile(Release r)throws Exception{
-        if(folder().getUsableSpace()<r.size*2+16*1024*1024L)throw new IOException("space");
-        File part=new File(folder(),"release.part");HttpURLConnection conn=null;boolean complete=false;percent=0;message="正在下载 "+r.version;changed();
-        try{conn=open(r.url);long declared=conn.getContentLength();if(declared>0&&declared!=r.size)throw new IOException("size");
-            try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(part)){
-                byte[] bytes=new byte[32768];long total=0;int n,last=-1;
+        if(folder().getUsableSpace()<r.size+16*1024*1024L)throw new IOException("space");
+        File part=new File(folder(),"release.part");
+        if(!r.sha.equals(prefs.getString("partial_sha",""))||part.length()>r.size){part.delete();prefs.edit().putString("partial_sha",r.sha).commit();}
+        percent=(int)(part.length()*100/r.size);boolean verified=false;
+        try{
+            IOException failure=null;
+            for(int attempt=0;attempt<3&&part.length()<r.size;attempt++){
+                if(cancel)throw new InterruptedIOException();
+                message=(attempt==0?"正在下载 ":"网络中断，继续下载 ")+r.version;changed();
+                try{transfer(r,part);failure=null;}catch(IOException e){failure=e;if(cancel)throw new InterruptedIOException();}
+            }
+            if(part.length()!=r.size){if(failure!=null)throw failure;throw new IOException("short download");}
+            try{verifyApk(context,part,r);}catch(Exception e){part.delete();prefs.edit().remove("partial_sha").apply();throw e;}
+            if(cancel)throw new InterruptedIOException();
+            if(apk().exists()&&!apk().delete())throw new IOException("replace");if(!part.renameTo(apk()))throw new IOException("rename");
+            prefs.edit().putString("download_sha",r.sha).remove("partial_sha").apply();message="新版已下载并校验，选择“安装已下载版本”继续";verified=true;
+        }finally{if(cancel){part.delete();prefs.edit().remove("partial_sha").apply();}if(!verified&&!cancel&&part.exists())message="下载中断，已保留进度，可再次下载继续";}
+    }
+    private void transfer(Release r,File part)throws Exception{
+        long offset=part.length();HttpURLConnection conn=open(r.url,offset);activeConnection=conn;
+        try{
+            long start=UpdatePolicy.resumeOffset(offset,conn.getResponseCode(),conn.getHeaderField("Content-Range"),r.size);
+            long declared=conn.getContentLength();if(declared>0&&declared!=r.size-start)throw new IOException("size");
+            try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(part,start>0)){
+                byte[] bytes=new byte[32768];long total=start;int n,last=-1;
                 while((n=in.read(bytes))!=-1){if(cancel)throw new InterruptedIOException();total+=n;if(total>r.size)throw new IOException("limit");out.write(bytes,0,n);
                     int now=(int)(total*100/r.size);if(now!=last){last=now;percent=now;changed();}}
                 if(total!=r.size)throw new IOException("short download");
             }
-            verifyApk(context,part,r);if(cancel)throw new InterruptedIOException();
-            if(apk().exists()&&!apk().delete())throw new IOException("replace");if(!part.renameTo(apk()))throw new IOException("rename");
-            prefs.edit().putString("download_sha",r.sha).apply();message="新版已下载并校验，选择“安装已下载版本”继续";complete=true;
-        }finally{if(conn!=null)conn.disconnect();if(!complete)part.delete();}
+        }finally{activeConnection=null;conn.disconnect();}
     }
     static void verifyApk(Context c,File file,Release r)throws Exception{
         if(file.length()!=r.size||!sha(file).equals(r.sha))throw new IOException("digest");
@@ -97,13 +115,15 @@ final class UpdateManager {
     }
     private static Set<String> signatures(android.content.pm.Signature[] signatures){Set<String> result=new HashSet<>();if(signatures!=null)for(android.content.pm.Signature s:signatures)result.add(s.toCharsString());return result;}
     static String sha(File file)throws Exception{MessageDigest digest=MessageDigest.getInstance("SHA-256");try(InputStream in=new FileInputStream(file)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)digest.update(b,0,n);}StringBuilder out=new StringBuilder();for(byte b:digest.digest())out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();}
-    static HttpURLConnection open(String address)throws Exception{
+    static HttpURLConnection open(String address)throws Exception{return open(address,0);}
+    private static HttpURLConnection open(String address,long offset)throws Exception{
         for(int hops=0;hops<6;hops++){
             if(!UpdatePolicy.transferUrl(address))throw new IOException("untrusted host");
-            HttpURLConnection c=(HttpURLConnection)new URL(address).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(12000);c.setReadTimeout(15000);
+            HttpURLConnection c=(HttpURLConnection)new URL(address).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(12000);c.setReadTimeout(45000);
+            if(offset>0)c.setRequestProperty("Range","bytes="+offset+"-");
             c.setRequestProperty("User-Agent","MarcoTV-Updater");c.setRequestProperty("Accept-Encoding","identity");c.setUseCaches(false);
             int status;try{status=c.getResponseCode();}catch(Exception e){c.disconnect();throw e;}
-            if(status==200)return c;
+            if(status==200||(offset>0&&status==206))return c;
             if(status==301||status==302||status==303||status==307||status==308){String next=c.getHeaderField("Location");c.disconnect();if(next==null)throw new IOException("redirect");address=new URI(address).resolve(next).toString();}
             else{c.disconnect();throw new IOException("HTTP "+status);}
         }throw new IOException("redirect limit");
