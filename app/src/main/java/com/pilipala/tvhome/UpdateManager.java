@@ -1,0 +1,114 @@
+// Copyright (C) 2026 Pilipala
+// SPDX-License-Identifier: GPL-3.0-only
+package com.pilipala.tvhome;
+
+import android.content.*;
+import android.content.pm.*;
+import android.os.*;
+import java.io.*;
+import java.net.*;
+import java.security.MessageDigest;
+import java.util.*;
+import java.util.concurrent.*;
+import org.json.JSONObject;
+
+/** Separate network queue; installs only an official same-signed newer APK after explicit user action. */
+final class UpdateManager {
+    static final class Release {
+        final int code,minSdk;final long size;final String version,url,sha,notes;final boolean preview;
+        Release(JSONObject o,String channel)throws Exception{
+            if(o.getInt("schema")!=1)throw new IOException("Unsupported feed");
+            code=o.getInt("versionCode");minSdk=o.getInt("minSdk");size=o.getLong("size");version=o.getString("versionName");
+            url=o.getString("url");sha=o.getString("sha256");preview=o.getBoolean("prerelease");notes=o.optString("notes","");
+            UpdatePolicy.validate(code,version,minSdk,size,sha,url,preview,channel);if(notes.length()>8000)throw new IOException("Notes too long");
+        }
+    }
+    private static UpdateManager instance;
+    static synchronized UpdateManager get(Context c){if(instance==null)instance=new UpdateManager(c.getApplicationContext());return instance;}
+    final Context context;final SharedPreferences prefs;
+    final ExecutorService worker=Executors.newSingleThreadExecutor();final Handler main=new Handler(Looper.getMainLooper());
+    volatile Release available;volatile String message="尚未检查更新";volatile boolean busy;volatile int percent=-1;
+    private volatile boolean cancel;private Runnable listener;private long noticedCode;
+    boolean cancelled(){return cancel;}
+    void resetCancellation(){cancel=false;}
+    private UpdateManager(Context c){context=c;prefs=c.getSharedPreferences("updates",0);
+        int code=installedCode(c),old=prefs.getInt("installed_code",code);
+        if(code>old){prefs.edit().putString("result","已升级至 "+ProjectInfo.VERSION+"。"+bridgeNote()).remove("download_sha").remove("pending_code").apply();apk().delete();}
+        else if(prefs.contains("pending_code"))prefs.edit().putString("result","上次安装未完成，当前版本仍可使用。可重新选择安装。").remove("pending_code").apply();
+        prefs.edit().putInt("installed_code",code).apply();
+        try{available=new Release(new JSONObject(prefs.getString("metadata","")),channel());}catch(Exception ignored){}
+        if(available!=null&&(available.code<=code||available.minSdk>Build.VERSION.SDK_INT))available=null;
+        message=prefs.getString("result","尚未检查更新");
+    }
+    static int installedCode(Context c){try{return c.getPackageManager().getPackageInfo(c.getPackageName(),0).versionCode;}catch(Exception e){return Integer.MAX_VALUE;}}
+    String channel(){return prefs.getString("channel","stable");}
+    String mode(){return prefs.getString("mode","notify");}
+    String bridgeNote(){return "若使用最近任务或唤醒恢复，请到状态中心检查任务辅助服务；本次 APK 更新后仍需电脑重新启动该服务。";}
+    synchronized void listen(Runnable callback){listener=callback;}
+    private void changed(){main.post(()->{Runnable callback; synchronized(this){callback=listener;}if(callback!=null)callback.run();});}
+    File folder(){File f=new File(context.getCacheDir(),"updates");f.mkdirs();return f;}
+    File apk(){return new File(folder(),"release.apk");}
+    boolean ready(){Release r=available;return r!=null&&r.code>installedCode(context)&&apk().isFile()&&apk().length()==r.size&&r.sha.equals(prefs.getString("download_sha",""));}
+    boolean consumeNotice(){Release r=available;if(r==null||r.code<=installedCode(context)||noticedCode==r.code||"off".equals(mode()))return false;noticedCode=r.code;return true;}
+    void setMode(String value){if(!Arrays.asList("notify","download","off").contains(value))return;prefs.edit().putString("mode",value).apply();if("off".equals(value))cancel=true;changed();}
+    synchronized boolean setChannel(String value){if(busy||!Arrays.asList("stable","preview").contains(value))return false;
+        prefs.edit().putString("channel",value).remove("metadata").remove("download_sha").remove("last_attempt").apply();available=null;apk().delete();noticedCode=0;message="渠道已切换，请检查更新";changed();return true;}
+    void automatic(){if(!"off".equals(mode())&&System.currentTimeMillis()-prefs.getLong("last_attempt",0)>=6*60*60*1000L)check(false);}
+    synchronized void check(boolean manual){if(busy)return;busy=true;cancel=false;message="正在检查更新…";percent=-1;changed();
+        final String channel=channel();prefs.edit().putLong("last_attempt",System.currentTimeMillis()).apply();
+        worker.execute(()->{try{
+            JSONObject data=new JSONObject(new String(readFeed(UpdatePolicy.FEED+channel+".json"),"UTF-8"));Release r=new Release(data,channel);
+            if(cancel)throw new InterruptedIOException();
+            if(!UpdatePolicy.newer(r.code,installedCode(context))){clearOffer();message="当前渠道暂无更高版本（本机 "+ProjectInfo.VERSION+"）";}
+            else if(r.minSdk>Build.VERSION.SDK_INT){clearOffer();message="发现新版，但其系统版本要求不适合本机，已停止下载";}
+            else{available=r;message="发现新版 "+r.version;prefs.edit().putString("metadata",data.toString()).apply();
+                if("download".equals(mode())&&!ready())downloadFile(r);}
+        }catch(InterruptedIOException e){message=cancel?"已取消，当前版本不受影响":"网络连接超时，请稍后重试";}
+        catch(Exception e){message="检查或下载失败，请检查网络后重试；现有版本仍可使用";Diagnostics.event("UPDATE_CHECK_FAILED");}
+        finally{busy=false;percent=-1;changed();}});
+    }
+    synchronized void download(){if(busy||available==null)return;Release r=available;if(r.minSdk>Build.VERSION.SDK_INT||r.code<=installedCode(context))return;
+        busy=true;cancel=false;worker.execute(()->{try{downloadFile(r);}catch(InterruptedIOException e){message=cancel?"下载已取消":"下载超时，请稍后重试";}catch(Exception e){message="下载或校验失败，未安装。请重试或从官方发布页下载";Diagnostics.event("UPDATE_DOWNLOAD_FAILED");}finally{busy=false;percent=-1;changed();}});
+    }
+    private void clearOffer(){available=null;prefs.edit().remove("metadata").remove("download_sha").apply();apk().delete();}
+    void cancel(){cancel=true;message="正在取消…";changed();}
+    private void downloadFile(Release r)throws Exception{
+        if(folder().getUsableSpace()<r.size*2+16*1024*1024L)throw new IOException("space");
+        File part=new File(folder(),"release.part");HttpURLConnection conn=null;boolean complete=false;percent=0;message="正在下载 "+r.version;changed();
+        try{conn=open(r.url);long declared=conn.getContentLength();if(declared>0&&declared!=r.size)throw new IOException("size");
+            try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(part)){
+                byte[] bytes=new byte[32768];long total=0;int n,last=-1;
+                while((n=in.read(bytes))!=-1){if(cancel)throw new InterruptedIOException();total+=n;if(total>r.size)throw new IOException("limit");out.write(bytes,0,n);
+                    int now=(int)(total*100/r.size);if(now!=last){last=now;percent=now;changed();}}
+                if(total!=r.size)throw new IOException("short download");
+            }
+            verifyApk(context,part,r);if(cancel)throw new InterruptedIOException();
+            if(apk().exists()&&!apk().delete())throw new IOException("replace");if(!part.renameTo(apk()))throw new IOException("rename");
+            prefs.edit().putString("download_sha",r.sha).apply();message="新版已下载并校验，选择“安装已下载版本”继续";complete=true;
+        }finally{if(conn!=null)conn.disconnect();if(!complete)part.delete();}
+    }
+    static void verifyApk(Context c,File file,Release r)throws Exception{
+        if(file.length()!=r.size||!sha(file).equals(r.sha))throw new IOException("digest");
+        PackageManager pm=c.getPackageManager();PackageInfo next=pm.getPackageArchiveInfo(file.getAbsolutePath(),PackageManager.GET_SIGNATURES);
+        PackageInfo current=pm.getPackageInfo(c.getPackageName(),PackageManager.GET_SIGNATURES);
+        if(next==null||!c.getPackageName().equals(next.packageName)||next.versionCode!=r.code||next.versionCode<=current.versionCode
+            ||!r.version.equals(next.versionName)||next.applicationInfo==null||next.applicationInfo.minSdkVersion>Build.VERSION.SDK_INT)throw new IOException("package identity or compatibility");
+        Set<String> a=signatures(current.signatures),b=signatures(next.signatures);if(a.isEmpty()||!a.equals(b))throw new IOException("signer");
+    }
+    private static Set<String> signatures(android.content.pm.Signature[] signatures){Set<String> result=new HashSet<>();if(signatures!=null)for(android.content.pm.Signature s:signatures)result.add(s.toCharsString());return result;}
+    static String sha(File file)throws Exception{MessageDigest digest=MessageDigest.getInstance("SHA-256");try(InputStream in=new FileInputStream(file)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)digest.update(b,0,n);}StringBuilder out=new StringBuilder();for(byte b:digest.digest())out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();}
+    static HttpURLConnection open(String address)throws Exception{
+        for(int hops=0;hops<6;hops++){
+            if(!UpdatePolicy.transferUrl(address))throw new IOException("untrusted host");
+            HttpURLConnection c=(HttpURLConnection)new URL(address).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(12000);c.setReadTimeout(15000);
+            c.setRequestProperty("User-Agent","MarcoTV-Updater");c.setRequestProperty("Accept-Encoding","identity");c.setUseCaches(false);
+            int status;try{status=c.getResponseCode();}catch(Exception e){c.disconnect();throw e;}
+            if(status==200)return c;
+            if(status==301||status==302||status==303||status==307||status==308){String next=c.getHeaderField("Location");c.disconnect();if(next==null)throw new IOException("redirect");address=new URI(address).resolve(next).toString();}
+            else{c.disconnect();throw new IOException("HTTP "+status);}
+        }throw new IOException("redirect limit");
+    }
+    private static byte[] readFeed(String address)throws Exception{HttpURLConnection c=open(address);try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+        byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1){if(out.size()+n>32768)throw new IOException("feed limit");out.write(bytes,0,n);}return out.toByteArray();
+    }finally{c.disconnect();}}
+}

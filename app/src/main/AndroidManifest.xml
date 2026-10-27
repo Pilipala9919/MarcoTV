@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome" android:versionCode="19" android:versionName="0.12.0-rc.1">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome" android:versionCode="21" android:versionName="0.12.0-rc.2">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -15,8 +15,10 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application android:name=".MarcoApplication" android:label="Marco TV" android:icon="@drawable/app_icon" android:banner="@drawable/app_banner" android:theme="@style/AppTheme" android:allowBackup="false" android:hardwareAccelerated="true" android:supportsRtl="true">
         <provider android:name=".TaskBridgeProvider" android:authorities="com.pilipala.tvhome.taskbridge" android:exported="true" android:permission="android.permission.DUMP" />
+        <provider android:name=".UpdateApkProvider" android:authorities="com.pilipala.tvhome.updates" android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|keyboardHidden" android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

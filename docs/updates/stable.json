@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "versionCode": 18,
+  "versionName": "0.11.1",
+  "minSdk": 23,
+  "size": 8127766,
+  "sha256": "8844394cf4fc79845b96d696be6921463e4a0c2cd68129c011ee78297d67fa3e",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.11.1/MarcoTV-0.11.1.apk",
+  "prerelease": false,
+  "notes": "当前稳定版 0.11.1：最近任务卡片圆角与任务服务启动检查修复。在线更新仅存在于后续版本。"
+}

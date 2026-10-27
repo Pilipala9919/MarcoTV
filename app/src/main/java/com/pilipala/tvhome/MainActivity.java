@@ -28,6 +28,8 @@ public final class MainActivity extends Activity {
     LocalFiles files;
     BackupPanel backups;
     HealthPanel health;
+    UpdatePanel updates;
+    boolean canShowUpdateNotice(){return foreground&&!dialogOpen&&(recents==null||!recents.visible);}
     RecentApps recents;
     private final HomePressTracker homePressTracker=new HomePressTracker();
     String focusAfterLoad;
@@ -83,7 +85,7 @@ public final class MainActivity extends Activity {
         navigator = new SettingsNavigator(this);
         cover = new CoverManager(this);
         library = new AppLibrary(this);
-        files = new LocalFiles(this);backups=new BackupPanel(this);health=new HealthPanel(this);
+        files = new LocalFiles(this);backups=new BackupPanel(this);health=new HealthPanel(this);updates=new UpdatePanel(this);
         recents=new RecentApps(this);
         playback = new NowPlaying(this);
         registerReceiver(playbackAccess, new IntentFilter(PlaybackListenerService.CHANGED));
@@ -127,9 +129,11 @@ public final class MainActivity extends Activity {
         if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
+        if(updates!=null)updates.resume();
     }
 
     @Override protected void onPause() {
+        if(updates!=null)updates.pause();
         foreground = false; Diagnostics.foreground(false); if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if(recents!=null)recents.stop();
@@ -254,7 +258,7 @@ public final class MainActivity extends Activity {
                     try {
                         ComponentName component=ComponentName.unflattenFromString(cards.manual(id));
                         if(component==null || !component.getPackageName().equals(id) || id.equals(getPackageName()))continue;
-                        ActivityInfo info=pm.getActivityInfo(component,0);
+                        ActivityInfo info=pm.getActivityInfo(component,PackageManager.MATCH_DISABLED_COMPONENTS);
                         if(!AppLibrary.launchable(this,info))continue;
                         ResolveInfo resolved=new ResolveInfo();resolved.activityInfo=info;
                         for(Iterator<Tile> it=apps.tiles.iterator();it.hasNext();)if(it.next().id.equals(id))it.remove();
@@ -413,6 +417,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if(updates!=null&&updates.result(request))return;
         if (files.result(request,result,data)) return;
         if (network.onActivityResult(request)) return;
         if (cover.onActivityResult(request, result, data)) return;

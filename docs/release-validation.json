@@ -1,14 +1,14 @@
 {
-  "version": "0.12.0-rc.1",
+  "version": "0.12.0-rc.2",
   "date": "2026-10-27",
   "author": "Pilipala",
   "release_channel": "prerelease",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "cb10315b44f7c50f04cdf2412ed1f17b80a718fe5f31cec274b831ca617700c8",
+  "apk_sha256": "6925eca6ddf6ffbd360e2020c43bef05d6b963a178ec3410224751c003f50814",
   "automated": {
-    "device": {
+    "device_on_development_build": {
       "passed": 85,
       "checks": [
         "retained_cache_branch_active",
@@ -98,35 +98,31 @@
         "media_stale_pause_is_hidden"
       ]
     },
-    "bridge": {
-      "passed": 4,
+    "update_candidate_validation": {
+      "passed": 17,
       "checks": [
-        "bridge_authenticated_connection",
-        "bridge_version_matches_app",
-        "bridge_returns_unique_real_task_ids",
-        "bridge_rejects_invalid_task"
-      ]
-    },
-    "task_actions": {
-      "passed": 13,
-      "checks": [
-        "same_app_keeps_two_system_tasks",
-        "snapshot_returns_explicit_availability",
-        "switch_moves_exact_task_to_front",
-        "stack_keeps_both_tasks_of_same_app",
-        "stack_closes_to_home",
-        "entrance_starts_below_final_card_position",
-        "entrance_settles_to_opaque_task_card",
-        "task_card_background_is_opaque",
-        "task_card_has_snapshot_or_logo",
-        "swipe_removes_only_selected_task",
-        "removed_card_leaves_stack",
-        "removed_task_cannot_reopen",
-        "remote_up_clears_fixture_task"
+        "newer_same_signed_apk_accepted",
+        "different_signer_rejected",
+        "wrong_download_size_rejected",
+        "wrong_digest_rejected",
+        "metadata_code_mismatch_rejected",
+        "metadata_name_mismatch_rejected",
+        "installed_version_rejected_as_update",
+        "update_provider_not_exported",
+        "provider_rejects_other_paths",
+        "provider_rejects_write_access",
+        "enabled_override_respected",
+        "disabled_override_respected",
+        "default_disabled_stays_disabled",
+        "tv_launcher_alias_discovered",
+        "private_entry_not_exposed",
+        "permission_guarded_entry_not_exposed",
+        "disabled_entry_not_exposed"
       ]
     }
   },
   "local_checks": {
+    "update_policy": 23,
     "settings_migration": 16,
     "motion": 10,
     "release_tools": 5
@@ -136,13 +132,12 @@
     "v2",
     "v3"
   ],
-  "upgrade_configuration_backup_saved_privately": true,
-  "manual_visual_review": "10 settings pages captured on the listed TV; root, startup and revised status overview visually reviewed. Raw captures remain private.",
+  "validation_scope": "Device regression ran on code 20 development build with the same implementation. Code 21 release APK passed candidate validation. Public feed download and system installer end-to-end checks will be recorded separately after release publication.",
   "not_verified": [
-    "physical remote on this build",
-    "reboot and power loss on this build",
+    "TCL 75T 8G Max Android 11 launch routes",
+    "Huawei HD65DESA",
+    "physical remote and reboot on this release",
     "long duration performance",
-    "Huawei HD65DESA compatibility"
-  ],
-  "scope": "Automated checks are evidence for this APK on the listed device only. No claim of universal compatibility. Published gallery remains labeled 0.11.1."
+    "public feed end-to-end installation at initial release"
+  ]
 }

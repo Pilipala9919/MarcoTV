@@ -1,0 +1,28 @@
+// Copyright (C) 2026 Pilipala
+// SPDX-License-Identifier: GPL-3.0-only
+package com.pilipala.tvhome;
+
+public final class UpdatePolicyChecks {
+    static int passed;
+    static void check(String name,boolean ok){if(!ok)throw new AssertionError(name);passed++;System.out.println("PASS "+name);}
+    static String good="https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0/MarcoTV-0.12.0.apk";
+    static void invalid(String name,int code,String version,int sdk,long size,String hash,String url,boolean preview,String channel){boolean failed=false;
+        try{UpdatePolicy.validate(code,version,sdk,size,hash,url,preview,channel);}catch(IllegalArgumentException e){failed=true;}check(name,failed);}
+    public static void main(String[] args){String hash=new String(new char[64]).replace('\0','a');
+        UpdatePolicy.validate(21,"0.12.0",23,123,hash,good,false,"stable");check("official_release_allowed",UpdatePolicy.apkUrl(good));
+        check("higher_code_is_update",UpdatePolicy.newer(21,20));check("same_code_not_reinstalled",!UpdatePolicy.newer(20,20));check("downgrade_rejected",!UpdatePolicy.newer(19,20));
+        invalid("preview_not_sent_to_stable",21,"0.12.0-rc.2",23,123,hash,good,true,"stable");
+        invalid("invalid_channel_rejected",21,"0.12.0",23,123,hash,good,false,"other");
+        invalid("invalid_version_rejected",21,"../../bad",23,123,hash,good,false,"stable");
+        invalid("zero_size_rejected",21,"0.12.0",23,0,hash,good,false,"stable");
+        invalid("large_size_rejected",21,"0.12.0",23,UpdatePolicy.MAX_APK+1,hash,good,false,"stable");
+        invalid("bad_hash_rejected",21,"0.12.0",23,123,"bad",good,false,"stable");
+        for(String url:new String[]{good.replace("https:","http:"),good.replace("github.com","github.com.evil.test"),good.replace("Pilipala9919","someone"),good+"?other=1",good+"#other",good.replace("github.com","user@github.com"),good.replace("github.com","github.com:443"),good.replace("v0.12.0/","v0.12.0/../"),good.replace("v0.12.0/","v0.12.0/%2e%2e/")})
+            check("untrusted_apk_url_"+passed,!UpdatePolicy.apkUrl(url));
+        check("github_asset_redirect_allowed",UpdatePolicy.transferUrl("https://release-assets.githubusercontent.com/asset?token=test"));
+        check("redirect_to_http_rejected",!UpdatePolicy.transferUrl("http://github.com/asset"));
+        check("redirect_to_localhost_rejected",!UpdatePolicy.transferUrl("https://localhost/asset"));
+        check("redirect_to_other_site_rejected",!UpdatePolicy.transferUrl("https://example.org/asset"));
+        System.out.println("OK "+passed+" update policy checks");
+    }
+}

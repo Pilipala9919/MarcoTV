@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "versionCode": 19,
+  "versionName": "0.12.0-rc.1",
+  "minSdk": 23,
+  "size": 8131862,
+  "sha256": "cb10315b44f7c50f04cdf2412ed1f17b80a718fe5f31cec274b831ca617700c8",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0-rc.1/MarcoTV-0.12.0-rc.1.apk",
+  "prerelease": true,
+  "notes": "0.12.0-rc.1：七组设置、状态中心和菜单排序迁移。后续在线更新预览正在验证。"
+}

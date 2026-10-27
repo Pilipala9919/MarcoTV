@@ -13,8 +13,7 @@ import java.util.*;
 final class AppLibrary {
     private final MainActivity host;
     AppLibrary(MainActivity host){this.host=host;}
-    static boolean launchable(Context context,ActivityInfo info){return info.exported&&info.enabled&&info.applicationInfo.enabled
-        &&(info.permission==null||context.checkSelfPermission(info.permission)==PackageManager.PERMISSION_GRANTED);}
+    static boolean launchable(Context context,ActivityInfo info){return AppEntries.launchable(context,info);}
     void show(){show("",false);}
     void show(String query){show(query,false);}
     private Intent normal(PackageManager pm,String id){Intent i=pm.getLeanbackLaunchIntentForPackage(id);return i==null?pm.getLaunchIntentForPackage(id):i;}
@@ -48,20 +47,32 @@ final class AppLibrary {
     private void search(String query,boolean advanced){EditText input=new EditText(host);input.setSingleLine(true);input.setHint("应用名称或包名");input.setInputType(InputType.TYPE_CLASS_TEXT);input.setText(query);input.selectAll();
         host.showDialog(new TvDialog.Builder(host).setTitle("搜索应用").setView(input).setPositiveButton("搜索",(d,w)->show(input.getText().toString(),advanced)).setNegativeButton("返回",null).create());}
     private void choose(ApplicationInfo app){
-        Intent normal=normal(host.getPackageManager(),app.packageName);ComponentName entry=normal==null?null:normal.getComponent();
-        if(entry==null){entries(app);return;}
-        host.showDialog(new TvDialog.Builder(host).setTitle("添加 · "+app.loadLabel(host.getPackageManager()))
-            .setMessage("使用默认打开入口即可。特殊页面可在高级入口中选择。")
-            .setItems(new String[]{"添加到 TV 应用","高级：选择其他页面"},(d,w)->{if(w==0)add(entry);else entries(app);}).setNegativeButton("返回",null).create());
+        final int epoch=host.menuEpoch;host.toast("正在检查启动入口…");
+        host.loader.execute(()->{AppEntries.Scan scan=AppEntries.scan(host,app.packageName);host.handler.post(()->{
+            if(host.isDestroyed()||epoch!=host.menuEpoch)return;
+            if(scan.primary.isEmpty()){entries(app,scan);return;}
+            ActivityInfo first=scan.primary.values().iterator().next();ComponentName entry=new ComponentName(first.packageName,first.name);
+            host.showDialog(new TvDialog.Builder(host).setPageId("add:"+app.packageName).setTitle("添加 · "+app.loadLabel(host.getPackageManager()))
+                .setMessage("已找到系统启动入口。也可选择其他公开页面；实际能否打开以电视结果为准。")
+                .setItems(new String[]{"添加到 TV 应用","选择其他公开页面","查看入口检查信息"},(d,w)->{
+                    if(w==0)add(entry);else if(w==1)entries(app,scan);else entryReport(app,scan);
+                }).setNegativeButton("返回",null).create());
+        });});
     }
-    private void entries(ApplicationInfo app){ArrayList<ActivityInfo> list=new ArrayList<>();PackageManager pm=host.getPackageManager();
-        try{PackageInfo pkg=pm.getPackageInfo(app.packageName,PackageManager.GET_ACTIVITIES);if(pkg.activities!=null)for(ActivityInfo info:pkg.activities)if(launchable(host,info))list.add(info);}catch(PackageManager.NameNotFoundException ignored){}
+    private void entries(ApplicationInfo app,AppEntries.Scan scan){ArrayList<ActivityInfo> list=new ArrayList<>(scan.all.values());PackageManager pm=host.getPackageManager();
         String[] labels=new String[list.size()];for(int i=0;i<labels.length;i++)labels[i]=list.get(i).loadLabel(pm)+"\n"+list.get(i).name;
-        host.showDialog(new TvDialog.Builder(host).setTitle("公开页面 · "+app.loadLabel(pm)).setMessage(list.isEmpty()?"此应用没有允许外部打开的页面，无法创建有效卡片。":"这些是应用允许外部打开的页面，部分页面仍可能被厂商限制。")
-            .setItems(labels,(d,w)->add(new ComponentName(list.get(w).packageName,list.get(w).name))).setNegativeButton("返回",null).create());
+        host.showDialog(new TvDialog.Builder(host).setPageId("entries:"+app.packageName).setTitle("公开页面 · "+app.loadLabel(pm)).setMessage(list.isEmpty()?scan.explanation():"这些是查询到的公开页面，部分页面仍可能被厂商限制。")
+            .setItems(labels,(d,w)->add(new ComponentName(list.get(w).packageName,list.get(w).name)))
+            .setNeutralButton("入口检查信息",(d,w)->entryReport(app,scan)).setNegativeButton("返回",null).create());
     }
+    private void entryReport(ApplicationInfo app,AppEntries.Scan scan){String version="未知";try{version=host.getPackageManager().getPackageInfo(app.packageName,0).versionName;}catch(Exception ignored){}
+        host.showDialog(new TvDialog.Builder(host).setPageId("entry_report:"+app.packageName).setTitle("应用入口检查")
+            .setMessage("Marco TV "+ProjectInfo.VERSION+"\nAndroid API "+android.os.Build.VERSION.SDK_INT+"\n所选应用："+app.packageName+"\n应用版本："+version
+                +"\n系统启动入口："+scan.primary.size()+"\n可用公开页面："+scan.all.size()+"\n查询失败："+scan.queryFailures
+                +"\n受权限限制："+scan.denied+"\n停用入口："+scan.disabled+"\n\n仅在本页显示所选应用的信息，不自动上传。限制计数可能包含不同查询中的同一入口。")
+            .setPositiveButton("返回",null).create());}
     private void add(ComponentName component){try{
-        ActivityInfo info=host.getPackageManager().getActivityInfo(component,0);if(!launchable(host,info)){host.toast("此入口无法打开");return;}
+        ActivityInfo info=host.getPackageManager().getActivityInfo(component,PackageManager.MATCH_DISABLED_COMPONENTS);if(!launchable(host,info)){host.toast("此入口被停用或需要额外权限");return;}
         String id=component.getPackageName();host.cards.manual(id,component.flattenToString());host.cards.toggle("hidden",id,false);
         host.focusAfterLoad=id;host.exitMenus();host.loadApplications();host.toast("已加入 TV 应用");Diagnostics.event("APP_MANUALLY_ADDED");
     }catch(Exception error){Diagnostics.event("APP_ADD_FAILED");host.toast("应用已变化，请重新选择");}}

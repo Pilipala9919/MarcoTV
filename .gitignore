@@ -37,3 +37,7 @@ scripts/*
 !scripts/start_task_bridge.py
 !scripts/test_settings.py
 !scripts/SettingsMigrationChecks.java
+!scripts/test_updates.py
+!scripts/UpdatePolicyChecks.java
+!scripts/UpdateDeviceChecks.java
+!scripts/make_update_feed.py

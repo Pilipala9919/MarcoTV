@@ -22,6 +22,8 @@ final class TvDialog extends Dialog {
     private ArrayList<Integer> itemOrder;
     private Runnable backAction;
     private TextView hint;
+    private TextView messageView;
+    void updateMessage(String value){spec.message=value;if(messageView!=null)messageView.setText(value);}
     private int moving=-1, lastItem, itemsOffset;
     private boolean swallowMoveRelease;
     private boolean forwardDismiss;
@@ -56,6 +58,7 @@ final class TvDialog extends Dialog {
         scroll.addView(body);
         if (spec.message != null && !preview) {
             TextView message = text(spec.message, 16, 0xFFBDC4CF); message.setLineSpacing(dp(5), 1);
+            messageView=message;
             message.setPadding(dp(3), 0, dp(3), dp(18)); body.addView(message);
         }
         if (spec.view != null) {

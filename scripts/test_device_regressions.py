@@ -24,7 +24,11 @@ def main():
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--bridge-only', action='store_true', help='Read-only task bridge checks; does not open TV UI')
     modes.add_argument('--task-actions', action='store_true', help='Create, switch and remove two temporary fixture tasks; never remove user tasks')
+    modes.add_argument('--updates-only', action='store_true', help='Validate a newer same-signed APK without installing it')
+    parser.add_argument('--candidate', help='Device-readable path to a newer same-signed Marco TV APK, required for --updates-only')
+    parser.add_argument('--wrong-signer', help='Device-readable path to the same candidate signed with a different test key; never installed')
     args = parser.parse_args()
+    if args.updates_only and (not args.candidate or not args.wrong_signer):parser.error('--candidate and --wrong-signer are required for --updates-only')
     folder = BUILD / 'device-regression'
     for name in ['', 'classes', 'dex']:
         (folder / name).mkdir(parents=True, exist_ok=True)
@@ -33,13 +37,19 @@ def main():
       <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
       <application android:label="Marco TV regression checks">
         <activity android:name="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="true" />
+        <activity-alias android:name=".FixtureAlias" android:targetActivity="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="true">
+          <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LEANBACK_LAUNCHER"/></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".PrivateFixture" android:targetActivity="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="false" />
+        <activity-alias android:name=".ProtectedFixture" android:targetActivity="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="true" android:permission="android.permission.INSTALL_PACKAGES" />
+        <activity-alias android:name=".DisabledFixture" android:targetActivity="com.pilipala.tvhome.DeviceRegressionChecks$FixtureActivity" android:exported="true" android:enabled="false" />
       </application>
       <instrumentation android:name="com.pilipala.tvhome.DeviceRegressionChecks" android:targetPackage="com.pilipala.tvhome" />
     </manifest>''', encoding='utf-8')
     run(executable(TOOLS, 'aapt2'), 'link', '-o', folder / 'resources.apk', '--manifest', manifest, '-I', ANDROID)
     run(executable(JDK / 'bin', 'javac'), '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
         '-classpath', str(ANDROID) + os.pathsep + str(BUILD / 'classes.jar'), '-d', folder / 'classes',
-        ROOT / 'scripts/DeviceRegressionChecks.java', ROOT / 'scripts/FeatureRegressionChecks.java')
+        ROOT / 'scripts/DeviceRegressionChecks.java', ROOT / 'scripts/FeatureRegressionChecks.java', ROOT / 'scripts/UpdateDeviceChecks.java')
     with zipfile.ZipFile(folder / 'classes.jar', 'w') as archive:
         for file in (folder / 'classes').rglob('*.class'):
             archive.write(file, file.relative_to(folder / 'classes').as_posix())
@@ -67,11 +77,11 @@ def main():
             raise RuntimeError('TV is not awake. UI tests were not run; no wake command is sent automatically.')
         if 'Success' not in adb('install', '-r', folder / 'checks.apk'): raise RuntimeError('Test APK install failed')
         installed = True
-        output = adb('shell', 'am', 'instrument', '-w', '-e', 'bridge_only', str(args.bridge_only).lower(), '-e', 'task_actions', str(args.task_actions).lower(),
+        output = adb('shell', 'am', 'instrument', '-w', '-e', 'wrong_signer', args.wrong_signer or 'unused', '-e', 'updates_only', str(args.updates_only).lower(), '-e', 'candidate', args.candidate or 'unused', '-e', 'bridge_only', str(args.bridge_only).lower(), '-e', 'task_actions', str(args.task_actions).lower(),
                      'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
         print(output)
-        (folder / ('task-result.txt' if args.task_actions else 'bridge-result.txt' if args.bridge_only else 'result.txt')).write_text(output, encoding='utf-8')
-        expected='OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 85 device regression checks'
+        (folder / ('update-result.txt' if args.updates_only else 'task-result.txt' if args.task_actions else 'bridge-result.txt' if args.bridge_only else 'result.txt')).write_text(output, encoding='utf-8')
+        expected='OK 17 update device checks' if args.updates_only else 'OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 85 device regression checks'
         if expected not in output or 'FAIL' in output:
             raise RuntimeError('Device regression failed; see local result.txt')
     finally:

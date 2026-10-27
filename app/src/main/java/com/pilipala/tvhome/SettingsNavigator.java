@@ -44,10 +44,10 @@ final class SettingsNavigator {
             .setNegativeButton("返回",null).create());
     }
     void maintenance(){host.showDialog(new TvDialog.Builder(host).setPageId("maintenance").setTitle("维护与帮助")
-        .setOrder("maintenance","health","backup","diagnostics","guide","info","about")
-        .setItems(new String[]{"状态中心","备份与恢复","本地诊断","首次使用引导","设备信息","关于 Marco TV"},(d,w)->{
+        .setOrder("maintenance","health","backup","diagnostics","guide","info","about","updates")
+        .setItems(new String[]{"状态中心","备份与恢复","本地诊断","首次使用引导","设备信息","关于 Marco TV","软件更新"},(d,w)->{
             switch(w){case 0:host.health.status();break;case 1:host.backups.show();break;case 2:host.health.diagnostics();break;
-                case 3:host.health.guide(0);break;case 4:deviceInfo();break;case 5:about();break;}
+                case 3:host.health.guide(0);break;case 4:deviceInfo();break;case 5:about();break;case 6:host.updates.show();break;}
         }).setNegativeButton("返回",null).create());}
     void deviceInfo(){host.showDialog(new TvDialog.Builder(host).setPageId("device_info").setTitle("设备信息")
         .setMessage("品牌："+Build.MANUFACTURER+"\n型号："+Build.MODEL+"\nAndroid："+Build.VERSION.RELEASE+"（API "+Build.VERSION.SDK_INT+"）"

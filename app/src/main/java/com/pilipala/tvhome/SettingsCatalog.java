@@ -10,7 +10,7 @@ final class SettingsCatalog {
     static final String[] ROOT_LABELS={"桌面与外观","应用与分类","最近任务","正在播放","网络与声音","系统与启动","维护与帮助"};
     static final Set<String> ORDER_KEYS=Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
         "main","main_v2","clock","device","startup","cards","appearance","apps","wallpaper",
-        "maintenance","recents","task_style","playback","diagnostics","health","backup")));
+        "maintenance","recents","task_style","playback","diagnostics","health","backup","updates")));
     static String remap(String saved,String[] from,String[] to){
         if(from.length!=to.length)throw new IllegalArgumentException("migration mapping");
         LinkedHashSet<String> result=new LinkedHashSet<>();
