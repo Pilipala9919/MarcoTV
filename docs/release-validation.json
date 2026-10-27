@@ -112,6 +112,33 @@
         "new_appearance_parameters_are_backed_up",
         "motion_backup_bounds"
       ]
+    },
+    "task_bridge": {
+      "passed": 4,
+      "checks": [
+        "bridge_authenticated_connection",
+        "bridge_version_matches_app",
+        "bridge_returns_unique_real_task_ids",
+        "bridge_rejects_invalid_task"
+      ]
+    },
+    "task_actions": {
+      "passed": 13,
+      "checks": [
+        "same_app_keeps_two_system_tasks",
+        "snapshot_returns_explicit_availability",
+        "switch_moves_exact_task_to_front",
+        "stack_keeps_both_tasks_of_same_app",
+        "stack_closes_to_home",
+        "entrance_starts_below_final_card_position",
+        "entrance_settles_to_opaque_task_card",
+        "task_card_background_is_opaque",
+        "task_card_has_snapshot_or_logo",
+        "swipe_removes_only_selected_task",
+        "removed_card_leaves_stack",
+        "removed_task_cannot_reopen",
+        "remote_up_clears_fixture_task"
+      ]
     }
   },
   "local_checks": {
