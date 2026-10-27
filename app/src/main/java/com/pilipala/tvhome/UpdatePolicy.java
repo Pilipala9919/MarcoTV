@@ -8,12 +8,18 @@ import java.net.URI;
 final class UpdatePolicy {
     static final long MAX_APK=128L*1024*1024;
     static final String FEED="https://pilipala9919.github.io/MarcoTV/updates/";
-    static boolean apkUrl(String value){try{URI u=new URI(value);return "https".equals(u.getScheme())&&"github.com".equals(u.getHost())
+    static final String MIRROR="https://marcotv.wlj9919.top/";
+    static String[] feeds(String channel){if(!"stable".equals(channel)&&!"preview".equals(channel))throw new IllegalArgumentException("channel");
+        return new String[]{MIRROR+"updates/"+channel+".json",FEED+channel+".json"};}
+    static String[] downloads(String version){if(version==null||!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?")||version.length()>48)throw new IllegalArgumentException("version");
+        String file="MarcoTV-"+version+".apk";return new String[]{MIRROR+file,"https://github.com/Pilipala9919/MarcoTV/releases/download/v"+version+"/"+file};}
+    static boolean apkUrl(String value){try{URI u=new URI(value);return "https".equals(u.getScheme())
         &&u.getUserInfo()==null&&u.getPort()==-1&&u.getQuery()==null&&u.getFragment()==null
-        &&u.getPath().startsWith("/Pilipala9919/MarcoTV/releases/download/")&&u.getPath().endsWith(".apk")
+        &&(("github.com".equals(u.getHost())&&u.getPath().startsWith("/Pilipala9919/MarcoTV/releases/download/")&&u.getPath().endsWith(".apk"))
+            ||("marcotv.wlj9919.top".equals(u.getHost())&&u.getPath().matches("/MarcoTV-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?\\.apk")))
         &&!u.getPath().contains("..")&&u.getRawPath().equals(u.getPath());}catch(Exception e){return false;}}
     static boolean transferUrl(String value){try{URI u=new URI(value);String h=u.getHost();return "https".equals(u.getScheme())&&u.getUserInfo()==null&&u.getPort()==-1
-        &&("pilipala9919.github.io".equals(h)||"github.com".equals(h)||"release-assets.githubusercontent.com".equals(h)||"objects.githubusercontent.com".equals(h));}catch(Exception e){return false;}}
+        &&("marcotv.wlj9919.top".equals(h)||"pilipala9919.github.io".equals(h)||"github.com".equals(h)||"release-assets.githubusercontent.com".equals(h)||"objects.githubusercontent.com".equals(h));}catch(Exception e){return false;}}
     static void validate(int code,String version,int minSdk,long size,String sha,String url,boolean preview,String channel){
         if(code<=0||version==null||!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?")||version.length()>48
             ||minSdk<23||minSdk>100||size<1||size>MAX_APK||sha==null||!sha.matches("[a-f0-9]{64}")||!apkUrl(url)

@@ -16,7 +16,8 @@ def make(apk, url, prerelease, notes):
     if not package or not sdk or package[1]!='com.pilipala.tvhome':raise ValueError('Unexpected APK identity')
     version=package[3]
     expected=f'https://github.com/Pilipala9919/MarcoTV/releases/download/v{version}/MarcoTV-{version}.apk'
-    if url!=expected:raise ValueError('URL must match the official versioned release filename')
+    mirror=f'https://marcotv.wlj9919.top/MarcoTV-{version}.apk'
+    if url not in (expected,mirror):raise ValueError('URL must match the official or mirror versioned release filename')
     if ('-' in version)!=prerelease:raise ValueError('Prerelease flag must agree with version name')
     if len(notes)>8000:raise ValueError('Notes too long')
     return {'schema':1,'versionCode':int(package[2]),'versionName':version,'minSdk':int(sdk[1]),

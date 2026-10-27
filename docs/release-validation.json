@@ -1,14 +1,14 @@
 {
-  "version": "0.12.0-rc.3",
+  "version": "0.12.0-rc.4",
   "date": "2026-10-27",
   "author": "Pilipala",
   "release_channel": "prerelease",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "41e8b0ebb338288a9f2ff57f799aa9af2ce1b9952a2a808a5ef85d1f3d834f8f",
+  "apk_sha256": "76e18deb1ba684553682f7e5a8d4fd0c2dd8021bdc81532c85b1725572e5bb0b",
   "automated": {
-    "device_on_development_build": {
+    "device_on_code23_candidate": {
       "passed": 85,
       "checks": [
         "retained_cache_branch_active",
@@ -98,6 +98,33 @@
         "media_stale_pause_is_hidden"
       ]
     },
+    "task_bridge": {
+      "passed": 4,
+      "checks": [
+        "bridge_authenticated_connection",
+        "bridge_version_matches_app",
+        "bridge_returns_unique_real_task_ids",
+        "bridge_rejects_invalid_task"
+      ]
+    },
+    "task_actions": {
+      "passed": 13,
+      "checks": [
+        "same_app_keeps_two_system_tasks",
+        "snapshot_returns_explicit_availability",
+        "switch_moves_exact_task_to_front",
+        "stack_keeps_both_tasks_of_same_app",
+        "stack_closes_to_home",
+        "entrance_starts_below_final_card_position",
+        "entrance_settles_to_opaque_task_card",
+        "task_card_background_is_opaque",
+        "task_card_has_snapshot_or_logo",
+        "swipe_removes_only_selected_task",
+        "removed_card_leaves_stack",
+        "removed_task_cannot_reopen",
+        "remote_up_clears_fixture_task"
+      ]
+    },
     "update_candidate_validation": {
       "passed": 17,
       "checks": [
@@ -122,7 +149,7 @@
     }
   },
   "local_checks": {
-    "update_policy": 30,
+    "update_policy": 44,
     "settings_migration": 16,
     "motion": 10,
     "release_tools": 5
@@ -132,12 +159,20 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Device regression uses code 20 development build; code 22 release APK candidate validation and final public download/install results are separately scoped. Network timeout handling was observed, prompting resumable transfer support. Final public installation still pending.",
+  "validation_scope": "Code 23 candidate passed 85 device regressions and live mirror transfer/fallback checks. Final code 24 changes only update help wording and version code; same-signed candidate validation checked separately. Full public mirror installation pending deployment.",
   "not_verified": [
     "TCL 75T 8G Max Android 11 launch routes",
     "Huawei HD65DESA",
     "physical remote and reboot on this release",
     "long duration performance",
-    "public feed end-to-end installation at initial rc.3 release"
-  ]
+    "public mirror end-to-end installation at initial rc.4 release"
+  ],
+  "version_code": 24,
+  "mirror_network_checks": {
+    "tv_full_stable_apk_sha256": true,
+    "tv_range_response_and_content": true,
+    "invalid_mirror_feed_fallback": true,
+    "public_preview_feed": false,
+    "system_installer_e2e": false
+  }
 }

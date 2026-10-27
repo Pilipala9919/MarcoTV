@@ -41,7 +41,7 @@ final class UpdatePanel {
             if(!updates.setChannel(w==0?"stable":"preview"))host.toast("请等当前操作结束或取消后再切换渠道");show();
         }).setNegativeButton("返回",null).create());}
     private void help(){host.showDialog(new TvDialog.Builder(host).setPageId("update_help").setTitle("更新说明")
-        .setMessage("更新由电视主动检查 GitHub 官方发布，不需要账号或开放公网 ADB。网络受限时可以稍后重试或使用 U 盘安装。\n\n"
+        .setMessage("更新由电视主动检查，优先使用作者镜像，失败时尝试 GitHub 官方发布，不需要账号或开放公网 ADB。网络受限时可以稍后重试或使用 U 盘安装。\n\n"
             +"下载安装包后核对完整性、包名、版本及本机签名；安装前保存配置到本机备份目录，不清除原数据。厂商可能要求允许 Marco TV 安装未知应用，或不提供安装页面。\n\n"
             +updates.bridgeNote()+"\n\n应用不会静默安装，不会修改 Home、ADB 或无障碍授权。升级失败时可继续使用当前版本。")
         .setPositiveButton("返回",null).create());}

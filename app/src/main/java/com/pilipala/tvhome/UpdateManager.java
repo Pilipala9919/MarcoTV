@@ -57,7 +57,7 @@ final class UpdateManager {
     synchronized void check(boolean manual){if(busy)return;busy=true;cancel=false;message="正在检查更新…";percent=-1;changed();
         final String channel=channel();prefs.edit().putLong("last_attempt",System.currentTimeMillis()).apply();
         worker.execute(()->{try{
-            JSONObject data=new JSONObject(new String(readFeed(UpdatePolicy.FEED+channel+".json"),"UTF-8"));Release r=new Release(data,channel);
+            JSONObject data=readRelease(channel);Release r=new Release(data,channel);
             if(cancel)throw new InterruptedIOException();
             if(!UpdatePolicy.newer(r.code,installedCode(context))){clearOffer();message="当前渠道暂无更高版本（本机 "+ProjectInfo.VERSION+"）";}
             else if(r.minSdk>Build.VERSION.SDK_INT){clearOffer();message="发现新版，但其系统版本要求不适合本机，已停止下载";}
@@ -79,21 +79,26 @@ final class UpdateManager {
         if(!r.sha.equals(prefs.getString("partial_sha",""))||part.length()>r.size){part.delete();prefs.edit().putString("partial_sha",r.sha).commit();}
         percent=(int)(part.length()*100/r.size);boolean verified=false;
         try{
-            IOException failure=null;
-            for(int attempt=0;attempt<3&&part.length()<r.size;attempt++){
-                if(cancel)throw new InterruptedIOException();
-                message=(attempt==0?"正在下载 ":"网络中断，继续下载 ")+r.version;changed();
-                try{transfer(r,part);failure=null;}catch(IOException e){failure=e;if(cancel)throw new InterruptedIOException();}
+            Exception failure=null;boolean valid=false;
+            String[] sources=UpdatePolicy.downloads(r.version);
+            for(int source=0;source<sources.length&&!valid;source++){
+                for(int attempt=0;attempt<2&&part.length()<r.size;attempt++){
+                    if(cancel)throw new InterruptedIOException();
+                    message=(source==0?"正在从镜像站下载 ":"镜像暂不可用，改从 GitHub 下载 ")+r.version;changed();
+                    try{transfer(r,part,sources[source]);failure=null;}catch(IOException e){failure=e;if(cancel)throw new InterruptedIOException();}
+                }
+                if(part.length()==r.size){
+                    try{verifyApk(context,part,r);valid=true;}catch(Exception e){failure=e;if(!part.delete())throw new IOException("discard invalid APK",e);}
+                }
             }
-            if(part.length()!=r.size){if(failure!=null)throw failure;throw new IOException("short download");}
-            try{verifyApk(context,part,r);}catch(Exception e){part.delete();prefs.edit().remove("partial_sha").apply();throw e;}
+            if(!valid){if(failure!=null)throw failure;throw new IOException("short download");}
             if(cancel)throw new InterruptedIOException();
             if(apk().exists()&&!apk().delete())throw new IOException("replace");if(!part.renameTo(apk()))throw new IOException("rename");
             prefs.edit().putString("download_sha",r.sha).remove("partial_sha").apply();message="新版已下载并校验，选择“安装已下载版本”继续";verified=true;
         }finally{if(cancel){part.delete();prefs.edit().remove("partial_sha").apply();}if(!verified&&!cancel&&part.exists())message="下载中断，已保留进度，可再次下载继续";}
     }
-    private void transfer(Release r,File part)throws Exception{
-        long offset=part.length();HttpURLConnection conn=open(r.url,offset);activeConnection=conn;
+    private void transfer(Release r,File part,String address)throws Exception{
+        long offset=part.length();HttpURLConnection conn=open(address,offset);activeConnection=conn;
         try{
             long start=UpdatePolicy.resumeOffset(offset,conn.getResponseCode(),conn.getHeaderField("Content-Range"),r.size);
             long declared=conn.getContentLength();if(declared>0&&declared!=r.size-start)throw new IOException("size");
@@ -128,7 +133,16 @@ final class UpdateManager {
             else{c.disconnect();throw new IOException("HTTP "+status);}
         }throw new IOException("redirect limit");
     }
-    private static byte[] readFeed(String address)throws Exception{HttpURLConnection c=open(address);try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+    private JSONObject readRelease(String channel)throws Exception{
+        Exception failure=null;
+        for(String address:UpdatePolicy.feeds(channel)){
+            if(cancel)throw new InterruptedIOException();
+            try{JSONObject data=new JSONObject(new String(readFeed(address),"UTF-8"));new Release(data,channel);return data;}
+            catch(Exception e){failure=e;if(cancel)throw new InterruptedIOException();}
+        }
+        throw failure==null?new IOException("no update source"):failure;
+    }
+    private byte[] readFeed(String address)throws Exception{HttpURLConnection c=open(address);activeConnection=c;try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
         byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1){if(out.size()+n>32768)throw new IOException("feed limit");out.write(bytes,0,n);}return out.toByteArray();
-    }finally{c.disconnect();}}
+    }finally{activeConnection=null;c.disconnect();}}
 }

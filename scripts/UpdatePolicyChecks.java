@@ -23,6 +23,16 @@ public final class UpdatePolicyChecks {
         check("redirect_to_http_rejected",!UpdatePolicy.transferUrl("http://github.com/asset"));
         check("redirect_to_localhost_rejected",!UpdatePolicy.transferUrl("https://localhost/asset"));
         check("redirect_to_other_site_rejected",!UpdatePolicy.transferUrl("https://example.org/asset"));
+        String mirror="https://marcotv.wlj9919.top/MarcoTV-0.12.0-rc.4.apk";
+        check("mirror_apk_allowed",UpdatePolicy.apkUrl(mirror));
+        check("mirror_transfer_allowed",UpdatePolicy.transferUrl(mirror));
+        check("mirror_feed_first",UpdatePolicy.feeds("preview")[0].equals("https://marcotv.wlj9919.top/updates/preview.json"));
+        check("official_feed_fallback",UpdatePolicy.feeds("stable")[1].equals(UpdatePolicy.FEED+"stable.json"));
+        check("mirror_download_first",UpdatePolicy.downloads("0.12.0-rc.4")[0].equals(mirror));
+        check("official_download_fallback",UpdatePolicy.downloads("0.12.0")[1].equals(good));
+        for(String url:new String[]{mirror.replace("wlj9919","wlj999"),mirror.replace(".top/",".top.evil/"),mirror.replace("/MarcoTV-","/nested/MarcoTV-"),mirror+"?token=a",mirror.replace("https:","http:"),mirror.replace("/MarcoTV-","/%4darcoTV-"),mirror.replace("/MarcoTV-","/../MarcoTV-")})
+            check("unsafe_mirror_url_"+passed,!UpdatePolicy.apkUrl(url));
+        boolean rejectedVersion=false;try{UpdatePolicy.downloads("../../evil");}catch(IllegalArgumentException e){rejectedVersion=true;}check("download_version_injection_rejected",rejectedVersion);
         check("valid_range_continues",UpdatePolicy.resumeOffset(20,206,"bytes 20-99/100",100)==20);
         check("ignored_range_restarts_without_append",UpdatePolicy.resumeOffset(20,200,null,100)==0);
         for(String range:new String[]{"bytes 0-99/100","bytes 20-98/100","bytes 20-99/101",null,"bytes 20-999999999999999999999999/100"}){
