@@ -159,20 +159,21 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 23 candidate passed 85 device regressions and live mirror transfer/fallback checks. Final code 24 changes only update help wording and version code; same-signed candidate validation checked separately. Full public mirror installation pending deployment.",
+  "validation_scope": "Code 23 candidate passed 85 device regressions and live mirror transfer/fallback checks. Final code 24 changes only update help wording and version code; same-signed candidate validation checked separately. Full public mirror installation pending deployment. Public mirror code 24 was then checked, downloaded, verified and installed through the TV system installer. Unknown-source authorization and pre-install local backup completed; task bridge restarted and update preferences restored to stable/notify.",
   "not_verified": [
     "TCL 75T 8G Max Android 11 launch routes",
     "Huawei HD65DESA",
     "physical remote and reboot on this release",
-    "long duration performance",
-    "public mirror end-to-end installation at initial rc.4 release"
+    "long duration performance"
   ],
   "version_code": 24,
   "mirror_network_checks": {
     "tv_full_stable_apk_sha256": true,
     "tv_range_response_and_content": true,
     "invalid_mirror_feed_fallback": true,
-    "public_preview_feed": false,
-    "system_installer_e2e": false
+    "public_preview_feed": true,
+    "system_installer_e2e": true,
+    "installed_code": 24,
+    "mirror_sync_workflow": "40524990267"
   }
 }
