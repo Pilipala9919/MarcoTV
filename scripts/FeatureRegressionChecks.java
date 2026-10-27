@@ -36,7 +36,10 @@ final class FeatureRegressionChecks {
             CardStore cards=new CardStore(context);cards.setName("com.fixture.missing","测试卡片");cards.toggle("pinned","com.fixture.missing",true);
             Bitmap image=Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888);image.eraseColor(Color.GREEN);
             try(OutputStream out=new FileOutputStream(cards.imageFile("com.fixture.missing"))){image.compress(Bitmap.CompressFormat.JPEG,90,out);}image.recycle();cards.cover("com.fixture.missing","image");
+            SharedPreferences menus=context.getSharedPreferences("menu_order",0);
+            menus.edit().putString("main","hidden|recents|clock|wallpapers").putString("clock","dim|wait").commit();
             JSONObject original=BackupStore.capture(context,true);BackupStore.write(context,archive,original);
+            menus.edit().putString("main_v2","device|maintenance").putString("appearance","cards|wallpaper").commit();
             prefs.edit().putInt("recent_size",110).putBoolean("recent_enabled",true).putBoolean("recent_wake",true).commit();JSONObject recent=BackupStore.capture(context,false);
             check.accept("backup_includes_task_card_appearance",recent.getJSONObject("home").getJSONObject("recent_size").getInt("value")==110);
             check.accept("backup_excludes_task_activation",!recent.getJSONObject("home").has("recent_enabled")&&!recent.getJSONObject("home").has("recent_wake"));
@@ -48,10 +51,18 @@ final class FeatureRegressionChecks {
                 check.accept("backup_restores_settings",prefs.getInt("card_radius",0)==44&&prefs.getString("tv_sort","").equals("custom"));
                 check.accept("backup_restores_cards",cards.contains("pinned","com.fixture.missing")&&cards.cover("com.fixture.missing").equals("image"));
                 check.accept("backup_preserves_local_system_state",prefs.getString("saved_dream","").equals("private-system-state"));
+                check.accept("legacy_backup_replaces_new_menu_order",menus.getString("main_v2","").equals("apps|recents|appearance"));
+                check.accept("legacy_backup_preserves_nested_order",menus.getString("clock","").equals("dim|wait"));
+                check.accept("legacy_backup_migrates_merged_page",menus.getString("appearance","").equals("clock|wallpaper"));
                 File before=new File(context.getFilesDir(),"backups/before-restore.zip");
                 try(BackupStore.PreparedInput prior=new BackupStore.PreparedInput(context,before)){check.accept("restore_saves_previous_configuration",prior.value.metadata.getJSONObject("home").getJSONObject("card_radius").getInt("value")==12);}
             }
             JSONObject settings=BackupStore.capture(context,false);BackupStore.write(context,new File(root,"settings.zip"),settings);
+            menus.edit().putString("main_v2","startup|device").commit();
+            try(BackupStore.PreparedInput input=new BackupStore.PreparedInput(context,new File(root,"settings.zip"))){BackupStore.restore(context,input.value);}
+            check.accept("new_backup_roundtrips_migrated_order",menus.getString("main_v2","").equals("apps|recents|appearance"));
+            java.util.Map<String,?> migrated=menus.getAll();MenuMigration.apply(context);
+            check.accept("preference_migration_idempotent",migrated.equals(menus.getAll()));
             try(BackupStore.PreparedInput only=new BackupStore.PreparedInput(context,new File(root,"settings.zip"))){check.accept("settings_only_omits_images",only.value.images.isEmpty()&&only.value.metadata.getJSONObject("cards").getJSONObject("cover:com.fixture.missing").getString("value").equals("original"));}
             int before=prefs.getInt("card_radius",0);
             check.accept("backup_rejects_path_traversal",rejects(context,zip("../escaped",new byte[]{1}))&&!new File(root,"escaped").exists());

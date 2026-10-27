@@ -32,7 +32,7 @@ def main():
         if 'marcotv-task-bridge' in shell('ps','-A'):started=True;break
     if not started:
         raise RuntimeError('Bridge did not start: '+shell('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:])
-    print('Task bridge started. Open Marco TV > 最近任务与双击 Home > 检查任务服务.')
+    print('Task bridge started. Open Marco TV > 最近任务 > 状态中心.')
     print('The helper runs locally as ADB shell, survives ordinary standby, and must be restarted after a full reboot or APK update.')
 
 if __name__=='__main__':main()

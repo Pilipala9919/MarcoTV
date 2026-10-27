@@ -127,24 +127,26 @@ final class RecentApps {
     }
     private String fit(String s,float width,float size){paint.setTypeface(bold);paint.setTextSize(size);if(paint.measureText(s)<=width)return s;int end=s.length();while(end>0&&paint.measureText(s.substring(0,end)+"…")>width)end=s.offsetByCodePoints(end,-1);return s.substring(0,end)+"…";}
     private void text(Canvas c,String s,float x,float y,float size,Typeface face,int color,Paint.Align align){paint.setShader(null);paint.setColor(color);paint.setTypeface(face);paint.setTextSize(size);paint.setTextAlign(align);c.drawText(s,x,y,paint);}
-    void settings(){if(entries.isEmpty())load();
-        String[] names={"双击 Home："+(enabled()?"开启":"关闭"),"立即打开最近任务","唤醒后恢复桌面："+(host.preferences.getBoolean("recent_wake",true)?"开启":"关闭"),"卡片大小","卡片间距","卡片倾斜","卡片圆角","背景暗度","展开与切换动画时长","双击间隔","显示数量","检查任务服务"};
-        host.showDialog(new TvDialog.Builder(host).setTitle("最近任务与双击 Home").setMessage("单击立即回桌面，双击打开系统最近任务。需要默认桌面或 Home 兼容及已启动的任务辅助服务。\n使用真实任务编号，保留同一应用的多个任务；系统没有缩略图时显示 Logo。上滑或上键清除所选任务，未保存的页面可能丢失。唤醒恢复只处理原厂桌面，不打断其他应用。")
-            .setItems(names,(d,w)->{switch(w){
-                case 0:host.preferences.edit().putBoolean("recent_enabled",!enabled()).apply();settings();break;
-                case 1:show();break;
-                case 2:host.preferences.edit().putBoolean("recent_wake",!host.preferences.getBoolean("recent_wake",true)).apply();host.loader.execute(()->{try{TaskBridgeClient.configure(host);}catch(Exception ignored){}});settings();break;
-                case 3:slider("卡片大小","size",60,120,100,"%");break;case 4:slider("卡片间距","spacing",80,360,210,"");break;
-                case 5:slider("卡片倾斜","tilt",0,18,7,"°");break;case 6:slider("卡片圆角","radius",8,80,36,"");break;
-                case 7:slider("背景暗度","dim",0,90,65,"%");break;case 8:slider("展开与切换动画时长","duration",120,700,280," 毫秒");break;
-                case 9:slider("双击间隔","double_ms",200,700,400," 毫秒");break;case 10:slider("显示数量","limit",3,20,10," 个");break;
-                case 11:status();break;
-            }}).setNegativeButton("返回",null).create());
+    void settings(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("recents").setTitle("最近任务")
+            .setOrder("recents","enabled","open","style","double","status")
+            .setMessage("双击功能："+(enabled()?"已开启":"未开启")+"。需要默认桌面或 Home 兼容，以及已启动的任务辅助服务。上滑或上键清除所选任务，未保存的页面可能丢失。唤醒恢复请到系统与启动设置。")
+            .setItems(new String[]{enabled()?"关闭双击 Home":"开启双击 Home","立即打开最近任务","任务卡片与动画","双击间隔","状态中心"},(d,w)->{
+                switch(w){case 0:host.preferences.edit().putBoolean("recent_enabled",!enabled()).apply();settings();break;
+                    case 1:show();break;case 2:styleSettings();break;case 3:slider("双击间隔","double_ms",200,700,400," 毫秒");break;case 4:host.health.status();break;}
+            }).setNegativeButton("返回",null).create());
     }
-    private void status(){final int epoch=host.menuEpoch;host.loader.execute(()->{String message;try{org.json.JSONObject state=TaskBridgeClient.configure(host);message="任务服务已连接\n版本："+state.optString("version")+"\n唤醒恢复："+(state.optBoolean("wake")?"开启":"关闭")+"\n移除单个任务："+(state.optBoolean("canRemove")?"task".equals(state.optString("removeMode"))?"已授权":"仅独立任务可清除":"系统未开放")+"\n最近结果："+state.optString("lastWake");}catch(Exception e){message="任务服务未连接。请在电脑上按安装说明运行任务服务启动工具；电视真正重启后需重新启动。";}final String result=message;host.handler.post(()->{if(epoch==host.menuEpoch&&!host.isDestroyed())host.showDialog(new TvDialog.Builder(host).setTitle("任务服务状态").setMessage(result).setPositiveButton("返回",null).create());});});}
+    void styleSettings(){if(entries.isEmpty())load();host.showDialog(new TvDialog.Builder(host).setPageId("task_style").setTitle("任务卡片与动画")
+        .setOrder("task_style","size","spacing","tilt","radius","dim","duration","limit")
+        .setItems(new String[]{"任务卡片大小","任务卡片间距","任务卡片倾斜","任务卡片圆角","任务背景压暗程度","展开与切换动画时长","显示数量"},(d,w)->{
+            switch(w){case 0:slider("任务卡片大小","size",60,120,100,"%");break;case 1:slider("任务卡片间距","spacing",80,360,210,"");break;
+                case 2:slider("任务卡片倾斜","tilt",0,18,7,"°");break;case 3:slider("任务卡片圆角","radius",8,80,36,"");break;
+                case 4:slider("任务背景压暗程度","dim",0,90,65,"%");break;case 5:slider("展开与切换动画时长","duration",120,700,280," 毫秒");break;
+                case 6:slider("显示数量","limit",3,20,10," 个");break;}
+        }).setNegativeButton("返回",null).create());}
     private void slider(String title,String key,int min,int max,int fallback,String unit){
         ContinuousSlider control=new ContinuousSlider(host,title,unit,min,max,value(key,fallback),n->{host.preferences.edit().putInt("recent_"+key,n).apply();if(key.equals("limit")){selected=Math.max(0,Math.min(count()-1,selected));stop();}host.home.invalidate();});control.compact();
-        host.showDialog(new TvDialog.Builder(host).setTitle(title).setPreview("recent_"+key).setView(control).setPositiveButton("返回上一级",null)
+        host.showDialog(new TvDialog.Builder(host).setPageId("slider:recent_"+key).setTitle(title).setPreview("recent_"+key).setView(control).setPositiveButton("返回上一级",null)
             .setNeutralButton("试播切换",(d,w)->{move(selected==count()-1?-1:1);slider(title,key,min,max,fallback,unit);}).create());
     }
 }

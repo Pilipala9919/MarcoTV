@@ -111,9 +111,10 @@ final class NowPlaying {
         if(host.home!=null)host.home.invalidate();
     }
     void settings() {
-        host.showDialog(new TvDialog.Builder(host).setTitle("正在播放卡片")
-                .setMessage("在桌面左上显示其他应用提供的媒体标题、封面和状态。仅使用系统媒体会话，不读取或保存普通通知内容。\n\n通知使用权："+(authorized()?"已允许":"未允许")+"\n没有提供媒体会话的应用无法显示。暂停会话在观察 30 分钟后收起，可手动恢复。")
-                .setItems(new String[]{"显示卡片："+(enabled()?"开启":"关闭"),"打开通知使用权设置","选择播放来源","恢复暂时隐藏的卡片"},(d,w)->{
+        host.showDialog(new TvDialog.Builder(host).setPageId("playback").setTitle("正在播放")
+                .setOrder("playback","enabled","permission","source","restore")
+                .setMessage("在桌面左上显示其他应用提供的媒体标题、封面和状态。仅使用系统媒体会话，不读取或保存普通通知内容。\n\n显示卡片："+(enabled()?"已开启":"已关闭")+"\n通知使用权："+(authorized()?"已允许":"未允许")+"\n没有提供媒体会话的应用无法显示。暂停会话在观察 30 分钟后收起，可手动恢复。")
+                .setItems(new String[]{enabled()?"关闭播放卡片":"开启播放卡片","打开通知使用权设置","选择播放来源","恢复暂时隐藏的播放卡片"},(d,w)->{
                     if(w==0){host.preferences.edit().putBoolean("now_playing",!enabled()).apply();refresh();settings();}
                     else if(w==2)sources();
                     else if(w==3){restoreHidden();settings();}

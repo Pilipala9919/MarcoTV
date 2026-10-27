@@ -1,73 +1,148 @@
 {
-  "version": "0.11.1",
-  "apk_sha256": "8844394cf4fc79845b96d696be6921463e4a0c2cd68129c011ee78297d67fa3e",
-  "all_passed": true,
-  "date": "2026-10-25",
+  "version": "0.12.0-rc.1",
+  "date": "2026-10-27",
   "author": "Pilipala",
+  "release_channel": "prerelease",
+  "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "task_action_checks": [
-    {
-      "name": "same_app_keeps_two_system_tasks",
-      "passed": true
+  "apk_sha256": "cb10315b44f7c50f04cdf2412ed1f17b80a718fe5f31cec274b831ca617700c8",
+  "automated": {
+    "device": {
+      "passed": 85,
+      "checks": [
+        "retained_cache_branch_active",
+        "reimport_replaces_cached_cover",
+        "package_update_evicts_icon_and_banner",
+        "package_update_keeps_unrelated_artwork",
+        "recent_sort_is_default",
+        "last_opened_first",
+        "pinned_before_recent",
+        "chinese_alphabetic_order",
+        "custom_order_restored",
+        "launch_does_not_change_custom_order",
+        "pinned_before_custom",
+        "switch_preserves_saved_custom_order",
+        "icon_background_comes_from_border",
+        "icon_background_fills_entire_card",
+        "wifi_result_handled",
+        "wifi_return_restores_network_page",
+        "home_discards_wifi_and_permission_results",
+        "obsolete_result_does_not_add_page",
+        "new_settings_keep_three_levels",
+        "back_returns_one_group",
+        "back_returns_settings_root",
+        "root_back_returns_desktop",
+        "home_exits_new_group_hierarchy",
+        "page_refresh_does_not_duplicate_history",
+        "local_status_does_not_change_system_preferences",
+        "manual_exported_activity_is_launchable",
+        "manual_private_activity_is_rejected",
+        "manual_entry_persists",
+        "media_session_title_visible",
+        "playing_state_visible",
+        "transport_pause_reaches_session",
+        "paused_state_updates",
+        "released_session_removed",
+        "home_gate_initially_allows_awake",
+        "home_gate_blocks_power_transition",
+        "home_gate_recovers_after_power_settles",
+        "home_gate_blocks_screen_off",
+        "home_gate_waits_for_wake_focus",
+        "home_gate_allows_settled_wake",
+        "home_first_press_is_immediate_single",
+        "home_second_press_opens_recents",
+        "home_third_press_starts_new_pair",
+        "home_slow_press_is_single",
+        "backup_includes_task_card_appearance",
+        "backup_excludes_task_activation",
+        "backup_excludes_system_permissions",
+        "backup_image_roundtrip",
+        "backup_missing_apps_reported",
+        "backup_restores_settings",
+        "backup_restores_cards",
+        "backup_preserves_local_system_state",
+        "legacy_backup_replaces_new_menu_order",
+        "legacy_backup_preserves_nested_order",
+        "legacy_backup_migrates_merged_page",
+        "restore_saves_previous_configuration",
+        "new_backup_roundtrips_migrated_order",
+        "preference_migration_idempotent",
+        "settings_only_omits_images",
+        "backup_rejects_path_traversal",
+        "backup_rejects_unknown_schema",
+        "backup_rejects_wrong_type",
+        "backup_rejects_out_of_range",
+        "backup_rejects_imported_local_path",
+        "backup_rejects_missing_images",
+        "rejected_backup_keeps_configuration",
+        "interrupted_restore_rolls_back",
+        "diagnostics_omits_exception_message",
+        "diagnostics_removes_expired_records",
+        "diagnostics_caps_disk_use",
+        "diagnostics_toggle_persists",
+        "diagnostics_can_be_disabled",
+        "manual_add_focuses_new_card",
+        "app_row_contains_only_real_apps",
+        "recent_sort_includes_first_app",
+        "left_drawer_starts_with_add_app",
+        "drawer_right_returns_to_first_app",
+        "remote_move_cancel_preserves_order",
+        "home_cancels_uncommitted_move",
+        "empty_app_row_can_open_add_menu",
+        "media_prefers_active_playback",
+        "media_hide_does_not_stop_playback",
+        "media_hidden_card_can_return",
+        "media_missing_cover_uses_app_icon",
+        "media_manual_source_selection",
+        "media_stale_pause_is_hidden"
+      ]
     },
-    {
-      "name": "snapshot_returns_explicit_availability",
-      "passed": true
+    "bridge": {
+      "passed": 4,
+      "checks": [
+        "bridge_authenticated_connection",
+        "bridge_version_matches_app",
+        "bridge_returns_unique_real_task_ids",
+        "bridge_rejects_invalid_task"
+      ]
     },
-    {
-      "name": "switch_moves_exact_task_to_front",
-      "passed": true
-    },
-    {
-      "name": "stack_keeps_both_tasks_of_same_app",
-      "passed": true
-    },
-    {
-      "name": "stack_closes_to_home",
-      "passed": true
-    },
-    {
-      "name": "entrance_starts_below_final_card_position",
-      "passed": true
-    },
-    {
-      "name": "entrance_settles_to_opaque_task_card",
-      "passed": true
-    },
-    {
-      "name": "task_card_background_is_opaque",
-      "passed": true
-    },
-    {
-      "name": "task_card_has_snapshot_or_logo",
-      "passed": true
-    },
-    {
-      "name": "swipe_removes_only_selected_task",
-      "passed": true
-    },
-    {
-      "name": "removed_card_leaves_stack",
-      "passed": true
-    },
-    {
-      "name": "removed_task_cannot_reopen",
-      "passed": true
-    },
-    {
-      "name": "remote_up_clears_fixture_task",
-      "passed": true
+    "task_actions": {
+      "passed": 13,
+      "checks": [
+        "same_app_keeps_two_system_tasks",
+        "snapshot_returns_explicit_availability",
+        "switch_moves_exact_task_to_front",
+        "stack_keeps_both_tasks_of_same_app",
+        "stack_closes_to_home",
+        "entrance_starts_below_final_card_position",
+        "entrance_settles_to_opaque_task_card",
+        "task_card_background_is_opaque",
+        "task_card_has_snapshot_or_logo",
+        "swipe_removes_only_selected_task",
+        "removed_card_leaves_stack",
+        "removed_task_cannot_reopen",
+        "remote_up_clears_fixture_task"
+      ]
     }
-  ],
-  "visual_checks": {
-    "rounded_image_edge_antialiasing_compared_before_after": true,
-    "enlarged_and_tilted_cards_reviewed": true
   },
-  "installed_apk_matches": true,
-  "injected_home_returns_to_desktop": true,
-  "task_helper_running": true,
-  "independent_build_non_signature_entries_equal": 15,
-  "previous_release_validation": "validation-0.11.0.json",
-  "scope": "13 real task action checks rerun on this APK, plus real-device screenshot comparison of the image corners, independent source build and injected Home cleanup check. No full menu, backup restore, physical remote, standby/wake, reboot, cold boot or long-running retest. Earlier results retain their own APK hashes in validation-0.11.0.json. This TV provides no task snapshots; logo artwork was used."
+  "local_checks": {
+    "settings_migration": 16,
+    "motion": 10,
+    "release_tools": 5
+  },
+  "signature_schemes_verified": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "upgrade_configuration_backup_saved_privately": true,
+  "manual_visual_review": "10 settings pages captured on the listed TV; root, startup and revised status overview visually reviewed. Raw captures remain private.",
+  "not_verified": [
+    "physical remote on this build",
+    "reboot and power loss on this build",
+    "long duration performance",
+    "Huawei HD65DESA compatibility"
+  ],
+  "scope": "Automated checks are evidence for this APK on the listed device only. No claim of universal compatibility. Published gallery remains labeled 0.11.1."
 }

@@ -1,0 +1,73 @@
+{
+  "version": "0.11.1",
+  "apk_sha256": "8844394cf4fc79845b96d696be6921463e4a0c2cd68129c011ee78297d67fa3e",
+  "all_passed": true,
+  "date": "2026-10-25",
+  "author": "Pilipala",
+  "device_model": "Xiaomi MiTV-ASTP0",
+  "android": "9",
+  "task_action_checks": [
+    {
+      "name": "same_app_keeps_two_system_tasks",
+      "passed": true
+    },
+    {
+      "name": "snapshot_returns_explicit_availability",
+      "passed": true
+    },
+    {
+      "name": "switch_moves_exact_task_to_front",
+      "passed": true
+    },
+    {
+      "name": "stack_keeps_both_tasks_of_same_app",
+      "passed": true
+    },
+    {
+      "name": "stack_closes_to_home",
+      "passed": true
+    },
+    {
+      "name": "entrance_starts_below_final_card_position",
+      "passed": true
+    },
+    {
+      "name": "entrance_settles_to_opaque_task_card",
+      "passed": true
+    },
+    {
+      "name": "task_card_background_is_opaque",
+      "passed": true
+    },
+    {
+      "name": "task_card_has_snapshot_or_logo",
+      "passed": true
+    },
+    {
+      "name": "swipe_removes_only_selected_task",
+      "passed": true
+    },
+    {
+      "name": "removed_card_leaves_stack",
+      "passed": true
+    },
+    {
+      "name": "removed_task_cannot_reopen",
+      "passed": true
+    },
+    {
+      "name": "remote_up_clears_fixture_task",
+      "passed": true
+    }
+  ],
+  "visual_checks": {
+    "rounded_image_edge_antialiasing_compared_before_after": true,
+    "enlarged_and_tilted_cards_reviewed": true
+  },
+  "installed_apk_matches": true,
+  "injected_home_returns_to_desktop": true,
+  "task_helper_running": true,
+  "independent_build_non_signature_entries_equal": 15,
+  "previous_release_validation": "validation-0.11.0.json",
+  "scope": "13 real task action checks rerun on this APK, plus real-device screenshot comparison of the image corners, independent source build and injected Home cleanup check. No full menu, backup restore, physical remote, standby/wake, reboot, cold boot or long-running retest. Earlier results retain their own APK hashes in validation-0.11.0.json. This TV provides no task snapshots; logo artwork was used."
+}

@@ -162,14 +162,15 @@ final class SystemIntegration {
         boolean ownHome = homeIsOurs(activity);
         String[] items = {
                 "ADB 自动恢复：" + (p.getBoolean("adb_restore", false) ? "已开启" : "未开启"),
-                "立即检查 ADB", "设为默认桌面",
+                "状态中心", "设为默认桌面",
                 "开机打开 Marco TV：" + (p.getBoolean("boot_home", false) ? "已开启" : "未开启"),
                 "Home 键兼容模式：" + (p.getBoolean("home_compat", false) ? "已开启" : "未开启"),
-                "恢复原桌面", "查看运行状态", "调试与授权说明"};
-        host.show(new TvDialog.Builder(activity).setTitle("开机与默认桌面")
+                "恢复原桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明"};
+        host.show(new TvDialog.Builder(activity).setPageId("startup").setTitle("系统与启动")
                 .setMessage("当前默认桌面：" + (ownHome ? "Marco TV" : "厂商或其他桌面")
+                        + "\n唤醒恢复还需开启 Home 兼容并连接任务辅助服务；只打开偏好不代表已经生效。"
                         + (ownHome ? "" : "\n部分电视在 Marco TV 更新后会重置此项，回到本页选择「设为默认桌面」即可恢复。"))
-                .setOrder("startup","adb","check_adb","home","boot","home_key","restore","status","help").setItems(items, (d, which) ->
+                .setOrder("startup","adb","status","home","boot","home_key","restore","wake","recover","help").setItems(items, (d, which) ->
                 activity.getWindow().getDecorView().post(() -> {
                     switch (which) {
                         case 0:
@@ -181,7 +182,7 @@ final class SystemIntegration {
                                     .setNegativeButton("返回", null).create());
                             else { p.edit().putBoolean("adb_restore", false).commit(); startRecovery(activity); show(activity,host); }
                             break;
-                        case 1: recover(activity); status(activity, host); break;
+                        case 1: status(activity, host); break;
                         case 2:
                             host.show(new TvDialog.Builder(activity).setTitle("使用 Marco TV 桌面")
                                     .setMessage("将开放 Marco TV 的默认桌面入口，并开启开机打开。已授权时会暂停已识别的其他桌面辅助服务，保留其他无障碍服务。可通过“恢复原桌面”撤销。")
@@ -219,8 +220,15 @@ final class SystemIntegration {
                                     .setMessage("关闭 Marco TV 的默认桌面入口、开机打开与 Home 键兼容，恢复此前暂停的桌面辅助服务。ADB 自动恢复保持当前选择。")
                                     .setPositiveButton("恢复", (dialog, button) -> restoreHome(activity))
                                     .setNegativeButton("返回", null).create()); break;
-                        case 6: status(activity, host); break;
+                        case 6:
+                            activity.getSharedPreferences("home",0).edit().putBoolean("recent_wake",!activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)).apply();
+                            TaskBridgeClient.sync(activity);show(activity,host);break;
                         case 7:
+                            host.show(new TvDialog.Builder(activity).setPageId("recovery_confirm").setTitle("执行已启用的恢复？")
+                                .setMessage("仅执行当前已启用的 ADB / Home 恢复设置，可能重新打开调试开关或恢复自身 Home 服务；不新增授权。唤醒恢复另外需要 Home 兼容和已连接的任务辅助服务。")
+                                .setPositiveButton("执行恢复",(dialog,button)->{recover(activity);startRecovery(activity);status(activity,host);})
+                                .setNegativeButton("取消",null).create());break;
+                        case 8:
                             host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
                                     .setMessage("首次安装需在电视系统中打开 ADB，并通过电脑完成一次授权。授权后可在 Marco TV 内开启自动恢复。\n\n卸载应用或恢复出厂设置后，需要重新授权。网络端口是否能恢复还取决于电视固件。")
                                     .setPositiveButton("查看授权方法", (dialog, button) -> permissionHelp(activity, host))
@@ -257,22 +265,6 @@ final class SystemIntegration {
         activity.finishAndRemoveTask();
     }
     private static void status(Activity activity, DialogHost host) {
-        String base = "系统设置授权：" + (authorized(activity) ? "已授权" : "未授权")
-                + "\nADB 调试开关：" + (Settings.Global.getInt(activity.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1 ? "已开启" : "未开启")
-                + "\n系统默认桌面：" + (homeIsOurs(activity) ? "Marco TV" : "厂商或其他桌面")
-                + "\nHome 键兼容：" + (prefs(activity).getBoolean("home_compat", false) ? "已开启" : "未开启")
-                + "\n最近开机恢复：" + stamp(prefs(activity).getLong("last_boot_time", 0))
-                + "\n最近恢复 ADB：" + stamp(prefs(activity).getLong("last_adb_restore", 0))
-                + "\n" + prefs(activity).getString("last_error", "");
-        new Thread(() -> {
-            boolean reachable = false;
-            try (Socket socket = new Socket()) { socket.connect(new InetSocketAddress("127.0.0.1", 5555), 1000); reachable = true; }
-            catch (Exception ignored) { }
-            String message = base + "\n本机 5555 端口：" + (reachable ? "可连接" : "未监听或不支持")
-                    + "\n\n端口检查不等于局域网连接成功；其他电视可能还需要厂商设置或系统权限。";
-            activity.runOnUiThread(() -> { if (!activity.isFinishing() && !activity.isDestroyed()) host.show(new TvDialog.Builder(activity)
-                    .setTitle("运行状态").setMessage(message).setPositiveButton("知道了", null).create()); });
-        }, "Marco TV-port-check").start();
+        if(activity instanceof MainActivity)((MainActivity)activity).health.status();
     }
-    private static String stamp(long millis) { return millis == 0 ? "尚无记录" : DateFormat.getDateTimeInstance().format(new Date(millis)); }
 }

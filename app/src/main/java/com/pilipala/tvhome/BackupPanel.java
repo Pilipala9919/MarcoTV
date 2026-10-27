@@ -20,7 +20,7 @@ final class BackupPanel {
         });}catch(Exception e){Diagnostics.event("AUTO_BACKUP_FAILED");}
     }
     private void trim(){File[] files=folder().listFiles(f->f.getName().startsWith("auto-"));if(files==null)return;Arrays.sort(files,(a,b)->b.getName().compareTo(a.getName()));for(int i=3;i<files.length;i++)files[i].delete();}
-    void show(){host.showDialog(new TvDialog.Builder(host).setTitle("备份与恢复")
+    void show(){host.showDialog(new TvDialog.Builder(host).setPageId("backup").setTitle("备份与恢复").setOrder("backup","settings","images","import","snapshots","create")
         .setMessage("本地保存，不上传云端。自动保留最近 3 次启动后首次进入设置前的快照。\n卸载会删除内部快照，请把重要备份导出到 U 盘或电脑。")
         .setItems(new String[]{"导出备份 · 仅设置","导出备份 · 设置与图片","从文件恢复","本地快照","立即创建本地快照"},(d,w)->{
             if(w<2)create(w==1,true);else if(w==2)host.files.open(uri->prepare(()->host.getContentResolver().openInputStream(uri)));else if(w==3)snapshots();else create(true,false);

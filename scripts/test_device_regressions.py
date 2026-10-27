@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--adb', default='adb')
     parser.add_argument('--serial', required=True)
+    parser.add_argument('--compile-only', action='store_true', help='Build the test APK without connecting to or changing a device')
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--bridge-only', action='store_true', help='Read-only task bridge checks; does not open TV UI')
     modes.add_argument('--task-actions', action='store_true', help='Create, switch and remove two temporary fixture tasks; never remove user tasks')
@@ -56,6 +57,9 @@ def main():
     def adb(*command):
         return subprocess.run([args.adb, '-s', args.serial, *map(str, command)], capture_output=True,
                               text=True, encoding='utf-8', errors='replace', timeout=120, check=True).stdout
+    if args.compile_only:
+        print('Test APK compiled; no device checks executed.')
+        return
     installed = False
     accessibility_before=adb('shell','settings','get','secure','enabled_accessibility_services').strip()
     try:
@@ -67,7 +71,7 @@ def main():
                      'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
         print(output)
         (folder / ('task-result.txt' if args.task_actions else 'bridge-result.txt' if args.bridge_only else 'result.txt')).write_text(output, encoding='utf-8')
-        expected='OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 73 device regression checks'
+        expected='OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 85 device regression checks'
         if expected not in output or 'FAIL' in output:
             raise RuntimeError('Device regression failed; see local result.txt')
     finally:

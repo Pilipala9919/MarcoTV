@@ -20,7 +20,7 @@ final class BackupStore {
     static boolean allowed(String group,String key){
         if(group.equals("home"))return HOME.contains(key)||key.startsWith("opened:");
         if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps").contains(key)||key.matches("(name|cover|manual):.{1,500}");
-        return group.equals("menu_order")&&Arrays.asList("main","clock","device","startup","cards").contains(key);
+        return group.equals("menu_order")&&SettingsCatalog.ORDER_KEYS.contains(key);
     }
     static JSONObject capture(Context c,boolean images)throws Exception{
         JSONObject root=new JSONObject().put("format","MarcoTV-backup").put("schema",1).put("version",ProjectInfo.VERSION)
@@ -135,6 +135,7 @@ final class BackupStore {
             if(group.equals("home")){edit.remove("wallpaper");if(p.metadata.getBoolean("customWallpaper"))edit.putString("wallpaper",Uri.fromFile(new File(c.getFilesDir(),"wallpaper-image")).toString());}
             if(!edit.commit())throw new IOException("preference write");
         }
+        MenuMigration.apply(c);
         ArtworkCache.clear();
     }
 }

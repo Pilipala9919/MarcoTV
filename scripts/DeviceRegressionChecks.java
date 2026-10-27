@@ -232,5 +232,20 @@ public final class DeviceRegressionChecks extends Instrumentation {
         network.onActivityResult(NetworkPanel.WIFI_SETTINGS);
         check("obsolete_result_does_not_add_page", ((List<?>) history.get(activity)).size() == size);
         activity.onNewIntent(new Intent(Intent.ACTION_MAIN));
+        activity.navigator.settings();activity.navigator.desktopSettings();activity.navigator.wallpaperSettings();
+        check("new_settings_keep_three_levels",((List<?>)history.get(activity)).size()==3&&activity.isPage("wallpaper"));
+        java.lang.reflect.Method back=MainActivity.class.getDeclaredMethod("menuBack");back.setAccessible(true);
+        back.invoke(activity);check("back_returns_one_group",activity.isPage("appearance"));
+        back.invoke(activity);check("back_returns_settings_root",activity.isPage("main"));
+        back.invoke(activity);check("root_back_returns_desktop",((List<?>)history.get(activity)).isEmpty()&&!field(MainActivity.class,"dialogOpen").getBoolean(activity));
+        activity.navigator.settings();activity.navigator.applicationSettings();
+        activity.onNewIntent(new Intent(Intent.ACTION_MAIN));
+        check("home_exits_new_group_hierarchy",((List<?>)history.get(activity)).isEmpty());
+        activity.navigator.settings();activity.navigator.maintenance();activity.health.diagnostics();activity.health.diagnostics();
+        check("page_refresh_does_not_duplicate_history",((List<?>)history.get(activity)).size()==3);
+        java.util.Map<String,?> systemBefore=SystemIntegration.prefs(activity).getAll();
+        StatusSnapshot.local(activity);
+        check("local_status_does_not_change_system_preferences",systemBefore.equals(SystemIntegration.prefs(activity).getAll()));
+        activity.onNewIntent(new Intent(Intent.ACTION_MAIN));
     }
 }

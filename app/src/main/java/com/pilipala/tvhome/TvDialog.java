@@ -26,7 +26,7 @@ final class TvDialog extends Dialog {
     private boolean swallowMoveRelease;
     private boolean forwardDismiss;
     boolean isForwardDismiss(){return forwardDismiss;}
-    String pageKey(){return spec.orderKey==null?spec.title:spec.orderKey;}
+    String pageKey(){return spec.pageId!=null?spec.pageId:spec.orderKey==null?spec.title:spec.orderKey;}
     boolean reorderable(){return spec.orderKey!=null;}
     String previewKey(){return spec.preview;}
     void setBackAction(Runnable action){backAction=action;}
@@ -202,10 +202,11 @@ final class TvDialog extends Dialog {
     static final class Builder {
         final Activity activity; String title="", message; String[] items; int selected=-1;
         boolean single; View view; DialogInterface.OnClickListener itemClick;
-        String orderKey,preview;String[] ids; int[] signals; android.graphics.drawable.Drawable[] icons;
+        String pageId,orderKey,preview;String[] ids; int[] signals; android.graphics.drawable.Drawable[] icons;
         final ArrayList<ButtonSpec> buttons = new ArrayList<>();
         Builder(Activity activity) { this.activity=activity; }
         Builder setTitle(String s) { title=s; return this; }
+        Builder setPageId(String s) { pageId=s; return this; }
         Builder setMessage(String s) { message=s; return this; }
         Builder setView(View v) { view=v; return this; }
         Builder setPreview(String key){preview=key;return this;}

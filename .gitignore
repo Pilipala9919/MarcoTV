@@ -35,3 +35,5 @@ scripts/*
 
 !scripts/FeatureRegressionChecks.java
 !scripts/start_task_bridge.py
+!scripts/test_settings.py
+!scripts/SettingsMigrationChecks.java

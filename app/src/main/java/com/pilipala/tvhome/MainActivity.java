@@ -65,6 +65,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         Diagnostics.init(this);
         try {BackupStore.recoverInterrupted(this);} catch(Exception e){Diagnostics.event("RESTORE_ROLLBACK_FAILED");}
+        try{MenuMigration.apply(this);}catch(RuntimeException e){Diagnostics.event("MENU_MIGRATION_FAILED");}
         boolean firstInstall=getSharedPreferences("home",0).getAll().isEmpty();
         SystemIntegration.rememberHome(this);
         SystemIntegration.refreshHomeService(this);
@@ -372,6 +373,7 @@ public final class MainActivity extends Activity {
         if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey().equals("网络与 Wi-Fi")||dialog.pageKey().equals("壁纸图库")))dialogHistory.add(navigator.settingsDialog());
         dialogHistory.add(dialog);presentDialog(dialog);
     }
+    boolean isPage(String id){return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);}
     private void presentDialog(TvDialog dialog){
         activeDialog=dialog;dialogOpen=true;handler.removeCallbacks(idle);
         home.preview(dialog.previewKey());
