@@ -80,6 +80,15 @@ final class HomeView extends View {
     private float scale = 1, offsetY;
     private float radius = 70, focusScale = .24f;
     private float labelOpacity;
+    private float surfaceStrength;
+    private float motionSpeed=1;
+    private final Paint surfacePaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.DITHER_FLAG);
+    private final Matrix surfaceMatrix=new Matrix();
+    private final RectF surfaceBounds=new RectF();
+    private final LinearGradient surfaceGradient=new LinearGradient(0,0,0,1,
+        new int[]{0x40FFFFFF,0x08FFFFFF,0x00000000,0x60081424},new float[]{0,.36f,.58f,1},Shader.TileMode.CLAMP);
+    private final LinearGradient rimGradient=new LinearGradient(0,0,0,1,0xB0FFFFFF,0x20FFFFFF,Shader.TileMode.CLAMP);
+    private final MotionSpring entrance=new MotionSpring(1,15,.001f);
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
     private boolean edgeOpen;
     private int edgeSelected;
@@ -126,6 +135,8 @@ final class HomeView extends View {
         radius = host.preferences.getInt("card_radius", 32);
         focusScale = host.preferences.getInt("focus_scale", 16) / 100f;
         labelOpacity = host.preferences.getInt("label_opacity", host.preferences.getInt("label_mode", 0) == 1 ? 55 : 0) / 100f;
+        surfaceStrength=Math.max(0,Math.min(100,host.preferences.getInt("card_surface",55)))/100f;
+        motionSpeed=260f/Math.max(120,Math.min(500,host.preferences.getInt("motion_duration",260)));
     }
     void describeFocus() {
         if(host.recents!=null&&host.recents.visible){host.recents.describe();return;}
@@ -175,11 +186,13 @@ final class HomeView extends View {
         invalidate();
     }
 
+    void enter(){entrance.snap(0);entrance.target(1);animateFocus();}
+
     private void advanceMotion(long frameNanos) {
         if (!host.foreground || !isAttachedToWindow()) { motionScheduled = false; return; }
         float dt = lastFrameNanos == 0 ? 1f / 60 : Math.min(0.05f, (frameNanos - lastFrameNanos) / 1_000_000_000f);
-        lastFrameNanos = frameNanos;
-        boolean moving = section.step(dt);moving|=edge.step(dt);
+        lastFrameNanos = frameNanos;dt*=motionSpeed;
+        boolean moving = section.step(dt);moving|=edge.step(dt);moving|=entrance.step(dt);
         for (Row r : rows) {
             moving |= r.scroll.step(dt);
             for (Tile t : r.tiles) moving |= t.emphasis.step(dt);
@@ -306,6 +319,8 @@ final class HomeView extends View {
     }
 
     private void drawRow(Canvas canvas, Row r, float y, float opacity) {
+        float arrival=Math.max(0,Math.min(1,entrance.value));
+        y+=30*(1-arrival);opacity*=.65f+.35f*arrival;
         icon(canvas, r.symbol, 136, y - 172, 48, alphaColor(Color.WHITE, opacity));
         text(canvas, r.title, 176, y - 165, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
         if(r.tiles.isEmpty())text(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xC0FFFFFF,opacity),Paint.Align.LEFT);
@@ -319,9 +334,15 @@ final class HomeView extends View {
         if (x < -250 || x > 2180) return;
         float emphasis = clampedEmphasis(tile);
         float zoom = 1 + focusScale * emphasis;
-        float y = shelfY - 6 * emphasis;
+        float y = shelfY - 14 * emphasis;
         float w = 320 * zoom, h = 180 * zoom;
         rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
+        if(surfaceStrength>0){
+            // Several translucent rounded silhouettes avoid GPU blur and hard clip-path edges.
+            for(int i=3;i>=1;i--){surfaceBounds.set(rect);surfaceBounds.offset(0,(5+i*2+5*emphasis)*zoom);surfaceBounds.inset(-i*1.5f*zoom,-i*1.5f*zoom);
+                surfacePaint.setColor(alphaColor(0x1A030812,opacity*surfaceStrength*(.6f+.4f*emphasis)));
+                canvas.drawRoundRect(surfaceBounds,radius*zoom+i*zoom,radius*zoom+i*zoom,surfacePaint);}
+        }
         paint.setColor(alphaColor(tile.tint != 0 ? tile.tint : tile.banner ? Color.BLACK : 0xFF243541, opacity));
         canvas.drawRoundRect(rect, radius * zoom, radius * zoom, paint);
         if (tile.artwork != null) {
@@ -343,6 +364,17 @@ final class HomeView extends View {
             if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
             text(canvas, tile.coverLabel, x, y + 48 * zoom, 28 * zoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
         } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * zoom, alphaColor(Color.WHITE, opacity));
+        if(surfaceStrength>0){
+            surfaceMatrix.setScale(rect.width(),rect.height());surfaceMatrix.postTranslate(rect.left,rect.top);
+            surfaceGradient.setLocalMatrix(surfaceMatrix);surfacePaint.setShader(surfaceGradient);surfacePaint.setAlpha(Math.round(255*opacity*surfaceStrength));
+            canvas.drawRoundRect(rect,radius*zoom,radius*zoom,surfacePaint);surfacePaint.setShader(null);
+            // Draw the highlight inside the antialiased shape so it never clips outside the card.
+            surfaceBounds.set(rect);surfaceBounds.inset(1.3f*zoom,1.3f*zoom);
+            rimGradient.setLocalMatrix(surfaceMatrix);surfacePaint.setShader(rimGradient);surfacePaint.setStyle(Paint.Style.STROKE);surfacePaint.setStrokeWidth((1+1.2f*emphasis)*zoom);
+            surfacePaint.setAlpha(Math.round(255*opacity*surfaceStrength*(.3f+.7f*emphasis)));
+            canvas.drawRoundRect(surfaceBounds,Math.max(0,radius*zoom-1.3f*zoom),Math.max(0,radius*zoom-1.3f*zoom),surfacePaint);
+            surfacePaint.setShader(null);surfacePaint.setStyle(Paint.Style.FILL);
+        }
         if(tile.pinned) {
             paint.setColor(alphaColor(0xBB13202B,opacity));canvas.drawCircle(x+w/2-28*zoom,y-h/2+28*zoom,17*zoom,paint);
             icon(canvas,"\ue838",x+w/2-28*zoom,y-h/2+28*zoom,22*zoom,alphaColor(0xFFFFD68A,opacity));
@@ -351,7 +383,7 @@ final class HomeView extends View {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
             }
-            text(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + 182, 36, bold,
+            text(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + 188-6*emphasis, 36, bold,
                     alphaColor(Color.WHITE, opacity * (labelOpacity + (1-labelOpacity) * emphasis)), Paint.Align.LEFT);
         }
     }

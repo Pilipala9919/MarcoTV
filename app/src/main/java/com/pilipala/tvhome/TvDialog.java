@@ -17,6 +17,10 @@ import java.util.ArrayList;
 final class TvDialog extends Dialog {
     private final Builder spec;
     private LinearLayout body;
+    private LinearLayout panel;
+    private boolean returning;
+    private static final android.animation.ArgbEvaluator COLORS=new android.animation.ArgbEvaluator();
+    void returning(boolean value){returning=value;}
     private final ArrayList<View> choices = new ArrayList<>();
     private final ArrayList<TextView> itemViews = new ArrayList<>();
     private ArrayList<Integer> itemOrder;
@@ -40,7 +44,7 @@ final class TvDialog extends Dialog {
     }
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state); requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout panel = new LinearLayout(getContext()); panel.setOrientation(LinearLayout.VERTICAL);
+        panel = new LinearLayout(getContext()); panel.setOrientation(LinearLayout.VERTICAL);
         // Static panels use a software-backed surface on older Mali TV GPUs;
         // this avoids partially missing text after nested window transitions.
         panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
@@ -132,8 +136,19 @@ final class TvDialog extends Dialog {
         w.setGravity(preview?Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL:Gravity.RIGHT|Gravity.CENTER_VERTICAL);
         WindowManager.LayoutParams attrs = w.getAttributes(); attrs.x = preview?0:dp(32);attrs.y=preview?dp(12):0; w.setAttributes(attrs);
         if (!choices.isEmpty()) choices.get(spec.single && spec.selected >= 0 && spec.selected < choices.size() ? spec.selected : 0).requestFocus();
-        panel.setTranslationX(dp(22)); panel.animate().translationX(0).setDuration(180).start();
+        w.setWindowAnimations(getContext().getResources().getIdentifier("PanelMotion","style",getContext().getPackageName()));
     }
+    private int motionDuration(){return Math.max(120,Math.min(500,getContext().getSharedPreferences("home",0).getInt("motion_duration",260)));}
+    @Override protected void onStart(){
+        super.onStart();
+        // Back reuses the existing dialog, so animate every show, not only onCreate.
+        panel.animate().cancel();panel.setAlpha(.55f);
+        panel.setTranslationX(spec.preview!=null?0:dp(returning?-26:48));
+        panel.setTranslationY(spec.preview!=null?dp(16):0);
+        panel.animate().alpha(1).translationX(0).translationY(0).setDuration(motionDuration())
+            .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f)).start();
+    }
+    @Override protected void onStop(){panel.animate().cancel();super.onStop();}
     private void beginMove(int index,boolean fromHold){
         moving=index;swallowMoveRelease=fromHold;
         hint.setText("上下移动  ·  确定放下  ·  返回结束排序");
@@ -191,9 +206,19 @@ final class TvDialog extends Dialog {
             if (event.getActionMasked() == MotionEvent.ACTION_UP) { v.performClick(); return true; }
             return true;
         });
+        final GradientDrawable fill=background(checked?0xFF344258:0xFF292E38,dp(12));t.setBackground(fill);
+        final android.animation.ValueAnimator[] animator={null};
+        final float[] progress={0};
+        t.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){}
+            public void onViewDetachedFromWindow(View v){if(animator[0]!=null)animator[0].cancel();}});
         t.setOnFocusChangeListener((v, focus) -> {
             if(focus&&v.getTag() instanceof Integer)lastItem=(Integer)v.getTag();
-            t.setBackground(background(focus ? 0xFFE9EDF4 : checked ? 0xFF344258 : 0xFF292E38, dp(12)));
+            if(animator[0]!=null)animator[0].cancel();
+            animator[0]=android.animation.ValueAnimator.ofFloat(progress[0],focus?1:0);
+            animator[0].setDuration(Math.min(180,motionDuration()));
+            animator[0].addUpdateListener(a->{progress[0]=(float)a.getAnimatedValue();
+                fill.setColor((Integer)COLORS.evaluate(progress[0],checked?0xFF344258:0xFF292E38,0xFFE9EDF4));});
+            animator[0].start();
             t.setTextColor(focus ? 0xFF17202D : 0xFFDCE1E9);
         });
         return t;

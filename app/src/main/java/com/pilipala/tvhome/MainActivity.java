@@ -123,7 +123,7 @@ public final class MainActivity extends Activity {
         if (AmbientIntegration.enabled(this)) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (home != null) { home.setIdle(false); home.requestFocus(); }
-        if (home != null) home.animateFocus();
+        if (home != null) {if(activeDialog==null&&!ambientRequested)home.enter();else home.animateFocus();}
         handler.removeCallbacks(clock); handler.post(clock); armIdle();
         if (ambientRequested) { ambientRequested = false; handler.removeCallbacks(idle); home.setIdle(true); }
         if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
@@ -375,7 +375,7 @@ public final class MainActivity extends Activity {
             while(dialogHistory.size()>i)dialogHistory.remove(dialogHistory.size()-1);break;
         }
         if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey().equals("网络与 Wi-Fi")||dialog.pageKey().equals("壁纸图库")))dialogHistory.add(navigator.settingsDialog());
-        dialogHistory.add(dialog);presentDialog(dialog);
+        dialog.returning(false);dialogHistory.add(dialog);presentDialog(dialog);
     }
     boolean isPage(String id){return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);}
     private void presentDialog(TvDialog dialog){
@@ -395,7 +395,7 @@ public final class MainActivity extends Activity {
         if(dialogHistory.size()==1){closeMenus();home.requestFocus();armIdle();return;}
         if(activeDialog!=null){activeDialog.setOnDismissListener(null);activeDialog.dismiss();}
         dialogHistory.remove(dialogHistory.size()-1);
-        presentDialog(dialogHistory.get(dialogHistory.size()-1));
+        TvDialog parent=dialogHistory.get(dialogHistory.size()-1);parent.returning(true);presentDialog(parent);
     }
     private void closeMenus(){
         if(backups!=null)backups.cancel();

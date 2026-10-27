@@ -83,6 +83,7 @@ final class SettingsNavigator {
         TvDialog.Builder builder=new TvDialog.Builder(host).setPageId("slider:"+key).setTitle(title).setPreview(key)
                 .setView(slider).setPositiveButton("返回上一级",null);
         if(key.equals("ambient_transition"))builder.setNeutralButton("重播预览",(d,w)->host.handler.post(()->slider(title,key,min,max,fallback,unit)));
+        if(key.equals("motion_duration"))builder.setNeutralButton("重播动效",(d,w)->host.handler.post(()->{slider(title,key,min,max,fallback,unit);host.home.enter();}));
         host.showDialog(builder.create());
     }
 
@@ -247,12 +248,14 @@ final class SettingsNavigator {
     }
 
     void appearanceSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("cards").setTitle("桌面卡片样式")
-        .setOrder("cards","radius","zoom","labels","reset")
-        .setItems(new String[]{"桌面卡片圆角","选中放大幅度","未选中名称亮度","恢复默认卡片样式"},(d,w)->{
+        .setOrder("cards","radius","zoom","labels","surface","motion","reset")
+        .setItems(new String[]{"桌面卡片圆角","选中放大幅度","未选中名称亮度","卡片质感强度","界面动效时长","恢复默认卡片样式"},(d,w)->{
             if(w==0)slider("桌面卡片圆角","card_radius",0,90,32,"");
             else if(w==1)slider("选中放大幅度","focus_scale",0,30,16,"%");
             else if(w==2)slider("未选中名称亮度","label_opacity",0,100,0,"%");
-            else{host.preferences.edit().remove("card_radius").remove("focus_scale").remove("label_opacity").apply();host.home.refreshAppearance();host.home.invalidate();}
+            else if(w==3)slider("卡片质感强度","card_surface",0,100,55,"%");
+            else if(w==4)slider("界面动效时长","motion_duration",120,500,260," ms");
+            else{host.preferences.edit().remove("card_radius").remove("focus_scale").remove("label_opacity").remove("card_surface").remove("motion_duration").apply();host.home.refreshAppearance();host.home.invalidate();}
         }).setNegativeButton("返回",null).create());}
 
     void systemPanel(){

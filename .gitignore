@@ -42,3 +42,5 @@ scripts/*
 !scripts/UpdateDeviceChecks.java
 !scripts/make_update_feed.py
 !scripts/package_mirror.py
+
+!scripts/AppearanceDeviceChecks.java

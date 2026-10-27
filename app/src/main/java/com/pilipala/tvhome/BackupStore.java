@@ -16,7 +16,7 @@ import java.util.zip.*;
 final class BackupStore {
     static final long LIMIT=128L*1024*1024;
     static final String[] GROUPS={"home","cards","menu_order"};
-    static final Set<String> HOME=new HashSet<>(Arrays.asList("card_radius","focus_scale","label_opacity","clock_size","ambient_clock_size","ambient_transition","ambient_clock_brightness","ambient_dim","wallpaper_dim","idle_seconds","wallpaper_builtin","ambient_enabled","now_playing","tv_sort","order_tv","order_inputs","order_favorites","order_other","recent_size","recent_spacing","recent_tilt","recent_radius","recent_dim","recent_duration","recent_double_ms","recent_limit"));
+    static final Set<String> HOME=new HashSet<>(Arrays.asList("card_surface","motion_duration","card_radius","focus_scale","label_opacity","clock_size","ambient_clock_size","ambient_transition","ambient_clock_brightness","ambient_dim","wallpaper_dim","idle_seconds","wallpaper_builtin","ambient_enabled","now_playing","tv_sort","order_tv","order_inputs","order_favorites","order_other","recent_size","recent_spacing","recent_tilt","recent_radius","recent_dim","recent_duration","recent_double_ms","recent_limit"));
     static boolean allowed(String group,String key){
         if(group.equals("home"))return HOME.contains(key)||key.startsWith("opened:");
         if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps").contains(key)||key.matches("(name|cover|manual):.{1,500}");
@@ -107,7 +107,7 @@ final class BackupStore {
     }
     static int[] range(String key){
         switch(key){case "recent_size":return new int[]{60,120};case "recent_spacing":return new int[]{80,360};case "recent_tilt":return new int[]{0,18};case "recent_radius":return new int[]{8,80};case "recent_dim":return new int[]{0,90};case "recent_duration":return new int[]{120,700};case "recent_double_ms":return new int[]{200,700};case "recent_limit":return new int[]{3,20};}
-        switch(key){case "card_radius":return new int[]{0,90};case "focus_scale":return new int[]{0,30};case "clock_size":return new int[]{36,160};case "ambient_clock_size":return new int[]{100,280};case "ambient_transition":return new int[]{1,30};case "idle_seconds":return new int[]{0,600};case "wallpaper_builtin":return new int[]{0,3};case "ambient_clock_brightness":return new int[]{40,100};default:return new int[]{0,100};}
+        switch(key){case "motion_duration":return new int[]{120,500};case "card_radius":return new int[]{0,90};case "focus_scale":return new int[]{0,30};case "clock_size":return new int[]{36,160};case "ambient_clock_size":return new int[]{100,280};case "ambient_transition":return new int[]{1,30};case "idle_seconds":return new int[]{0,600};case "wallpaper_builtin":return new int[]{0,3};case "ambient_clock_brightness":return new int[]{40,100};default:return new int[]{0,100};}
     }
     static synchronized File restore(Context c,Prepared p)throws Exception{
         validate(c,p);File rollback=new File(c.getFilesDir(),"backups/before-restore.zip");write(c,rollback,capture(c,true));

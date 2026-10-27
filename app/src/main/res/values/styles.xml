@@ -2,6 +2,10 @@
 <!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
     <color name="home_background">#080307</color>
+    <style name="PanelMotion">
+        <item name="android:windowEnterAnimation">@null</item>
+        <item name="android:windowExitAnimation">@anim/panel_exit</item>
+    </style>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#E7DCE6</item>
