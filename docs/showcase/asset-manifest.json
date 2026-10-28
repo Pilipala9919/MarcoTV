@@ -1,260 +1,379 @@
 {
   "author": "Pilipala",
-  "version": "0.11.1",
-  "captured_on": "2026-10-26",
-  "privacy": "Opaque synthetic mosaics replace private pixels before encoding. No raw capture, UI tree, logs, backups or image metadata are included. Desktop cards, inputs and media session are temporary examples.",
+  "version": "0.13.0",
+  "captured_on": "2026-10-29",
+  "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
     {
       "file": "assets/01-desktop.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "579b79f2e81ac2daf78f0e1dfddcbf944d7f87d5b8a3a9aab47ef8ef3dbcc52a"
+      "sha256": "579b79f2e81ac2daf78f0e1dfddcbf944d7f87d5b8a3a9aab47ef8ef3dbcc52a",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/02-drawer.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "4788315435228c927515ca403df887638644457444079bb5fa76fcd8351a96c6"
+      "sha256": "4788315435228c927515ca403df887638644457444079bb5fa76fcd8351a96c6",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/03-library.webp",
       "kind": "native screenshot",
       "redacted_regions": 2,
-      "sha256": "6c380118b303381648039d5bd0676e7c5af03d6552669429aaa678c0112e9a66"
+      "sha256": "6c380118b303381648039d5bd0676e7c5af03d6552669429aaa678c0112e9a66",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/04-card-menu.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "b032c463813dc43cefd43063dba2c69ae648e074fcdc25a438b2712b2f3dad9a"
+      "sha256": "b032c463813dc43cefd43063dba2c69ae648e074fcdc25a438b2712b2f3dad9a",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/05-card-settings.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "a982c549e039256e838a85125407381e9740eb5ba40633d6e7a3047954eee2ee"
+      "sha256": "a982c549e039256e838a85125407381e9740eb5ba40633d6e7a3047954eee2ee",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/06-cover.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "0521b799c8b32f7ac60f6772b51b731261843a358f09ee7cb84e5e07527d0b9e"
+      "sha256": "0521b799c8b32f7ac60f6772b51b731261843a358f09ee7cb84e5e07527d0b9e",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/07-sort.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "e2edc7e6a2c977fd60ee7af4c0e9e5e23068a0dd50b60115b8f07503634a8f74"
+      "sha256": "e2edc7e6a2c977fd60ee7af4c0e9e5e23068a0dd50b60115b8f07503634a8f74",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/08-appearance.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "e02329e5b77f6c4a89ccb6cafbaaca342c3bb20eb2fa9718e10b071ce6ea4658"
+      "sha256": "e02329e5b77f6c4a89ccb6cafbaaca342c3bb20eb2fa9718e10b071ce6ea4658",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/09-preview.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "0be739db57c7ff93ca8761a7d2b5b6dcd08c8b0ce85c9fd87e2215748377c369"
+      "sha256": "0be739db57c7ff93ca8761a7d2b5b6dcd08c8b0ce85c9fd87e2215748377c369",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/10-wallpapers.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "cf6d55a37483d1f2ee16d6acae18180a7d915665adac55a5b39be1d729f4f3b9"
+      "sha256": "cf6d55a37483d1f2ee16d6acae18180a7d915665adac55a5b39be1d729f4f3b9",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/11-clock.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "14d402e4b0472830caa699c94dcfa16895f8ba76c958b3f85f16890b92faa9a9"
+      "sha256": "14d402e4b0472830caa699c94dcfa16895f8ba76c958b3f85f16890b92faa9a9",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/12-screensaver.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "d59b922540201f1a2eb815f4b23b613d1700076655f70d3b854952165ff14e83"
+      "sha256": "d59b922540201f1a2eb815f4b23b613d1700076655f70d3b854952165ff14e83",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/13-settings.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "7caa71f565d55bd4884514d069795140930aa69000219ae961d28f92d121f308"
+      "sha256": "7caa71f565d55bd4884514d069795140930aa69000219ae961d28f92d121f308",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/14-device.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "c081f7ca7433d7d6aa9908b4dbd146f959e46720431a21ce8609d26be3cc3e08"
+      "sha256": "c081f7ca7433d7d6aa9908b4dbd146f959e46720431a21ce8609d26be3cc3e08",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/15-wifi.webp",
       "kind": "native screenshot",
       "redacted_regions": 3,
-      "sha256": "3f7656679a742af429dabc70e1e734d921a1dea7f41cebea2c88ca64b6ec1ac9"
+      "sha256": "3f7656679a742af429dabc70e1e734d921a1dea7f41cebea2c88ca64b6ec1ac9",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/16-wifi-list.webp",
       "kind": "native screenshot",
       "redacted_regions": 3,
-      "sha256": "28b7d00ab3976126884b06f38b96abf17b0e97134a0d21ebe8152568bb98859c"
+      "sha256": "28b7d00ab3976126884b06f38b96abf17b0e97134a0d21ebe8152568bb98859c",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/17-volume.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "a76017beefff3929d2563d89bc1d92f51a875852dbac5a7bd1546adff5d1e22b"
+      "sha256": "a76017beefff3929d2563d89bc1d92f51a875852dbac5a7bd1546adff5d1e22b",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/18-startup.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "67b9051a243c9650a74c7ed669f189fab95218d05051591fc1a2b4e51c74b681"
+      "sha256": "67b9051a243c9650a74c7ed669f189fab95218d05051591fc1a2b4e51c74b681",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/19-backup.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "5964190bb34d7a196c89bdf2d532dcc0b73935300f9eea42795dfb2bc99031f3"
+      "sha256": "5964190bb34d7a196c89bdf2d532dcc0b73935300f9eea42795dfb2bc99031f3",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/20-guide.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "c8cc9bbc1fb7c2a86d8a07741e8839e2993a61f9fd029b3a3167793bb53f79f4"
+      "sha256": "c8cc9bbc1fb7c2a86d8a07741e8839e2993a61f9fd029b3a3167793bb53f79f4",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/21-status.webp",
       "kind": "native screenshot",
       "redacted_regions": 2,
-      "sha256": "69c4b46d241c1bcb9c1f09cb1521ab83d81831f6d2dc40d16b1e0e75ace80683"
+      "sha256": "69c4b46d241c1bcb9c1f09cb1521ab83d81831f6d2dc40d16b1e0e75ace80683",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/22-diagnostics.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "694540e20169a0d7ce4ef6ffaa5a232d6884e8b84378a2145e96cabe5f436aa3"
+      "sha256": "694540e20169a0d7ce4ef6ffaa5a232d6884e8b84378a2145e96cabe5f436aa3",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/23-about.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "20c467f225c64246741a8a85e50c2f953c8d680c36720b6d6e334ce533ea9941"
+      "sha256": "20c467f225c64246741a8a85e50c2f953c8d680c36720b6d6e334ce533ea9941",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/24-recents-settings.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "d0fdd56b90e746b5cb9b95f8ec5c8f3c829d2d6b04e0fb2de6c669a32f18500f"
+      "sha256": "d0fdd56b90e746b5cb9b95f8ec5c8f3c829d2d6b04e0fb2de6c669a32f18500f",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/25-recents.webp",
       "kind": "native screenshot",
       "redacted_regions": 5,
-      "sha256": "7ca36c565cdb454c96af2e0b6f4ab034a8f8d5190ea73e6158aac3c353dfc095"
+      "sha256": "7ca36c565cdb454c96af2e0b6f4ab034a8f8d5190ea73e6158aac3c353dfc095",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/26-media-settings.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "5706f9998a564dbaa9e40083f9ce5dec5684a7778e7bc09abfcd59d886c99733"
+      "sha256": "5706f9998a564dbaa9e40083f9ce5dec5684a7778e7bc09abfcd59d886c99733",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/27-media-card.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "c10dfcece9ee3a8b01546397e1e133ed7b78c37e07063564e6b7a3839a7d46c2"
+      "sha256": "c10dfcece9ee3a8b01546397e1e133ed7b78c37e07063564e6b7a3839a7d46c2",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/28-media-controls.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "56d0bec62bac993de2a2cc0bc6f61e1a5afa5ed405cc3c59b1affe5ca64ae81e"
+      "sha256": "56d0bec62bac993de2a2cc0bc6f61e1a5afa5ed405cc3c59b1affe5ca64ae81e",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/29-media-sources.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "92612f6760bdaf3a027293a0bb6ba093032dd43d24c568cc58f90237956c8fc3"
+      "sha256": "92612f6760bdaf3a027293a0bb6ba093032dd43d24c568cc58f90237956c8fc3",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/30-moving.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "bfe88b31eb3ab51347cf1369830c39a89633538a2d6ffadd2e79e6232a8aacd8"
+      "sha256": "bfe88b31eb3ab51347cf1369830c39a89633538a2d6ffadd2e79e6232a8aacd8",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/31-reorder.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "b818adfca24a81ed9345e386800332ba98bca18308b000fecffc43ef862d8612"
+      "sha256": "b818adfca24a81ed9345e386800332ba98bca18308b000fecffc43ef862d8612",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/32-device-info.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "dd87853090811206db17dfecca1d0fb2a0bce701ac16d0ce45d95741900528c7"
+      "sha256": "dd87853090811206db17dfecca1d0fb2a0bce701ac16d0ce45d95741900528c7",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/33-recents-preview.webp",
       "kind": "native screenshot",
       "redacted_regions": 5,
-      "sha256": "eca3a5e80e63f14ef930cd41380e69169ec48d0831d7edc90883f449f2963b92"
+      "sha256": "eca3a5e80e63f14ef930cd41380e69169ec48d0831d7edc90883f449f2963b92",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/34-diagnostic-report.webp",
       "kind": "native screenshot",
       "redacted_regions": 1,
-      "sha256": "7d4645c16277cb638646e0191c1e1ec167910b3e154c1bbf98916c3d7862ba86"
+      "sha256": "7d4645c16277cb638646e0191c1e1ec167910b3e154c1bbf98916c3d7862ba86",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/35-restore-preview.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "febe427fabe45621be12ec33e9d704d610d11f9f6f44ad9e2dcf592d13ce1618"
+      "sha256": "febe427fabe45621be12ec33e9d704d610d11f9f6f44ad9e2dcf592d13ce1618",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/36-saver.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "eaede4f932320259870b0a44c3f116835ff593833003464f54d3610be70f89be"
+      "sha256": "eaede4f932320259870b0a44c3f116835ff593833003464f54d3610be70f89be",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/37-favorites.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "3b3a1174c3b7d08bd1b9a38ef304bd6b70fb05932fa2e14ea06760501ec7c27c"
+      "sha256": "3b3a1174c3b7d08bd1b9a38ef304bd6b70fb05932fa2e14ea06760501ec7c27c",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/38-inputs.webp",
       "kind": "native screenshot",
       "redacted_regions": 0,
-      "sha256": "5f94ac6460ccf895b7ac49568ff84de5a577a4a13fdec6f3c7357bb5aa7cb9da"
+      "sha256": "5f94ac6460ccf895b7ac49568ff84de5a577a4a13fdec6f3c7357bb5aa7cb9da",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/wallpaper-coast.webp",
       "kind": "bundled generated wallpaper",
       "redacted_regions": 0,
-      "sha256": "a15271f89e2aea14b607d1e889c6e5e88b9205c64945deaf8da94e0053b894a3"
+      "sha256": "a15271f89e2aea14b607d1e889c6e5e88b9205c64945deaf8da94e0053b894a3",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/wallpaper-dunes.webp",
       "kind": "bundled generated wallpaper",
       "redacted_regions": 0,
-      "sha256": "7390c77e3337d76c446bef2714cdcbbcef19de5c46457cd7e2b0201b95a4b7b3"
+      "sha256": "7390c77e3337d76c446bef2714cdcbbcef19de5c46457cd7e2b0201b95a4b7b3",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/wallpaper-aurora.webp",
       "kind": "bundled generated wallpaper",
       "redacted_regions": 0,
-      "sha256": "ad3cf774b9a150727ab118eba48099ef30ac7736871b7a18e1300c743924ead0"
+      "sha256": "ad3cf774b9a150727ab118eba48099ef30ac7736871b7a18e1300c743924ead0",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
     },
     {
       "file": "assets/wallpaper-canyon.webp",
       "kind": "bundled generated wallpaper",
       "redacted_regions": 0,
-      "sha256": "472466d46d8e138653c8e64faa6552587fdbbb2b5a835edf32c31e002a044ce9"
+      "sha256": "472466d46d8e138653c8e64faa6552587fdbbb2b5a835edf32c31e002a044ce9",
+      "version": "0.11.1",
+      "captured_on": "2026-10-26"
+    },
+    {
+      "file": "assets/40-connect-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.0",
+      "captured_on": "2026-10-29",
+      "sha256": "45714471dc87bc348c7ac471aec3665219c6f13d6df47f0abab1a97b406e4f9f"
+    },
+    {
+      "file": "assets/41-settings-navigation.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.0",
+      "captured_on": "2026-10-29",
+      "sha256": "6c30182cffce35d5a572315f2ee3b7a338455ee905920aa502d88b04389ee2e1"
+    },
+    {
+      "file": "assets/42-live-preview.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.0",
+      "captured_on": "2026-10-29",
+      "sha256": "b0cea301a215b0ec365fce53a2eda7e4632c8608cf01afc25b86f596a035399f"
+    },
+    {
+      "file": "assets/43-connect-qr.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.0",
+      "captured_on": "2026-10-29",
+      "sha256": "112c4216fcc2a7603b9ffd4eded8460fc394e184f402dfbba71c2b267f6cee58"
+    },
+    {
+      "file": "assets/44-network-controls.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.0",
+      "captured_on": "2026-10-29",
+      "sha256": "04b31a7805906c7399ab8d96cbd43de452d4eecc53bdbc3052dcb4ba9cc82500"
     }
   ]
 }
