@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "versionCode": 18,
-  "versionName": "0.11.1",
+  "versionCode": 27,
+  "versionName": "0.12.0",
   "minSdk": 23,
-  "size": 8127766,
-  "sha256": "8844394cf4fc79845b96d696be6921463e4a0c2cd68129c011ee78297d67fa3e",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.11.1/MarcoTV-0.11.1.apk",
+  "size": 8185470,
+  "sha256": "72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0/MarcoTV-0.12.0.apk",
   "prerelease": false,
-  "notes": "当前稳定版 0.11.1：最近任务卡片圆角与任务服务启动检查修复。在线更新仅存在于后续版本。"
+  "notes": "Marco TV 0.12.0 正式版：新增局域网手机管理、镜像优先在线更新、设置分组与状态中心；改善卡片质感、按压回弹、菜单动画和应用入口诊断。支持从 RC 或旧版覆盖升级并保留配置。安装仍需确认，更新后任务辅助服务需电脑重新启动。小米 Android 9 已验证，TCL 和其他品牌仍需分项实测。"
 }
