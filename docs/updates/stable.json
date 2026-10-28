@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "versionCode": 28,
-  "versionName": "0.13.0",
+  "versionCode": 29,
+  "versionName": "0.13.1",
   "minSdk": 23,
   "size": 8189566,
-  "sha256": "8de2df863ab1f09a4741b5187cb997070ed9aa82b75d58b82b35d064d23e7662",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.13.0/MarcoTV-0.13.0.apk",
+  "sha256": "090bb670f735a6274bc17e28d28c927bc73c845849684dfff915891df546c4ed",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.13.1/MarcoTV-0.13.1.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.13.0 · Pilipala\n\n新增 Marco 互联桌面入口与双栏扫码界面；设置采用持续窗口和左侧分类；真实桌面预览支持保存、取消、单项默认值；网络快捷面板重绘；卡片焦点保持在第二个位置并滚动整排。\n\nHome 短按与长按分开处理，提供系统最近任务、Marco 最近任务和原厂按键模式；任务服务未连接时提供恢复入口。\n\n小米 Android 9 自动检查已通过，实体遥控器反馈待补；TCL 75T8G Max 与华为 SE65 仍需对应固件实测，不是全品牌适配承诺。\n\n从旧版覆盖安装可保留配置。APK 更新后，最近任务辅助服务需要通过电脑工具重新启动。安装助手 1.0.0 仍内含 0.12.0，完成初次安装后可检查更新。\n\n免费开源。如果付费购买，请尽快申请退款。\n"
+  "notes": "Marco TV 0.13.1 · Pilipala\n\n设置内容区收窄；参数调整使用完整桌面缩小、侧倾的实时 3D 预览，右侧保留保存、取消和默认值；Wi-Fi 改为顶部图标下方的小气泡，复杂操作放入更多网络设置。\n\n小米 Android 9 覆盖安装与自动检查通过。TCL、华为以及实体遥控器操作仍需对应设备确认。\n\n覆盖安装保留配置。更新后系统最近任务辅助服务需使用电脑工具重新启动。安装助手 1.0.0 仍内含 0.12.0，初装后检查更新。\n\n免费开源。如果付费购买，请尽快申请退款。\n"
 }
