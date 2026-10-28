@@ -27,7 +27,7 @@ import android.os.Looper;
 public final class DeviceRegressionChecks extends Instrumentation {
     private int passed;
     private boolean bridgeOnly,taskActions;
-    private boolean appearanceOnly;private boolean updatesOnly;private String candidate,wrongSigner;
+    private boolean phoneOnly;private boolean appearanceOnly;private boolean updatesOnly;private String candidate,wrongSigner;
     private void check(String name, boolean ok) {
         if (!ok) throw new AssertionError(name);
         passed++;
@@ -36,13 +36,14 @@ public final class DeviceRegressionChecks extends Instrumentation {
     private static Field field(Class<?> type, String name) throws Exception {
         Field field = type.getDeclaredField(name); field.setAccessible(true); return field;
     }
-    @Override public void onCreate(Bundle args) { super.onCreate(args);appearanceOnly=args!=null&&"true".equals(args.getString("appearance_only"));updatesOnly=args!=null&&"true".equals(args.getString("updates_only"));candidate=args==null?null:args.getString("candidate");wrongSigner=args==null?null:args.getString("wrong_signer");bridgeOnly=args!=null&&"true".equals(args.getString("bridge_only"));taskActions=args!=null&&"true".equals(args.getString("task_actions"));start(); }
+    @Override public void onCreate(Bundle args) { super.onCreate(args);phoneOnly=args!=null&&"true".equals(args.getString("phone_only"));appearanceOnly=args!=null&&"true".equals(args.getString("appearance_only"));updatesOnly=args!=null&&"true".equals(args.getString("updates_only"));candidate=args==null?null:args.getString("candidate");wrongSigner=args==null?null:args.getString("wrong_signer");bridgeOnly=args!=null&&"true".equals(args.getString("bridge_only"));taskActions=args!=null&&"true".equals(args.getString("task_actions"));start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
             if(updatesOnly){UpdateDeviceChecks.run(getTargetContext(),candidate,wrongSigner,this::check);result.putString("stream","OK "+passed+" update device checks\n");finish(-1,result);return;}
             if(taskActions){taskActionChecks();result.putString("stream","OK "+passed+" task action checks\n");finish(-1,result);return;}
             if(bridgeOnly){bridgeChecks();result.putString("stream","OK "+passed+" bridge checks\n");finish(-1,result);return;}
+            if(phoneOnly){MainActivity host=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));waitForIdleSync();PhoneDeviceChecks.run(this,host,this::check);result.putString("stream","OK "+passed+" phone checks\n");finish(-1,result);return;}
             if(appearanceOnly){MainActivity host=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));waitForIdleSync();AppearanceDeviceChecks.run(this,host,this::check);result.putString("stream","OK "+passed+" appearance checks\n");finish(-1,result);return;}
             cacheChecks();
             orderChecks();

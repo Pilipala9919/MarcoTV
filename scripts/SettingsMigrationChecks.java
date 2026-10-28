@@ -11,12 +11,12 @@ public final class SettingsMigrationChecks {
     static String root(String saved){return MenuOrder.encode(MenuOrder.resolve(saved,SettingsCatalog.ROOT_IDS),SettingsCatalog.ROOT_IDS);}
     public static void main(String[] args){
         Map<String,Object> old=new HashMap<>();
-        check("fresh_install_uses_new_default",root(SettingsCatalog.migration(old).get("main_v2")).equals("appearance|apps|recents|playback|device|startup|maintenance"));
+        check("fresh_install_uses_new_default",root(SettingsCatalog.migration(old).get("main_v2")).equals("appearance|apps|recents|playback|device|startup|maintenance|phone"));
         old.put("main","diagnostics|backup|hidden|device|clock|wallpapers|local_wallpaper|cards|startup|recents|about");
         old.put("clock","dim|normal_size|wait");old.put("cards","labels|radius|zoom");old.put("untouched","value");
         Map<String,Object> before=new HashMap<>(old);Map<String,String> update=SettingsCatalog.migration(old);
         check("migration_does_not_mutate_input",old.equals(before));
-        check("groups_preserve_first_old_occurrence",root(update.get("main_v2")).equals("maintenance|apps|device|appearance|startup|recents|playback"));
+        check("groups_preserve_first_old_occurrence",root(update.get("main_v2")).equals("maintenance|apps|device|appearance|startup|recents|playback|phone"));
         check("merged_wallpaper_entries_appear_once",update.get("appearance").equals("clock|wallpaper|cards"));
         check("maintenance_preserves_old_preference",update.get("maintenance").equals("diagnostics|backup|about"));
         old.putAll(update);

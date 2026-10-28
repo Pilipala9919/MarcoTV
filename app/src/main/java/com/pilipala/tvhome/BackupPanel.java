@@ -46,6 +46,9 @@ final class BackupPanel {
                 .setPositiveButton("删除",(x,y)->{if(file.delete())snapshots();else host.toast("删除失败");}).setNegativeButton("返回",null).create());
         }).setNegativeButton("返回",null).create());}
     interface Input {InputStream open()throws Exception;}
+    void fromPhone(File staged){prepare(()->new FilterInputStream(new FileInputStream(staged)){
+        @Override public void close()throws IOException{try{super.close();}finally{staged.delete();}}
+    });}
     private void prepare(Input input){final int epoch=host.menuEpoch;host.toast("正在校验备份…");host.loader.execute(()->{
         try{InputStream source=input.open();if(source==null)throw new IOException();BackupStore.Prepared p=BackupStore.read(host,source);
             host.handler.post(()->{if(epoch!=host.menuEpoch||host.isDestroyed()){p.close();return;}

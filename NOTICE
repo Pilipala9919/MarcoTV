@@ -19,3 +19,8 @@ Third-party resources:
 - Other applications' icons and banners are read from installed packages at
   runtime; they are not bundled with Marco TV. Their names and marks belong to
   their respective owners.
+
+- QR Code generator (Java), Copyright (c) Project Nayuki, MIT License.
+  Source: https://github.com/nayuki/QR-Code-generator
+  Revision: 3c6d0b3cefb4e049dc337e82237c9644399716a8
+  License: licenses/QR-Code-generator-MIT.txt (also available in the app).

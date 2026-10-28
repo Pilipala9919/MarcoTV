@@ -132,9 +132,14 @@ final class FeatureRegressionChecks {
     private static void remove(File root,File file)throws Exception{if(!file.getCanonicalPath().equals(root.getCanonicalPath())&&!file.getCanonicalPath().startsWith(root.getCanonicalPath()+File.separator))throw new IOException();File[] children=file.listFiles();if(children!=null)for(File child:children)remove(root,child);file.delete();}
     private static void media(Instrumentation runner,MainActivity host,BiConsumer<String,Boolean> check)throws Exception{
         MediaSession[] sessions=new MediaSession[2];
+        boolean had=host.preferences.contains("now_playing"),enabled=host.playback.enabled();
         runner.runOnMainSync(()->{
-            host.playback.refresh();for(int i=0;i<2;i++){sessions[i]=new MediaSession(host,"source-check-"+i);sessions[i].setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,"fixture-"+i).build());sessions[i].setPlaybackState(new PlaybackState.Builder().setState(i==0?PlaybackState.STATE_PLAYING:PlaybackState.STATE_PAUSED,0,1).build());sessions[i].setActive(true);}
-        });Thread.sleep(500);runner.waitForIdleSync();
+            host.preferences.edit().putBoolean("now_playing",true).commit();host.playback.refresh();for(int i=0;i<2;i++){sessions[i]=new MediaSession(host,"source-check-"+i);sessions[i].setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,"fixture-"+i).build());sessions[i].setPlaybackState(new PlaybackState.Builder().setState(i==0?PlaybackState.STATE_PLAYING:PlaybackState.STATE_PAUSED,0,1).build());sessions[i].setActive(true);}
+        });
+        // MediaSession discovery arrives through a system callback; wait for the fixture,
+        // not an arbitrary half-second that can expire on a busy television.
+        for(int i=0;i<50;i++){final boolean[] ready={false};runner.runOnMainSync(()->ready[0]=host.playback.item!=null&&host.playback.item.title.equals("fixture-0"));if(ready[0])break;Thread.sleep(100);}
+        runner.waitForIdleSync();
         try{
             check.accept("media_prefers_active_playback",host.playback.item!=null&&host.playback.item.title.equals("fixture-0"));
             runner.runOnMainSync(()->host.playback.hideCurrent());check.accept("media_hide_does_not_stop_playback",sessions[0].getController().getPlaybackState().getState()==PlaybackState.STATE_PLAYING&&(host.playback.item==null||!host.playback.item.title.equals("fixture-0")));
@@ -146,6 +151,6 @@ final class FeatureRegressionChecks {
                 java.lang.reflect.Field paused=NowPlaying.class.getDeclaredField("pausedSince");paused.setAccessible(true);((Map<MediaSession.Token,Long>)paused.get(host.playback)).put(sessions[1].getSessionToken(),SystemClock.elapsedRealtime()-31*60*1000L);
                 host.playback.hideCurrent();check.accept("media_stale_pause_is_hidden",host.playback.item==null||!host.playback.item.title.equals("fixture-1"));host.playback.restoreHidden();
             }catch(Throwable e){failure[0]=e;}});if(failure[0]!=null)throw new AssertionError(failure[0]);
-        }finally{runner.runOnMainSync(()->{for(MediaSession session:sessions)session.release();});}
+        }finally{runner.runOnMainSync(()->{for(MediaSession session:sessions)session.release();SharedPreferences.Editor e=host.preferences.edit();if(had)e.putBoolean("now_playing",enabled);else e.remove("now_playing");e.commit();host.playback.refresh();});}
     }
 }

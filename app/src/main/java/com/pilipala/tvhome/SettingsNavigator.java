@@ -23,7 +23,7 @@ final class SettingsNavigator {
         return new TvDialog.Builder(host).setPageId("main").setTitle("桌面设置")
             .setOrder("main_v2",SettingsCatalog.ROOT_IDS).setItems(SettingsCatalog.ROOT_LABELS,(d,w)->host.handler.post(()->{
                 switch(w){case 0:desktopSettings();break;case 1:applicationSettings();break;case 2:host.recents.settings();break;
-                    case 3:host.playback.settings();break;case 4:deviceSettings();break;case 5:systemPanel();break;case 6:maintenance();break;}
+                    case 3:host.playback.settings();break;case 4:deviceSettings();break;case 5:systemPanel();break;case 6:maintenance();break;case 7:host.phone.show();break;}
             })).setNegativeButton("返回桌面",null).create();
     }
     void desktopSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("appearance").setTitle("桌面与外观")

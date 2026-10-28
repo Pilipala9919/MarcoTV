@@ -29,6 +29,9 @@ public final class MainActivity extends Activity {
     BackupPanel backups;
     HealthPanel health;
     UpdatePanel updates;
+    PhoneManager phone;
+    PreviewPreferences previewPreferences;
+    SharedPreferences appearance(){return previewPreferences==null?preferences:previewPreferences;}
     boolean canShowUpdateNotice(){return foreground&&!dialogOpen&&(recents==null||!recents.visible);}
     RecentApps recents;
     private final HomePressTracker homePressTracker=new HomePressTracker();
@@ -50,7 +53,7 @@ public final class MainActivity extends Activity {
     boolean foreground;
     private boolean dialogOpen;
     private boolean receiverRegistered;
-    private final Runnable idle = () -> { if (foreground && !dialogOpen && !home.isMoving() && !recents.visible) home.setIdle(true); };
+    private final Runnable idle = () -> { if (foreground && !dialogOpen && !home.isMoving() && !recents.visible && (phone==null||!phone.active())) home.setIdle(true); };
     private final Runnable clock = new Runnable() {
         @Override public void run() {
             if (foreground) { home.invalidate(); handler.postDelayed(this, 1000); }
@@ -73,6 +76,7 @@ public final class MainActivity extends Activity {
         SystemIntegration.refreshHomeService(this);
         SystemIntegration.startRecovery(this);
         preferences = getSharedPreferences("home", MODE_PRIVATE);
+        previewPreferences = new PreviewPreferences(preferences);
         if (!preferences.getBoolean("identity_v06", false)) {
             preferences.edit().putBoolean("identity_v06", true).putInt("card_radius", 32).putInt("focus_scale", 16).apply();
         }
@@ -93,6 +97,7 @@ public final class MainActivity extends Activity {
         fullscreen();
         home = new HomeView(this);
         setContentView(home);
+        phone = new PhoneManager(this);
         home.requestFocus();
         loadWallpaper();
         loadApplications();
@@ -133,6 +138,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if(phone!=null)phone.clearPreview();
         if(updates!=null)updates.pause();
         foreground = false; Diagnostics.foreground(false); if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -149,6 +155,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(phone!=null)phone.destroy();
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
         if (playback != null) { playback.stop(); unregisterReceiver(playbackAccess); }
@@ -173,7 +180,7 @@ public final class MainActivity extends Activity {
     void armIdle() {
         handler.removeCallbacks(idle);
         int seconds = preferences.getInt("idle_seconds", 30);
-        if (foreground && !dialogOpen && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle, seconds * 1000L);
+        if (foreground && !dialogOpen && (phone==null||!phone.active()) && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle, seconds * 1000L);
     }
 
     void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); }
@@ -227,8 +234,9 @@ public final class MainActivity extends Activity {
 
     void loadApplications() {
         final int generation = ++loadGeneration;
-        final String focusedId = home.rows.isEmpty() || home.row < 0 ? null : home.rows.get(home.row).tiles.get(home.rows.get(home.row).selected).id;
-        final String focusedRow = home.rows.isEmpty() || home.row < 0 ? null : home.rows.get(home.row).orderKey;
+        final Row current = home.row>=0&&home.row<home.rows.size()?home.rows.get(home.row):null;
+        final String focusedId = current==null||current.selected<0||current.selected>=current.tiles.size()?null:current.tiles.get(current.selected).id;
+        final String focusedRow = current==null?null:current.orderKey;
         loader.execute(() -> {
             ArrayList<Row> result = new ArrayList<>();
             Row apps = new Row("TV 应用", "\ue333");
@@ -325,6 +333,7 @@ public final class MainActivity extends Activity {
                     }
                     if(focusAfterLoad!=null){for(int i=0;i<result.size();i++)if(result.get(i).orderKey.equals("order_tv"))for(int j=0;j<result.get(i).tiles.size();j++)if(result.get(i).tiles.get(j).id.equals(focusAfterLoad)){home.row=i;result.get(i).selected=j;}focusAfterLoad=null;}
                     home.ensureVisible(); home.animateFocus(); home.describeFocus(); home.invalidate();
+                    if(phone!=null)phone.catalogChanged();
                 }
             });
         });

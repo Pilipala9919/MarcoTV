@@ -7,7 +7,7 @@ ROOT=Path(__file__).resolve().parents[1]
 ROOT_FILES=['README.md','LICENSE','NOTICE','assets-notes.md','.gitignore',
             'CONTRIBUTING.md','SECURITY.md','CHANGELOG.md']
 SCRIPT_FILES=['bootstrap.py','build.py','setup_system.py','start_task_bridge.py','test_motion.py',
-              'MotionSpringChecks.java','public_files.py','check_release.py','package.py','measure_memory.py','test_release_tools.py','test_device_regressions.py','DeviceRegressionChecks.java','FeatureRegressionChecks.java','SettingsMigrationChecks.java','test_settings.py','test_updates.py','UpdatePolicyChecks.java','UpdateDeviceChecks.java','make_update_feed.py','package_mirror.py','AppearanceDeviceChecks.java']
+              'MotionSpringChecks.java','public_files.py','check_release.py','package.py','measure_memory.py','test_release_tools.py','test_device_regressions.py','DeviceRegressionChecks.java','FeatureRegressionChecks.java','SettingsMigrationChecks.java','test_settings.py','test_updates.py','UpdatePolicyChecks.java','UpdateDeviceChecks.java','make_update_feed.py','package_mirror.py','AppearanceDeviceChecks.java','PhoneDeviceChecks.java','PhoneHttpChecks.java','test_phone_http.py']
 
 def source_files():
     files=[ROOT/name for name in ROOT_FILES]

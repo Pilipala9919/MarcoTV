@@ -18,6 +18,7 @@ final class Tile {
     int tint;
     String glyph;
     final MotionSpring emphasis = new MotionSpring(0, 22, 0.001f);
+    final MotionSpring press = new MotionSpring(0, 32, 0.001f);
     String displayLabel, coverLabel;
     int kind; // 0 installed application, 1 TV input
 }
@@ -132,11 +133,11 @@ final class HomeView extends View {
     }
 
     void refreshAppearance() {
-        radius = host.preferences.getInt("card_radius", 32);
-        focusScale = host.preferences.getInt("focus_scale", 16) / 100f;
-        labelOpacity = host.preferences.getInt("label_opacity", host.preferences.getInt("label_mode", 0) == 1 ? 55 : 0) / 100f;
-        surfaceStrength=Math.max(0,Math.min(100,host.preferences.getInt("card_surface",55)))/100f;
-        motionSpeed=260f/Math.max(120,Math.min(500,host.preferences.getInt("motion_duration",260)));
+        radius = host.appearance().getInt("card_radius", 32);
+        focusScale = host.appearance().getInt("focus_scale", 16) / 100f;
+        labelOpacity = host.appearance().getInt("label_opacity", host.preferences.getInt("label_mode", 0) == 1 ? 55 : 0) / 100f;
+        surfaceStrength=Math.max(0,Math.min(100,host.appearance().getInt("card_surface",55)))/100f;
+        motionSpeed=260f/Math.max(120,Math.min(500,host.appearance().getInt("motion_duration",260)));
     }
     void describeFocus() {
         if(host.recents!=null&&host.recents.visible){host.recents.describe();return;}
@@ -195,7 +196,7 @@ final class HomeView extends View {
         boolean moving = section.step(dt);moving|=edge.step(dt);moving|=entrance.step(dt);
         for (Row r : rows) {
             moving |= r.scroll.step(dt);
-            for (Tile t : r.tiles) moving |= t.emphasis.step(dt);
+            for (Tile t : r.tiles) {moving |= t.emphasis.step(dt);moving |= t.press.step(dt);}
         }
         invalidate();
         if (moving) Choreographer.getInstance().postFrameCallback(motionFrame);
@@ -203,6 +204,7 @@ final class HomeView extends View {
     }
 
     void stopMotion() {
+        for(Row r:rows)for(Tile t:r.tiles)t.press.snap(0);
         Choreographer.getInstance().removeFrameCallback(motionFrame);
         motionScheduled = false; lastFrameNanos = 0;
     }
@@ -227,6 +229,7 @@ final class HomeView extends View {
         super.onDraw(canvas);
         float ambient=previewKey==null?ambientProgress:previewAmbient;
         float contentAlpha=previewKey==null?uiAlpha:1-Math.min(1,ambient*4);
+        if(previewKey==null&&host.phone!=null&&host.phone.ambientPreview()){ambient=1;contentAlpha=0;}
         scale = Math.min(getWidth() / 1920f, getHeight() / 1080f);
         offsetY = (getHeight() - 1080 * scale) / 2;
         canvas.drawColor(Color.BLACK);
@@ -238,11 +241,11 @@ final class HomeView extends View {
         }
         canvas.save(); canvas.translate((getWidth() - 1920 * scale) / 2, offsetY); canvas.scale(scale, scale);
         if(host.recents.visible||(previewKey!=null&&previewKey.startsWith("recent_"))){host.recents.draw(canvas,previewKey!=null);canvas.restore();return;}
-        paint.setColor(Color.argb(ClockScene.dim(host.preferences,ambient),0,0,0)); canvas.drawRect(0,0,1920,1080,paint);
-        clockScene.draw(canvas,host.preferences,ambient);
+        paint.setColor(Color.argb(ClockScene.dim(host.appearance(),ambient),0,0,0)); canvas.drawRect(0,0,1920,1080,paint);
+        clockScene.draw(canvas,host.appearance(),ambient);
         if (contentAlpha > 0.005f) {
+            float wifiX = clockScene.left(host.appearance()) - 70;
             int muted = alphaColor(0xC0FFFFFF, contentAlpha);
-            float wifiX = clockScene.left(host.preferences) - 70;
             icon(canvas, "\ue8b8", 132, 110, 40, muted);
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
@@ -333,7 +336,7 @@ final class HomeView extends View {
     private void drawTile(Canvas canvas, Tile tile, float x, float shelfY, float opacity) {
         if (x < -250 || x > 2180) return;
         float emphasis = clampedEmphasis(tile);
-        float zoom = 1 + focusScale * emphasis;
+        float zoom = (1 + focusScale * emphasis)*(1-.035f*Math.max(0,Math.min(1,tile.press.value)));
         float y = shelfY - 14 * emphasis;
         float w = 320 * zoom, h = 180 * zoom;
         rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
@@ -397,6 +400,10 @@ final class HomeView extends View {
         return value.substring(0, end) + "…";
     }
 
+    private void pressSelected(boolean down){
+        for(int i=0;i<rows.size();i++){Row r=rows.get(i);for(int j=0;j<r.tiles.size();j++)r.tiles.get(j).press.target(down&&row==i&&r.selected==j?1:0);}
+        animateFocus();
+    }
     @Override public boolean onKeyDown(int code, KeyEvent event) {
         if(host.recents.visible)return host.recents.key(code,event);
         boolean navigation = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
@@ -427,8 +434,8 @@ final class HomeView extends View {
             invalidate();return true;
         }
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
-            if (event.getRepeatCount() == 0) { longPressed = false; event.startTracking(); }
-            else if (event.isLongPress() && !longPressed && row >= 0) { longPressed = true; host.tileOptions(); }
+            if (event.getRepeatCount() == 0) { longPressed = false; event.startTracking();pressSelected(true); }
+            else if (event.isLongPress() && !longPressed && row >= 0) { longPressed = true;pressSelected(false); host.tileOptions(); }
             return true;
         }
         if (code == KeyEvent.KEYCODE_MENU) { if (event.getRepeatCount() == 0) host.settings(); return true; }
@@ -472,6 +479,7 @@ final class HomeView extends View {
         if (wakingKey) { wakingKey = false; return true; }
         if(edgeOpen&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)){edgeAction();return true;}
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
+            pressSelected(false);
             if (longPressed) { longPressed = false; return true; }
             if (row == -2) host.playback.controls();
             else if (row == -1) { if (topSelected == 0) host.settings(); else host.network.show(); }
@@ -494,7 +502,7 @@ final class HomeView extends View {
             else edge(false);return true;
         }
         if (y < 175 && x < 380) { host.settings(); return true; }
-        if (y < 205 && Math.abs(x-(clockScene.left(host.preferences)-70)) < 65) { host.network.show(); return true; }
+        if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) { host.network.show(); return true; }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}
         if (!rows.isEmpty() && y > 520 && y < 810) {
             Row r = rows.get(Math.max(0, row));

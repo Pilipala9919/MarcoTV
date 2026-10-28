@@ -21,7 +21,11 @@ def check():
             if p.suffix in {'.java','.py','.xml','.yml'}:
                 if re.search(r'(?<![A-Za-z])[A-Za-z]:[\\\\/]',text):errors.append('Machine-specific absolute path: '+rel)
                 if re.search(r'(?<![\d.])(?:192\.168\.|10\.\d+\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+\.\d+(?![\d.])',text):errors.append('Private network address in source: '+rel)
-            if p.suffix in {'.java','.py','.xml'} and 'Pilipala' not in text:errors.append('Missing attribution: '+rel)
+            if p.suffix in {'.java','.py','.xml'}:
+                vendored=rel.startswith('app/src/main/java/io/nayuki/qrcodegen/')
+                if vendored:
+                    if 'Copyright' not in text or 'Project Nayuki' not in text or 'Permission is hereby granted' not in text:errors.append('Missing upstream license: '+rel)
+                elif 'Pilipala' not in text:errors.append('Missing attribution: '+rel)
             if p.suffix=='.md':
                 for link in re.findall(r'(?<!!)\[[^\]]*\]\(([^)]+)\)',text):
                     value=urlsplit(link.strip('<>'))
@@ -40,7 +44,7 @@ def check():
         if version not in '\n'.join((ROOT/name).read_text(encoding='utf-8').splitlines()[2:10]):errors.append('Document version mismatch: '+name)
     validation=json.loads((ROOT/'docs/release-validation.json').read_text(encoding='utf-8'))
     if validation.get('version')!=version:errors.append('Validation summary version mismatch')
-    for source,destination in [('LICENSE','GPL-3.0-only.txt'),('NOTICE','NOTICE'),('licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
+    for source,destination in [('licenses/QR-Code-generator-MIT.txt','QR-Code-generator-MIT.txt'),('LICENSE','GPL-3.0-only.txt'),('NOTICE','NOTICE'),('licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
         if (ROOT/source).read_bytes()!=(ROOT/'app/src/main/assets/licenses'/destination).read_bytes():errors.append('Bundled license mismatch: '+source)
     if '本软件免费开源' not in info or '申请退款' not in info:errors.append('Missing free software notice')
     report={'version':version,'public_source_files':len(files),'passed':not errors,'errors':errors}

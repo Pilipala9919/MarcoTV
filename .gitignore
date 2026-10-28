@@ -44,3 +44,7 @@ scripts/*
 !scripts/package_mirror.py
 
 !scripts/AppearanceDeviceChecks.java
+
+!scripts/PhoneDeviceChecks.java
+!scripts/PhoneHttpChecks.java
+!scripts/test_phone_http.py

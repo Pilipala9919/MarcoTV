@@ -46,6 +46,18 @@ final class AppearanceDeviceChecks {
                 tile.artwork.recycle();plain.recycle();styled.recycle();
             }catch(Throwable e){failure[0]=e;}});
             if(failure[0]!=null)throw new AssertionError(failure[0]);
+            final Tile[] selected={null};
+            Method press=HomeView.class.getDeclaredMethod("pressSelected",boolean.class);press.setAccessible(true);
+            ui(inst,()->{try{host.home.resetToApps();selected[0]=host.home.rows.get(0).tiles.get(host.home.rows.get(0).selected);press.invoke(host.home,true);}catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(100);ui(inst,()->check.accept("card_press_animates_without_jump",selected[0].press.value>0&&selected[0].press.value<1));
+            ui(inst,()->{try{press.invoke(host.home,false);}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1000);
+            ui(inst,()->check.accept("card_release_returns_to_rest",selected[0].press.value==0));
+            ui(inst,()->{
+                Bitmap b=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888);b.eraseColor(0xFF336699);
+                check.accept("uniform_icon_can_extend",ArtworkStyle.uniformEdge(b));
+                b.setPixel(0,0,0x00336699);check.accept("transparent_icon_not_stretched",!ArtworkStyle.uniformEdge(b));
+                b.setPixel(0,0,0xFFFFFFFF);check.accept("complex_edge_not_stretched",!ArtworkStyle.uniformEdge(b));b.recycle();
+            });
         }finally{
             ui(inst,()->{SharedPreferences.Editor e=prefs.edit();if(hadSurface)e.putInt("card_surface",savedSurface);else e.remove("card_surface");if(hadMotion)e.putInt("motion_duration",savedMotion);else e.remove("motion_duration");e.commit();host.exitMenus();host.home.refreshAppearance();host.home.invalidate();});
         }

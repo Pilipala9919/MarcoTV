@@ -44,7 +44,7 @@ def build():
         raise RuntimeError('Manifest and ProjectInfo versions differ')
     licenses = SOURCE / 'assets/licenses'
     licenses.mkdir(exist_ok=True)
-    for original, name in [(ROOT/'LICENSE','GPL-3.0-only.txt'), (ROOT/'NOTICE','NOTICE'),
+    for original, name in [(ROOT/'licenses/QR-Code-generator-MIT.txt','QR-Code-generator-MIT.txt'), (ROOT/'LICENSE','GPL-3.0-only.txt'), (ROOT/'NOTICE','NOTICE'),
                            (ROOT/'licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
         shutil.copy2(original, licenses/name)
     for p in [BUILD, BUILD / 'classes', BUILD / 'dex', BUILD / 'resources', DIST]: p.mkdir(exist_ok=True, parents=True)

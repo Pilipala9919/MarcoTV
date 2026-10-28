@@ -1,13 +1,13 @@
 {
-  "version": "0.12.0-rc.5",
-  "version_code": 25,
-  "date": "2026-10-27",
+  "version": "0.12.0-rc.6",
+  "version_code": 26,
+  "date": "2026-10-28",
   "author": "Pilipala",
   "release_channel": "prerelease",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "a4423d61da666c6fe67e327e968b8b1b17f3b31f2f5a7570f234515076b17401",
+  "apk_sha256": "8ca24b12d54d8b74a7ba2a128783c7d36eb72218316b4358e35e3a54f6c4c2ce",
   "automated": {
     "device": {
       "passed": 85,
@@ -100,7 +100,7 @@
       ]
     },
     "appearance": {
-      "passed": 9,
+      "passed": 14,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
@@ -110,7 +110,12 @@
         "material_adds_top_light_and_bottom_shade",
         "material_keeps_corners_transparent",
         "new_appearance_parameters_are_backed_up",
-        "motion_backup_bounds"
+        "motion_backup_bounds",
+        "card_press_animates_without_jump",
+        "card_release_returns_to_rest",
+        "uniform_icon_can_extend",
+        "transparent_icon_not_stretched",
+        "complex_edge_not_stretched"
       ]
     },
     "task_bridge": {
@@ -139,24 +144,76 @@
         "removed_task_cannot_reopen",
         "remote_up_clears_fixture_task"
       ]
+    },
+    "phone": {
+      "passed": 18,
+      "checks": [
+        "phone_page_is_available",
+        "unpaired_state_is_denied",
+        "cross_origin_pair_is_denied",
+        "pair_requires_tv_confirmation",
+        "pending_pair_cannot_read_state",
+        "tv_confirmation_establishes_session",
+        "paired_state_lists_rows",
+        "mutation_requires_csrf",
+        "valid_preview_accepted",
+        "preview_does_not_write_preferences",
+        "preview_changes_render_preferences",
+        "cancel_restores_preview",
+        "stale_revision_is_rejected",
+        "out_of_range_is_rejected",
+        "save_commits_preview",
+        "tv_change_cancels_phone_preview",
+        "disconnect_acknowledged",
+        "disconnect_stops_server"
+      ]
     }
   },
   "local_checks": {
     "update_policy": 44,
     "settings_migration": 16,
     "motion": 10,
-    "release_tools": 5
+    "release_tools": 5,
+    "phone_transport": 15
   },
   "signature_schemes_verified": [
     "v1",
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 25 signed APK installed and tested on Xiaomi Android 9. Previous rc.4 mirror update E2E is archived separately; no new rc.5 network installation claim.",
+  "validation_scope": "Signed code 26 tested on Xiaomi Android 9. LAN phone management tested using desktop Edge at phone and desktop viewport sizes. Navigation remains unchanged. Physical phones and other brands are not covered.",
   "not_verified": [
     "TCL 75T 8G Max Android 11 launch routes",
     "Huawei HD65DESA",
-    "physical remote and reboot on this release",
-    "long duration performance"
-  ]
+    "physical remote and full reboot on this release",
+    "long duration performance",
+    "iPhone Safari and Android phone browser",
+    "system-wide phone remote control is not implemented"
+  ],
+  "browser_checks": {
+    "browser": "Microsoft Edge via Playwright (Browser plugin not available)",
+    "viewports": [
+      "390x844",
+      "1280x900"
+    ],
+    "backend": "real Xiaomi Android 9 television",
+    "passed": [
+      "TV-confirmed pairing",
+      "nonblank app list",
+      "card settings modal",
+      "appearance preview and cancellation",
+      "diagnostic preview",
+      "full backup download",
+      "photo crop and wallpaper upload",
+      "uploaded backup restored after TV confirmation",
+      "disconnect",
+      "no JavaScript runtime errors",
+      "no horizontal overflow"
+    ],
+    "not_verified": [
+      "physical iPhone Safari",
+      "physical Android browser",
+      "touch drag on a phone"
+    ]
+  }
 }

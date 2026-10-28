@@ -22,13 +22,27 @@ final class ArtworkStyle {
         icon.setBounds(0,0,192,192);icon.draw(new Canvas(square));
         canvas.drawColor(background(square));
         Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
-        // Clamp the original edge pixels outward. This also continues gradient
-        // backgrounds instead of leaving a square seam inside a flat fill.
-        BitmapShader extended=new BitmapShader(square,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
-        Matrix matrix=new Matrix();matrix.setScale(188f/192,188f/192);matrix.postTranslate(146,41);
-        extended.setLocalMatrix(matrix);paint.setShader(extended);canvas.drawRect(0,0,480,270,paint);
+        // Only extend opaque, nearly uniform edges. Photos and transparent logos
+        // must retain their complete image instead of producing stretched stripes.
+        if(uniformEdge(square)){
+            BitmapShader extended=new BitmapShader(square,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+            Matrix matrix=new Matrix();matrix.setScale(188f/192,188f/192);matrix.postTranslate(146,41);
+            extended.setLocalMatrix(matrix);paint.setShader(extended);canvas.drawRect(0,0,480,270,paint);
+        }else{
+            int base=background(square);
+            paint.setShader(new LinearGradient(0,0,480,270,base,Color.rgb(Color.red(base)*2/3,Color.green(base)*2/3,Color.blue(base)*2/3),Shader.TileMode.CLAMP));
+            canvas.drawRect(0,0,480,270,paint);paint.setShader(null);
+            canvas.drawBitmap(square,null,new RectF(146,41,334,229),paint);
+        }
         paint.setShader(null);square.recycle();
         return card;
+    }
+    static boolean uniformEdge(Bitmap b){
+        int reference=b.getPixel(0,0),w=b.getWidth()-1,h=b.getHeight()-1;
+        for(int i=0;i<=24;i++)for(int side=0;side<4;side++){
+            int c=b.getPixel(side<2?i*w/24:(side==2?0:w),side>=2?i*h/24:(side==0?0:h));
+            if(Color.alpha(c)<250||Math.abs(Color.red(c)-Color.red(reference))>20||Math.abs(Color.green(c)-Color.green(reference))>20||Math.abs(Color.blue(c)-Color.blue(reference))>20)return false;
+        }return true;
     }
     static int background(Bitmap image) {
         HashMap<Integer,Integer> buckets=new HashMap<>();HashMap<Integer,long[]> sums=new HashMap<>();
