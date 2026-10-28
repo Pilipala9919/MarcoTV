@@ -1,13 +1,13 @@
 {
-  "version": "0.12.0-rc.6",
-  "version_code": 26,
+  "version": "0.12.0",
+  "version_code": 27,
   "date": "2026-10-28",
   "author": "Pilipala",
-  "release_channel": "prerelease",
+  "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "8ca24b12d54d8b74a7ba2a128783c7d36eb72218316b4358e35e3a54f6c4c2ce",
+  "apk_sha256": "72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218",
   "automated": {
     "device": {
       "passed": 85,
@@ -167,6 +167,37 @@
         "disconnect_acknowledged",
         "disconnect_stops_server"
       ]
+    },
+    "bridge": {
+      "passed": 4,
+      "checks": [
+        "bridge_authenticated_connection",
+        "bridge_version_matches_app",
+        "bridge_returns_unique_real_task_ids",
+        "bridge_rejects_invalid_task"
+      ]
+    },
+    "update_candidate": {
+      "passed": 17,
+      "checks": [
+        "newer_same_signed_apk_accepted",
+        "different_signer_rejected",
+        "wrong_download_size_rejected",
+        "wrong_digest_rejected",
+        "metadata_code_mismatch_rejected",
+        "metadata_name_mismatch_rejected",
+        "installed_version_rejected_as_update",
+        "update_provider_not_exported",
+        "provider_rejects_other_paths",
+        "provider_rejects_write_access",
+        "enabled_override_respected",
+        "disabled_override_respected",
+        "default_disabled_stays_disabled",
+        "tv_launcher_alias_discovered",
+        "private_entry_not_exposed",
+        "permission_guarded_entry_not_exposed",
+        "disabled_entry_not_exposed"
+      ]
     }
   },
   "local_checks": {
@@ -181,7 +212,7 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Signed code 26 tested on Xiaomi Android 9. LAN phone management tested using desktop Edge at phone and desktop viewport sizes. Navigation remains unchanged. Physical phones and other brands are not covered.",
+  "validation_scope": "Signed code 27 installed over rc.6 on Xiaomi Android 9 without data removal. All device suites rerun on the final stable APK; 17 update candidate checks ran before upgrade against this same APK. Physical phones and other brands are not covered.",
   "not_verified": [
     "TCL 75T 8G Max Android 11 launch routes",
     "Huawei HD65DESA",
@@ -214,6 +245,16 @@
       "physical iPhone Safari",
       "physical Android browser",
       "touch drag on a phone"
-    ]
+    ],
+    "tested_version": "0.12.0",
+    "apk_sha256": "72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218"
+  },
+  "upgrade": {
+    "from": "0.12.0-rc.6",
+    "to": "0.12.0",
+    "version_code": 27,
+    "same_signature_verified": true,
+    "configuration_backup_created": true,
+    "adb_overwrite_install_succeeded": true
   }
 }
