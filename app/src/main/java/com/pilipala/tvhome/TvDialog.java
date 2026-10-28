@@ -55,6 +55,7 @@ final class TvDialog extends Dialog {
     String pageKey(){return spec.pageId!=null?spec.pageId:spec.orderKey==null?spec.title:spec.orderKey;}
     boolean reorderable(){return spec.orderKey!=null;}
     String previewKey(){return spec.preview;}
+    int networkHeight(){return Math.min(350,94+(spec.items==null?0:spec.items.length)*43);}
     void setBackAction(Runnable action){backAction=action;}
     @Override public void onBackPressed(){if(moving>=0){finishMove();return;}if(backAction!=null)backAction.run();else super.onBackPressed();}
     private TvDialog(Builder spec) { super(spec.activity); this.spec = spec; }
@@ -69,22 +70,22 @@ final class TvDialog extends Dialog {
         // this avoids partially missing text after nested window transitions.
         panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         boolean preview=spec.preview!=null;
-        panel.setPadding(dp(preview?20:28), dp(preview?10:25), dp(preview?20:28), dp(preview?10:18));
+        panel.setPadding(dp(spec.network?14:preview?20:24), dp(spec.network?14:preview?14:22), dp(spec.network?14:preview?20:24), dp(spec.network?10:preview?14:18));
+        panel.setClickable(true);
         GradientDrawable bg = background(0xF51D2028, dp(24)); bg.setStroke(dp(1), 0x20FFFFFF); panel.setBackground(bg);
         TextView brand = text("M A R C O T V", 10, 0xFFB0B8C6); brand.setLetterSpacing(.1f);
-        if(!preview)panel.addView(brand);
-        TextView title = text(spec.title+(preview?" · 实时预览":""), preview?19:27, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
+        if(!preview&&!spec.network)panel.addView(brand);
+        TextView title = text(spec.title, preview||spec.network?19:25, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
         title.setMaxLines(2); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(0, dp(preview?0:10), 0, dp(preview?5:16)); panel.addView(title);
+        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:8), 0, dp(preview||spec.network?8:14)); panel.addView(title);
         ScrollView scroll = new ScrollView(getContext()); scroll.setFillViewport(false); scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
         body = new LinearLayout(getContext()); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(dp(3), dp(3), dp(3), dp(3));
         scroll.addView(body);
         if (spec.message != null && !preview) {
-            TextView message = text(spec.message, 16, 0xFFBDC4CF); message.setLineSpacing(dp(5), 1);
+            TextView message = text(spec.message, spec.network?12:16, 0xFFBDC4CF); message.setLineSpacing(dp(spec.network?2:5), 1);
             messageView=message;
-            message.setPadding(dp(spec.network?18:3),dp(spec.network?16:0),dp(spec.network?18:3),dp(18));
-            if(spec.network){message.setTextColor(Color.WHITE);message.setBackground(background(0xFF234C65,dp(18)));}
+            message.setPadding(dp(6),0,dp(6),dp(spec.network?8:18));
             body.addView(message);
         }
         if (spec.view != null) {
@@ -102,8 +103,6 @@ final class TvDialog extends Dialog {
             if(ids==null){ids=new String[spec.items.length];for(int i=0;i<ids.length;i++)ids[i]=String.valueOf(i);}
             itemOrder=MenuOrder.resolve(spec.orderKey==null?"":getContext().getSharedPreferences("menu_order",0).getString(spec.orderKey,""),ids);
         }
-        LinearLayout quick=null;
-        if(spec.network){quick=new LinearLayout(getContext());quick.setPadding(0,dp(12),0,dp(12));body.addView(quick);}
         if (spec.items != null) for (int position = 0; position < itemOrder.size(); position++) {
             final int index = itemOrder.get(position);
             TextView item = row(spec.items[index], spec.single && index == spec.selected);
@@ -114,7 +113,7 @@ final class TvDialog extends Dialog {
                 item.setSingleLine(true); item.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 SignalDrawable signal = new SignalDrawable(spec.signals[index],spec.secured!=null&&spec.secured[index],spec.connected!=null&&spec.connected[index]);
                 signal.setBounds(0, 0, dp(spec.network?68:28), dp(24));
-                item.setCompoundDrawables(null, null, signal, null); item.setCompoundDrawablePadding(dp(20));
+                item.setCompoundDrawables(null, null, signal, null); item.setCompoundDrawablePadding(dp(spec.network?8:20));
                 item.setContentDescription(spec.items[index] + "，信号" + new String[]{"弱", "一般", "良好", "强"}[spec.signals[index]]);
             }
             if (spec.single) item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
@@ -128,8 +127,8 @@ final class TvDialog extends Dialog {
             });
             item.setTag(index);itemViews.add(item);
             if(spec.orderKey!=null)item.setOnLongClickListener(v->{beginMove(index,true);return true;});
-            if(spec.network&&index<3){item.setTextSize(13);item.setGravity(Gravity.CENTER);item.setMaxLines(3);item.setPadding(dp(5),dp(10),dp(5),dp(10));LinearLayout.LayoutParams tile=new LinearLayout.LayoutParams(0,dp(76),1);tile.setMargins(dp(3),0,dp(3),0);quick.addView(item,tile);}
-            else {if(spec.network&&index==3){TextView heading=text("附近网络",13,0xFFAEBCCD);heading.setPadding(dp(8),dp(6),0,dp(8));body.addView(heading);}body.addView(item,rowParams());}choices.add(item);
+            if(spec.network){item.setTextSize(14);item.setSingleLine(true);item.setEllipsize(android.text.TextUtils.TruncateAt.END);item.setMinHeight(dp(37));item.setPadding(dp(10),dp(6),dp(10),dp(6));}
+            body.addView(item,rowParams());choices.add(item);
         }
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(getContext()); buttons.setOrientation(LinearLayout.HORIZONTAL);
@@ -147,7 +146,7 @@ final class TvDialog extends Dialog {
         }
         if (buttons.getChildCount()>0) panel.addView(buttons);
         hint = text(spec.orderKey==null?"返回上一级  ·  Home 回桌面":"长按确定调整顺序  ·  返回上一级  ·  Home 回桌面", 11, 0xFF8993A4);
-        hint.setPadding(dp(3), dp(14), 0, 0); if(!preview)panel.addView(hint);
+        hint.setPadding(dp(3), dp(14), 0, 0); if(!preview&&!spec.network)panel.addView(hint);
         setContentView(panel);
         Window w = getWindow();
         w.setBackgroundDrawableResource(android.R.color.transparent);
@@ -168,8 +167,8 @@ final class TvDialog extends Dialog {
         super.onStart();
         // Back reuses the existing dialog, so animate every show, not only onCreate.
         panel.animate().cancel();panel.setAlpha(1);
-        panel.setTranslationX(spec.preview!=null?0:dp(returning?-26:48));
-        panel.setTranslationY(spec.preview!=null?dp(16):0);
+        panel.setTranslationX(spec.network?0:dp(returning?-20:32));
+        panel.setTranslationY(spec.network?-dp(8):0);
         panel.animate().alpha(1).translationX(0).translationY(0).setDuration(motionDuration())
             .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f)).start();
     }

@@ -6,7 +6,7 @@
 
 > **本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。**
 
-作者：**Pilipala** · 版本：**0.13.0（正式版）** · 协议：[GPL-3.0-only](LICENSE)
+作者：**Pilipala** · 版本：**0.13.1（正式版）** · 协议：[GPL-3.0-only](LICENSE)
 
 [![Marco TV 桌面，示例卡片与实机界面](docs/showcase/assets/01-desktop.webp)](https://pilipala9919.github.io/MarcoTV/showcase/)
 
@@ -61,7 +61,7 @@
 
 ## 快速开始
 
-1. 在 Releases 免费下载 `MarcoTV-0.13.0.apk`。
+1. 在 Releases 免费下载 `MarcoTV-0.13.1.apk`。
 2. 按安装说明确认系统，通过安装向导选择助手、电视浏览器、文件接收、U 盘或 ADB 安装。
 3. 从原桌面的应用列表打开 **Marco TV**，先验证遥控器和应用启动。
 4. 按菜单键或打开左上齿轮，调整壁纸、时钟和卡片。

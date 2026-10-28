@@ -226,7 +226,7 @@ public final class DeviceRegressionChecks extends Instrumentation {
         check("wifi_result_handled", network.onActivityResult(NetworkPanel.WIFI_SETTINGS));
         List<?> pages = (List<?>) history.get(activity);
         check("wifi_return_restores_network_page", !pages.isEmpty()
-                && ((TvDialog) pages.get(pages.size() - 1)).pageKey().equals("网络与 Wi-Fi"));
+                && ((TvDialog) pages.get(pages.size() - 1)).pageKey().equals("wifi_popover"));
         settings.setInt(network, activity.menuEpoch); permissions.setInt(network, activity.menuEpoch);
         activity.onNewIntent(new Intent(Intent.ACTION_MAIN));
         network.onActivityResult(NetworkPanel.WIFI_SETTINGS); network.permissionResult(false);

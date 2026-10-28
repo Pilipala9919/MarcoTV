@@ -100,10 +100,22 @@ final class HomeView extends View {
         if(action==0)host.library.show();else if(action==1)host.tileOptions();else if(action==2)host.appearanceSettings();else if(action==3)host.ambientSettings();else host.settings();
     }
     private String previewKey;
+    private float overview;
+    private ValueAnimator overviewAnimation;
+    private final Camera overviewCamera=new Camera();
+    private final Matrix overviewMatrix=new Matrix();
+    float wifiAnchorX(){return (getWidth()-1920*Math.min(getWidth()/1920f,getHeight()/1080f))/2+(clockScene.left(host.appearance())-70)*Math.min(getWidth()/1920f,getHeight()/1080f);}
+    float wifiAnchorY(){float s=Math.min(getWidth()/1920f,getHeight()/1080f);return (getHeight()-1080*s)/2+110*s;}
     private float previewAmbient;
     ValueAnimator previewFade;
     private int previewSavedRow=-2;
     void preview(String key){
+        if((key==null)!=(previewKey==null)){
+            if(overviewAnimation!=null)overviewAnimation.cancel();
+            overviewAnimation=ValueAnimator.ofFloat(overview,key==null?0:1);overviewAnimation.setDuration(260);
+            overviewAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
+            overviewAnimation.addUpdateListener(a->{overview=(float)a.getAnimatedValue();invalidate();});overviewAnimation.start();
+        }
         if(key!=null&&previewSavedRow==-2){previewSavedRow=row;row=Math.max(0,row);animateFocus();}
         else if(key==null&&previewSavedRow!=-2){row=previewSavedRow;previewSavedRow=-2;animateFocus();}
         previewKey=key;
@@ -224,6 +236,22 @@ final class HomeView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if(overview<=0){drawScene(canvas);return;}
+        canvas.drawColor(0xFF0B121C);
+        float density=getResources().getDisplayMetrics().density;
+        float targetScale=Math.max(.35f,Math.min(.70f,(getWidth()-390*density)/getWidth()));
+        float size=1-(1-targetScale)*overview;
+        overviewCamera.save();overviewCamera.setLocation(0,0,-Math.max(12,getWidth()/72f));
+        overviewCamera.rotateY(-12*overview);overviewCamera.rotateZ(-1.2f*overview);
+        overviewCamera.getMatrix(overviewMatrix);overviewCamera.restore();
+        overviewMatrix.preTranslate(-getWidth()/2f,-getHeight()/2f);overviewMatrix.postScale(size,size);
+        overviewMatrix.postTranslate(getWidth()/2f-174*density*overview,getHeight()/2f);
+        int save=canvas.save();canvas.concat(overviewMatrix);canvas.clipRect(0,0,getWidth(),getHeight());
+        drawScene(canvas);
+        paint.setShader(null);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2*density);paint.setColor(0x809BB9CB);
+        canvas.drawRect(0,0,getWidth(),getHeight(),paint);paint.setStyle(Paint.Style.FILL);canvas.restoreToCount(save);
+    }
+    private void drawScene(Canvas canvas){
         float ambient=previewKey==null?ambientProgress:previewAmbient;
         float contentAlpha=previewKey==null?uiAlpha:1-Math.min(1,ambient*4);
         if(previewKey==null&&host.phone!=null&&host.phone.ambientPreview()){ambient=1;contentAlpha=0;}
@@ -251,7 +279,7 @@ final class HomeView extends View {
             if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(420,90,5,paint);}
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
             if(movingRow!=null)text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
-            if(previewKey==null && host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
+            if(host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
                 float selectedX = topSelected == 0 ? 132 : topSelected==1?405:wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
@@ -260,18 +288,18 @@ final class HomeView extends View {
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
             else {
                 // Keep the moving shelves inside the content area, clear of the fixed clock.
-                int shelfClip = canvas.save(); canvas.clipRect(0, previewKey==null?285:210, 1920, previewKey==null?925:660);
+                int shelfClip = canvas.save(); canvas.clipRect(0, 285, 1920, 925);
                 for (int i = 0; i < rows.size(); i++) {
                     float distance = i - section.value;
                     if (Math.abs(distance) < 1.35f) {
                         float opacity = contentAlpha * Math.max(0, 1 - Math.abs(distance) * 0.75f);
                         canvas.save();canvas.translate(edge.value*390,0);
-                        drawRow(canvas, rows.get(i), (previewKey==null?660:450) + distance * 515, opacity*(1-edge.value*.35f));canvas.restore();
+                        drawRow(canvas, rows.get(i), 660 + distance * 515, opacity*(1-edge.value*.35f));canvas.restore();
                     }
                 }
                 canvas.restoreToCount(shelfClip);
                 int next = Math.max(0, row) + 1;
-                if (next < rows.size() && previewKey==null) {
+                if (next < rows.size()) {
                     Row r = rows.get(next);
                     icon(canvas, r.symbol, 136, 1003, 48, alphaColor(Color.WHITE, contentAlpha * .3f));
                     text(canvas, r.title, 176, 1010, 34, bold, alphaColor(Color.WHITE, contentAlpha * .3f), Paint.Align.LEFT);

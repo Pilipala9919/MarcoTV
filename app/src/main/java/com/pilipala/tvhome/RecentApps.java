@@ -94,7 +94,7 @@ final class RecentApps {
         paint.setShader(null);paint.setColor(Color.argb(Math.round(value("dim",65)*2.55f*(preview?1:backdrop)),0,0,0));c.drawRect(0,0,1920,1080,paint);
         text(c,"最近任务",112,120,46,bold,0xFFF5F7FA,Paint.Align.LEFT);
         text(c,"系统任务 · 返回上次停留的页面",112,168,24,normal,0xBBDCE3EC,Paint.Align.LEFT);
-        if(entries.isEmpty()){text(c,loading?"正在读取系统任务…":bridgeConnected?"暂无可显示任务":"需要连接系统任务服务",960,preview?360:485,32,normal,0xFFD8E1EA,Paint.Align.CENTER);text(c,bridgeStatus,960,preview?410:545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);}
+        if(entries.isEmpty()){text(c,loading?"正在读取系统任务…":bridgeConnected?"暂无可显示任务":"需要连接系统任务服务",960,485,32,normal,0xFFD8E1EA,Paint.Align.CENTER);text(c,bridgeStatus,960,545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);}
         else{
             ArrayList<Integer> drawOrder=new ArrayList<>();for(int i=0;i<count();i++)if(Math.abs(i-position)<4)drawOrder.add(i);
             Collections.sort(drawOrder,(a,b)->Float.compare(Math.abs(b-position),Math.abs(a-position)));
@@ -105,8 +105,8 @@ final class RecentApps {
     }
     private void card(Canvas c,Entry e,float offset,boolean preview){
         float progress=preview?1:reveal;
-        float abs=Math.abs(offset),size=value("size",100)/100f*(preview?.68f:1),zoom=size*(1-Math.min(.28f,abs*.10f))*(.78f+.22f*progress);
-        float cx=960+offset*value("spacing",210)*size*(.12f+.88f*progress),cy=(preview?400:555)+Math.min(42,abs*15)*size+165*size*(1-progress),w=570*zoom,h=550*zoom;
+        float abs=Math.abs(offset),size=value("size",100)/100f,zoom=size*(1-Math.min(.28f,abs*.10f))*(.78f+.22f*progress);
+        float cx=960+offset*value("spacing",210)*size*(.12f+.88f*progress),cy=555+Math.min(42,abs*15)*size+165*size*(1-progress),w=570*zoom,h=550*zoom;
         int save=c.save();if(e.taskId==removingTask||(dragging&&abs<.5f))c.translate(0,dragY);c.rotate(Math.max(-1,Math.min(1,offset))*value("tilt",7)*progress,cx,cy);
         float radius=value("radius",36)*zoom;rect.set(cx-w/2+10,cy-h/2+16,cx+w/2+10,cy+h/2+16);paint.setColor(0x66000000);c.drawRoundRect(rect,radius,radius,paint);
         rect.set(cx-w/2,cy-h/2,cx+w/2,cy+h/2);paint.setColor(Color.WHITE);paint.setShader(new LinearGradient(cx,cy-h/2,cx,cy+h/2,new int[]{0xFF34485E,0xFF172331},null,Shader.TileMode.CLAMP));c.drawRoundRect(rect,radius,radius,paint);paint.setShader(null);

@@ -1,13 +1,13 @@
 {
-  "version": "0.13.0",
-  "version_code": 28,
+  "version": "0.13.1",
+  "version_code": 29,
   "date": "2026-10-29",
   "author": "Pilipala",
   "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "8de2df863ab1f09a4741b5187cb997070ed9aa82b75d58b82b35d064d23e7662",
+  "apk_sha256": "090bb670f735a6274bc17e28d28c927bc73c845849684dfff915891df546c4ed",
   "automated": {
     "device": {
       "passed": 85,
@@ -125,7 +125,7 @@
       ]
     },
     "appearance": {
-      "passed": 30,
+      "passed": 36,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
@@ -133,6 +133,12 @@
         "panel_entry_settles",
         "settings_reuse_same_native_window",
         "cached_parent_replays_return_animation",
+        "settings_detail_uses_compact_width",
+        "preview_overview_reaches_perspective",
+        "preview_keeps_entire_desktop_left_of_controls",
+        "preview_exit_restores_full_desktop",
+        "wifi_bubble_is_small_and_top_anchored",
+        "wifi_back_returns_directly_to_desktop",
         "material_adds_top_light_and_bottom_shade",
         "material_keeps_corners_transparent",
         "new_appearance_parameters_are_backed_up",
@@ -199,11 +205,11 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 28 overwrite installation and targeted checks on Xiaomi Android 9. Gesture tests invoke the actual Home service logic with isolated preferences and captured launch intents; these are not physical remote tests. No TCL or Huawei device was connected.",
+  "validation_scope": "Code 29 overwrite installation on Xiaomi Android 9. Compact settings, perspective preview entry/exit, Wi-Fi popover bounds and Back behavior exercised on device. Home gesture tests invoke service logic, not a physical remote. No TCL or Huawei device connected.",
   "not_verified": [
     "TCL 75T8G Max Android 11 physical Home and task service",
     "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
-    "physical remote on 0.13.0 (user will test later)",
+    "physical remote on 0.13.1 (user will test later)",
     "full reboot and long duration stability on this version",
     "physical iPhone Safari and Android phone browser",
     "real Wi-Fi network switching on Android 10+"
@@ -238,11 +244,11 @@
     }
   },
   "upgrade": {
-    "from": "0.12.0",
-    "to": "0.13.0",
-    "version_code": 28,
+    "from": "0.13.0",
+    "to": "0.13.1",
+    "version_code": 29,
     "adb_overwrite_install_succeeded": true,
     "same_signature_accepted_by_package_manager": true
   },
-  "automated_total": 242
+  "automated_total": 248
 }

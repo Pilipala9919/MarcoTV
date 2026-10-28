@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -374,6 +374,41 @@
       "version": "0.13.0",
       "captured_on": "2026-10-29",
       "sha256": "04b31a7805906c7399ab8d96cbd43de452d4eecc53bdbc3052dcb4ba9cc82500"
+    },
+    {
+      "file": "assets/45-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.1",
+      "captured_on": "2026-10-29",
+      "sha256": "7793d6876ce5144bd552c640f9a96b981f349bbfaebb48efee0cfceca8f9ec95"
+    },
+    {
+      "file": "assets/46-compact-settings.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.1",
+      "captured_on": "2026-10-29",
+      "sha256": "78e31812bc46d26199b41008eef8b0cd8493a40ad6cc7c4eb700f20b67547540"
+    },
+    {
+      "file": "assets/47-perspective-preview.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.1",
+      "captured_on": "2026-10-29",
+      "sha256": "b02f9e577bbd23d172600a49c3951708c2639575ff33d2fe958009eb705e139b"
+    },
+    {
+      "file": "assets/48-connect.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.1",
+      "captured_on": "2026-10-29",
+      "sha256": "b91b8527e5d2e8259e653b2a1a1217c93a13c9e8380987c889b4d0f41bae5d0c"
+    },
+    {
+      "file": "assets/49-wifi-popover.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.1",
+      "captured_on": "2026-10-29",
+      "sha256": "c9d4ca74516ee5000e00f7b942342d2a52726aca046154517b6013850a1df840"
     }
   ]
 }

@@ -79,25 +79,42 @@ final class NetworkPanel {
             }
             networks.addAll(unique.values()); Collections.sort(networks,(a,b)->Integer.compare(b.level,a.level));
         } catch (SecurityException ignored) { subtitle="允许附近网络权限后可查看网络"; }
-        ArrayList<String> labels=new ArrayList<>();
-        labels.add("Wi-Fi："+(wifi.isWifiEnabled()?"已开启":"已关闭"));
-        labels.add(permitted?"刷新附近网络":"允许查找附近网络");
-        labels.add("查看连接详情");
-        int[] signals = new int[networks.size()+3]; Arrays.fill(signals,-1);
-        boolean[] locks=new boolean[signals.length],current=new boolean[signals.length];
         WifiInfo connected=wifi.getConnectionInfo();
-        for (int i=0;i<networks.size();i++) {
+        final String ssid=connected!=null&&connected.getNetworkId()>=0?unquote(connected.getSSID()):"";
+        Collections.sort(networks,(a,b)->{int current=Boolean.compare(b.SSID.equals(ssid),a.SSID.equals(ssid));return current!=0?current:Integer.compare(b.level,a.level);});
+        int count=Math.min(4,networks.size());
+        ArrayList<String> labels=new ArrayList<>();
+        labels.add("Wi-Fi · "+(wifi.isWifiEnabled()?"已开启":"已关闭"));
+        int[] signals = new int[count+2]; Arrays.fill(signals,-1);
+        boolean[] locks=new boolean[signals.length],current=new boolean[signals.length];
+        for (int i=0;i<count;i++) {
             ScanResult r=networks.get(i); labels.add(r.SSID);
-            signals[i+3]=WifiManager.calculateSignalLevel(r.level,4);locks[i+3]=!security(r).equals("开放网络");current[i+3]=connected!=null&&connected.getNetworkId()>=0&&unquote(connected.getSSID()).equals(r.SSID);
+            signals[i+1]=WifiManager.calculateSignalLevel(r.level,4);locks[i+1]=!security(r).equals("开放网络");current[i+1]=ssid.equals(r.SSID);
         }
+        labels.add("更多网络设置…");
         if (networks.isEmpty() && permitted) subtitle="暂无扫描结果。刷新前请确认 Wi-Fi 与系统定位已开启。";
         String[] summaryLines=currentSummary().split("\n");
-        String summary=summaryLines[0]+(summaryLines.length>1?" · "+summaryLines[1]:"");
-        if(networks.isEmpty())summary+="\n"+subtitle;
-        present(new TvDialog.Builder(activity).network().setTitle("网络与 Wi-Fi").setMessage(summary)
+        String summary=summaryLines[0];
+        if(networks.isEmpty())summary+=ssid.isEmpty()?" · 在更多设置中查找网络":" · "+ssid;
+        if(scanning)summary="正在查找附近网络…";
+        present(new TvDialog.Builder(activity).network().setPageId("wifi_popover").setTitle("Wi-Fi").setMessage(summary)
                 .setItems(labels.toArray(new String[0]),(d,index)->{
-                    if(index==0) toggle(); else if(index==1) scan(); else if(index==2) details(); else choose(networks.get(index-3));
-                }).setSignals(signals).setNetworkStates(locks,current).setNegativeButton("返回",null).create());
+                    if(index==0) toggle(); else if(index==labels.size()-1) more(networks); else choose(networks.get(index-1));
+                }).setSignals(signals).setNetworkStates(locks,current).create());
+    }
+    private void more(ArrayList<ScanResult> networks){
+        boolean permitted=activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;
+        present(new TvDialog.Builder(activity).setTitle("更多网络设置")
+            .setItems(new String[]{permitted?"刷新附近网络":"允许查找附近网络","全部附近网络（"+networks.size()+"）","连接详情","电视系统网络设置"},(d,index)->{
+                if(index==0)scan();else if(index==1)allNetworks(networks);else if(index==2)details();else openWifiSettings();
+            }).setNegativeButton("返回",null).create());
+    }
+    private void allNetworks(ArrayList<ScanResult> networks){
+        if(networks.isEmpty()){scan();return;}
+        String[] labels=new String[networks.size()];int[] signals=new int[labels.length];
+        for(int i=0;i<labels.length;i++){labels[i]=networks.get(i).SSID;signals[i]=WifiManager.calculateSignalLevel(networks.get(i).level,4);}
+        present(new TvDialog.Builder(activity).setTitle("全部附近网络").setItems(labels,(d,index)->choose(networks.get(index)))
+            .setSignals(signals).setNegativeButton("返回",null).create());
     }
     private void details() {
         present(new TvDialog.Builder(activity).setTitle("连接详情").setMessage(currentSummary()+"\n\n网络配置由电视系统保存。Marco TV 不保存 Wi-Fi 密码。")

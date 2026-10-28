@@ -32,6 +32,32 @@ final class AppearanceDeviceChecks {
             Thread.sleep(600);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
             Thread.sleep(600);
+            ui(inst,()->{host.exitMenus();host.navigator.settings();host.navigator.desktopSettings();});
+            Thread.sleep(350);
+            ui(inst,()->{try{android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
+                float density=host.getResources().getDisplayMetrics().density;
+                check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=641*density);
+                host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
+            }catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(400);
+            ui(inst,()->{try{
+                check.accept("preview_overview_reaches_perspective",(Float)field(host.home,"overview")==1f);
+                android.graphics.Matrix matrix=(android.graphics.Matrix)field(host.home,"overviewMatrix");float[] corners={0,0,host.home.getWidth(),0,host.home.getWidth(),host.home.getHeight(),0,host.home.getHeight()};matrix.mapPoints(corners);
+                check.accept("preview_keeps_entire_desktop_left_of_controls",corners[0]>=0&&corners[2]<host.home.getWidth()*.67f&&corners[1]!=corners[3]);
+                host.exitMenus();
+            }catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(350);
+            ui(inst,()->{try{
+                check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
+                host.network.show();
+            }catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(350);
+            ui(inst,()->{try{
+                android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");View bubble=root.getChildAt(0);float density=host.getResources().getDisplayMetrics().density;
+                check.accept("wifi_bubble_is_small_and_top_anchored",bubble.getWidth()<=301*density&&bubble.getHeight()<=351*density&&bubble.getTop()<host.home.getHeight()/3);
+                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                check.accept("wifi_back_returns_directly_to_desktop",!host.panelWindow().isShowing());
+            }catch(Exception e){throw new RuntimeException(e);}});
             ui(inst,()->{try{
                 host.exitMenus();
                 Tile tile=new Tile();tile.label="Fixture";tile.banner=true;tile.artwork=Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888);tile.artwork.eraseColor(0xFF8090A0);tile.emphasis.snap(1);

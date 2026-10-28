@@ -29,7 +29,9 @@ final class PanelWindow extends Dialog {
         if(current!=null)current.rememberFocus();
         root.removeAllViews();current=page;
         if(content.getParent()!=null)((ViewGroup)content.getParent()).removeView(content);
-        root.setBackgroundColor(preview?0x00000000:0x7A050B13);
+        root.setBackgroundColor(preview||network?0x00000000:0x7A050B13);
+        root.setOnClickListener(network?v->page.onBackPressed():null);
+        root.setClickable(network);
         int width=getContext().getResources().getDisplayMetrics().widthPixels;
         int height=getContext().getResources().getDisplayMetrics().heightPixels;
         int category=preview||centered||network?-1:host.settingsCategory();
@@ -45,12 +47,17 @@ final class PanelWindow extends Dialog {
                 tab.setOnFocusChangeListener((v,on)->{android.graphics.drawable.GradientDrawable bg=TvDialog.background(on?0xFF3A586C:index==category?0xFF30495B:0x0018232F,dp(12));bg.setStroke(dp(1),on?0xFFABD6DF:0);v.setBackground(bg);});
                 tab.setOnClickListener(v->host.switchCategory(index));rail.addView(tab,new LinearLayout.LayoutParams(-1,dp(46)));
             }
-            ScrollView navigation=new ScrollView(getContext());navigation.setVerticalScrollBarEnabled(false);navigation.addView(rail);split.addView(navigation,new LinearLayout.LayoutParams(dp(174),-1));
+            ScrollView navigation=new ScrollView(getContext());navigation.setVerticalScrollBarEnabled(false);navigation.addView(rail);split.addView(navigation,new LinearLayout.LayoutParams(dp(160),-1));
             LinearLayout.LayoutParams detail=new LinearLayout.LayoutParams(0,-1,1);detail.leftMargin=dp(12);split.addView(content,detail);presented=split;
         }
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(preview?760:centered?780:network?470:category>=0?820:580),width-dp(48)),Math.min(dp(preview?205:centered?425:500),height-dp(32)));
-        p.gravity=preview?Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL:centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
-        p.rightMargin=preview||centered?0:dp(24);p.bottomMargin=preview?dp(12):0;
+        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(preview?300:centered?780:network?300:category>=0?640:470),width-dp(48)),Math.min(dp(preview?218:centered?425:network?page.networkHeight():500),height-dp(32)));
+        p.gravity=centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
+        p.rightMargin=centered?0:dp(24);
+        if(network){
+            p.gravity=Gravity.TOP|Gravity.LEFT;p.rightMargin=0;
+            p.leftMargin=Math.max(dp(16),Math.min(width-p.width-dp(16),Math.round(host.home.wifiAnchorX()-p.width*.5f)));
+            p.topMargin=Math.min(Math.round(host.home.wifiAnchorY()+dp(27)),height-p.height-dp(16));
+        }
         root.addView(presented,p);page.restoreFocus();
     }
     boolean displays(TvDialog page){return current==page&&isShowing();}
