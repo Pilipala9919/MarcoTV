@@ -116,7 +116,7 @@ final class HomeView extends View {
         if(!"ambient_transition".equals(previewKey))return;
         if(previewFade!=null)previewFade.cancel();
         previewAmbient=0;previewFade=ValueAnimator.ofFloat(0,1);
-        previewFade.setDuration(host.preferences.getInt("ambient_transition",3)*1000L);
+        previewFade.setDuration(host.appearance().getInt("ambient_transition",3)*1000L);
         previewFade.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         previewFade.addUpdateListener(a->{previewAmbient=(float)a.getAnimatedValue();invalidate();});previewFade.start();
     }
@@ -144,7 +144,7 @@ final class HomeView extends View {
         if(movingRow!=null)setContentDescription("移动卡片，"+movingRow.tiles.get(movingRow.selected).label+"，左右移动，确定保存，返回取消");
         else if(edgeOpen)setContentDescription("分类操作栏，"+edgeItems[edgeSelected]);
         else if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
-        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":"网络与 Wi-Fi");
+        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":"网络与 Wi-Fi");
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
             setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
@@ -167,7 +167,7 @@ final class HomeView extends View {
         idleMode = value;
         if (fade != null) fade.cancel();
         fade = ValueAnimator.ofFloat(ambientProgress, value ? 1 : 0);
-        fade.setDuration(value ? host.preferences.getInt("ambient_transition",3) * 1000L : 400);
+        fade.setDuration(value ? host.appearance().getInt("ambient_transition",3) * 1000L : 400);
         fade.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         fade.addUpdateListener(a -> { ambientProgress = (float) a.getAnimatedValue(); uiAlpha = 1 - Math.min(1, ambientProgress * 4); invalidate(); });
         fade.start();
@@ -218,10 +218,7 @@ final class HomeView extends View {
     void ensureVisible() {
         if (row < 0 || row >= rows.size()) return;
         Row r = rows.get(row);
-        float next = r.scroll.target;
-        float selectedX = 272 + r.selected * 350 - next;
-        if (selectedX > 1630) next += selectedX - 1630;
-        if (selectedX < 272) next = Math.max(0, next + selectedX - 272);
+        float next = Math.max(0, r.selected - 1) * 350f;
         r.scroll.target(next);
     }
 
@@ -249,13 +246,16 @@ final class HomeView extends View {
             icon(canvas, "\ue8b8", 132, 110, 40, muted);
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
+            icon(canvas, "\ue325", 405, 110, 38, muted);
+            text(canvas,"Marco 互联",440,119,23,normal,muted,Paint.Align.LEFT);
+            if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(420,90,5,paint);}
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
             if(movingRow!=null)text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
             if(previewKey==null && host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
-                float selectedX = topSelected == 0 ? 132 : wifiX;
+                float selectedX = topSelected == 0 ? 132 : topSelected==1?405:wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
-                icon(canvas,topSelected==0?"\ue8b8":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
+                icon(canvas,topSelected==0?"\ue8b8":topSelected==1?"\ue325":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
             }
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
             else {
@@ -451,8 +451,8 @@ final class HomeView extends View {
         }
         if (row == -1) {
             if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = host.playback.item==null?0:-2;
-            else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = 0;
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = 1;
+            else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = Math.max(0,topSelected-1);
+            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(2,topSelected+1);
             ensureVisible(); animateFocus();
         } else {
             Row r = rows.get(row);
@@ -482,7 +482,7 @@ final class HomeView extends View {
             pressSelected(false);
             if (longPressed) { longPressed = false; return true; }
             if (row == -2) host.playback.controls();
-            else if (row == -1) { if (topSelected == 0) host.settings(); else host.network.show(); }
+            else if (row == -1) { if (topSelected == 0) host.settings(); else if(topSelected==1)host.phone.show();else host.network.show(); }
             else if (!rows.isEmpty()) { Row r = rows.get(row); if (!r.tiles.isEmpty()) host.launch(r.tiles.get(r.selected)); }
             return true;
         }
@@ -501,7 +501,8 @@ final class HomeView extends View {
             if(x>=88&&x<=420&&y>=465&&y<465+edgeItems.length*78){edgeSelected=Math.min(edgeItems.length-1,(int)((y-465)/78));edgeAction();}
             else edge(false);return true;
         }
-        if (y < 175 && x < 380) { host.settings(); return true; }
+        if(y<175&&x>=365&&x<650){host.phone.show();return true;}
+        if (y < 175 && x < 365) { host.settings(); return true; }
         if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) { host.network.show(); return true; }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}
         if (!rows.isEmpty() && y > 520 && y < 810) {

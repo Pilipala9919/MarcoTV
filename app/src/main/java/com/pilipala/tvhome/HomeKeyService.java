@@ -19,6 +19,25 @@ import android.view.KeyEvent;
 /** Optional Home filter; ordinary navigation and power keys always pass through. */
 public final class HomeKeyService extends AccessibilityService {
     static volatile boolean connected;
+    private static HomeKeyService instance;
+    private long suppressUntil;
+    private boolean held;
+    private boolean nativeHome(){return SystemIntegration.prefs(this).getBoolean("home_native_keys",false);}
+    static boolean openSystemRecents(){return instance!=null&&instance.systemRecents();}
+    private boolean systemRecents(){
+        handler.removeCallbacks(fallback);homePressTracker.reset();suppressUntil=SystemClock.elapsedRealtime()+10000;
+        boolean result=performGlobalAction(GLOBAL_ACTION_RECENTS);
+        if(!result)suppressUntil=0;
+        Diagnostics.event(result?"SYSTEM_RECENTS_REQUESTED":"SYSTEM_RECENTS_UNAVAILABLE");return result;
+    }
+    private void resetPress(){handlingHome=false;held=false;handler.removeCallbacks(longHome);}
+    private final Runnable longHome=()->{
+        if(!this.handlingHome||held||!canRedirect())return;
+        held=true;this.homePressTracker.reset();
+        String action=SystemIntegration.prefs(this).getString("home_long_action","system");
+        if(action.equals("marco")){try{startActivity(SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",true));}catch(RuntimeException e){Log.w("MarcoTVSystem","Long HOME unavailable",e);}}
+        else if(action.equals("system")&&!systemRecents())android.widget.Toast.makeText(this,"系统不支持此入口，可在系统与启动中启用原厂按键模式",android.widget.Toast.LENGTH_LONG).show();
+    };
     private long lastOpen;
     private long lastDirect=-10000;
     private final HomePressTracker homePressTracker=new HomePressTracker();
@@ -35,11 +54,14 @@ public final class HomeKeyService extends AccessibilityService {
     private final BroadcastReceiver homeBroadcast = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if(Intent.ACTION_SCREEN_OFF.equals(i.getAction())||Intent.ACTION_SCREEN_ON.equals(i.getAction())){
-                boolean on=Intent.ACTION_SCREEN_ON.equals(i.getAction());inputGate.screen(on,SystemClock.elapsedRealtime());handlingHome=false;homePressTracker.reset();handler.removeCallbacks(fallback);Diagnostics.event(on?"SCREEN_ON_HOME_SETTLING":"SCREEN_OFF_HOME_SUSPENDED");return;
+                boolean on=Intent.ACTION_SCREEN_ON.equals(i.getAction());inputGate.screen(on,SystemClock.elapsedRealtime());resetPress();homePressTracker.reset();handler.removeCallbacks(fallback);Diagnostics.event(on?"SCREEN_ON_HOME_SETTLING":"SCREEN_OFF_HOME_SUSPENDED");return;
             }
             if(!canRedirect())return;
             if (!SystemIntegration.prefs(c).getBoolean("home_compat", false)) return;
-            if (!"homekey".equals(i.getStringExtra("reason"))) return;
+            String reason=i.getStringExtra("reason");
+            if(nativeHome()&&("recentapps".equals(reason)||"assist".equals(reason))){suppressUntil=SystemClock.elapsedRealtime()+10000;return;}
+            if(handlingHome||SystemClock.elapsedRealtime()<suppressUntil)return;
+            if (!"homekey".equals(reason)) return;
             if(SystemClock.elapsedRealtime()-lastDirect<200)return;
             handler.removeCallbacks(fallback);
             try { startActivity(homePressIntent()); Diagnostics.event("HOME_BROADCAST_HANDLED");Log.i("MarcoTVSystem", "HOME broadcast handled"); }
@@ -47,7 +69,7 @@ public final class HomeKeyService extends AccessibilityService {
         }
     };
     @Override protected void onServiceConnected() {
-        connected=true;
+        connected=true;instance=this;
         AccessibilityServiceInfo info = getServiceInfo();
         info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
         setServiceInfo(info);
@@ -57,26 +79,31 @@ public final class HomeKeyService extends AccessibilityService {
     }
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable fallback = () -> {
-        if (!canRedirect()||!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
+        if (!canRedirect()||nativeHome()||SystemClock.elapsedRealtime()<suppressUntil||!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
         try { startActivity(SystemIntegration.homeIntent(this)); Diagnostics.event("HOME_WINDOW_FALLBACK");Log.i("MarcoTVSystem", "HOME window fallback"); }
         catch (RuntimeException e) { Log.w("MarcoTVSystem", "Home redirection failed", e); }
     };
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if(event.getKeyCode()==KeyEvent.KEYCODE_POWER){inputGate.power(SystemClock.elapsedRealtime());handlingHome=false;homePressTracker.reset();handler.removeCallbacks(fallback);return false;}
+        if(event.getKeyCode()==KeyEvent.KEYCODE_POWER){inputGate.power(SystemClock.elapsedRealtime());resetPress();homePressTracker.reset();handler.removeCallbacks(fallback);return false;}
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) return false;
-        if(!canRedirect()){handlingHome=false;return false;}
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            if (event.getRepeatCount() == 0) handlingHome = SystemIntegration.prefs(this).getBoolean("home_compat", false);
-            if (handlingHome && event.getRepeatCount() == 0) {
-                handler.removeCallbacks(fallback);
-                lastDirect = SystemClock.elapsedRealtime();
-                try { startActivity(homePressIntent()); Diagnostics.event("HOME_DIRECT_HANDLED");Log.i("MarcoTVSystem", "HOME intercepted before launcher"); }
-                catch (RuntimeException e) { handlingHome = false; Log.w("MarcoTVSystem", "Direct HOME failed", e); }
+        if(!canRedirect()||nativeHome()){resetPress();return false;}
+        if(event.getAction()==KeyEvent.ACTION_DOWN){
+            if(event.getRepeatCount()==0){
+                resetPress();suppressUntil=0;
+                handlingHome=SystemIntegration.prefs(this).getBoolean("home_compat",false);
+                if(handlingHome){handler.removeCallbacks(fallback);lastDirect=SystemClock.elapsedRealtime();handler.postDelayed(longHome,600);}
             }
+            if(handlingHome&&!held&&event.isLongPress()){handler.removeCallbacks(longHome);longHome.run();}
             return handlingHome;
         }
-        boolean consumed = handlingHome || SystemIntegration.prefs(this).getBoolean("home_compat", false);
-        handlingHome = false; return consumed;
+        boolean consumed=handlingHome;if(consumed)lastDirect=SystemClock.elapsedRealtime();
+        handler.removeCallbacks(longHome);
+        if(consumed&&!held&&!event.isCanceled()){
+            lastDirect=SystemClock.elapsedRealtime();
+            try{startActivity(homePressIntent());Diagnostics.event("HOME_DIRECT_HANDLED");}
+            catch(RuntimeException e){Log.w("MarcoTVSystem","Direct HOME failed",e);}
+        }
+        resetPress();return consumed;
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getPackageName() == null) return;
@@ -91,6 +118,7 @@ public final class HomeKeyService extends AccessibilityService {
             return;
         }
         if (!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
+        if(nativeHome()||handlingHome||SystemClock.elapsedRealtime()<suppressUntil)return;
         ComponentName original = ComponentName.unflattenFromString(SystemIntegration.prefs(this).getString("original_home", ""));
         if (original == null || event.getPackageName() == null || getPackageName().equals(original.getPackageName())) return;
         // This Xiaomi firmware dispatches HOME through tvhome into its separate lite launcher.
@@ -102,7 +130,7 @@ public final class HomeKeyService extends AccessibilityService {
         handler.removeCallbacks(fallback); handler.postDelayed(fallback, 60);
     }
     @Override public void onDestroy() {
-        connected=false;
+        connected=false;if(instance==this)instance=null;
         handler.removeCallbacksAndMessages(null);
         if (receiverRegistered) unregisterReceiver(homeBroadcast);
         super.onDestroy();

@@ -18,14 +18,14 @@ final class RecentApps {
     private final RectF rect=new RectF();
     static final class Entry {int taskId;String id,name;Bitmap icon,snapshot,artwork;boolean removable;int background=0xFF243541;BitmapShader artworkShader;final Matrix artworkMatrix=new Matrix();}
     final ArrayList<Entry> entries=new ArrayList<>();
-    boolean visible;int selected;private float position;private int generation;private boolean loading;private boolean canRemove;
+    boolean visible;int selected;private float position;private int generation;private boolean loading;private boolean canRemove;private boolean bridgeConnected;
     private String bridgeStatus="辅助服务尚未连接";
     private ValueAnimator animation,removalAnimation;private boolean removing,dragging;private float touchX,touchY,dragY;private int removingTask=-1;
     private ValueAnimator entranceAnimation,backdropAnimation;
     private float reveal=1,backdrop=1;private boolean entrancePending;
     RecentApps(MainActivity h){host=h;}
     boolean enabled(){return host.preferences.getBoolean("recent_enabled",false);}
-    int value(String key,int fallback){return host.preferences.getInt("recent_"+key,fallback);}
+    int value(String key,int fallback){return host.appearance().getInt("recent_"+key,fallback);}
     private int count(){return Math.min(entries.size(),value("limit",10));}
     void show(){host.exitMenus();selected=0;stop();visible=true;host.home.setIdle(false);reveal=0;backdrop=0;entrancePending=true;
         backdropAnimation=ValueAnimator.ofFloat(0,1);backdropAnimation.setDuration(Math.min(240,value("duration",280)));
@@ -37,8 +37,8 @@ final class RecentApps {
         entranceAnimation=ValueAnimator.ofFloat(0,1);entranceAnimation.setDuration(value("duration",280));entranceAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
         entranceAnimation.addUpdateListener(a->{reveal=(float)a.getAnimatedValue();host.home.invalidate();});entranceAnimation.start();}
     void load(){final int token=++generation;loading=true;
-        host.loader.execute(()->{ArrayList<Entry> result=new ArrayList<>();PackageManager pm=host.getPackageManager();String status;boolean removable=false;
-            try{org.json.JSONObject state=TaskBridgeClient.configure(host);removable=state.optBoolean("canRemove",false);org.json.JSONArray tasks=TaskBridgeClient.request("list").getJSONArray("tasks");status="已连接系统任务服务 · "+state.optString("lastWake");
+        host.loader.execute(()->{ArrayList<Entry> result=new ArrayList<>();PackageManager pm=host.getPackageManager();String status;boolean removable=false,connected=false;
+            try{org.json.JSONObject state=TaskBridgeClient.configure(host);connected=true;removable=state.optBoolean("canRemove",false);org.json.JSONArray tasks=TaskBridgeClient.request("list").getJSONArray("tasks");status="已连接系统任务服务 · "+state.optString("lastWake");
                 for(int i=0;i<tasks.length()&&result.size()<20;i++){
                     org.json.JSONObject task=tasks.getJSONObject(i);String id=task.getString("package");
                     try{ApplicationInfo app=pm.getApplicationInfo(id,0);if(!app.enabled)continue;Entry e=new Entry();e.taskId=task.getInt("id");e.id=id;e.removable=task.optBoolean("removable",false);e.name=String.valueOf(app.loadLabel(pm));
@@ -47,16 +47,16 @@ final class RecentApps {
                         result.add(e);
                     }catch(PackageManager.NameNotFoundException ignored){}
                 }
-            }catch(Exception error){status="辅助服务未连接，请用电脑运行安装说明中的任务服务启动工具";Diagnostics.event("TASK_BRIDGE_UNAVAILABLE");}
-            final String message=status;final boolean allowRemove=removable;
-            host.handler.post(()->{if(host.isDestroyed()||generation!=token)return;entries.clear();entries.addAll(result);bridgeStatus=message;canRemove=allowRemove;selected=0;position=0;loading=false;if(visible&&entrancePending)enter();describe();host.home.invalidate();});
+            }catch(Exception error){status="任务服务未连接 · 按确定查看恢复方法";Diagnostics.event("TASK_BRIDGE_UNAVAILABLE");}
+            final String message=status;final boolean allowRemove=removable,available=connected;
+            host.handler.post(()->{if(host.isDestroyed()||generation!=token)return;entries.clear();entries.addAll(result);bridgeStatus=message;bridgeConnected=available;canRemove=allowRemove;selected=0;position=0;loading=false;if(visible&&entrancePending)enter();describe();host.home.invalidate();});
         });
     }
     void describe(){if(visible)host.home.setContentDescription("最近任务，"+(entries.isEmpty()?(loading?"正在读取":"暂无任务"):entries.get(selected).name+"，"+(selected+1)+" / "+count())+"，左右切换，确定返回任务，菜单键设置，返回桌面");}
     void move(int direction){if(entries.isEmpty()||removing)return;selected=Math.max(0,Math.min(count()-1,selected+direction));if(animation!=null)animation.cancel();
         animation=ValueAnimator.ofFloat(position,selected);animation.setDuration(value("duration",280));animation.setInterpolator(new android.view.animation.DecelerateInterpolator());
         animation.addUpdateListener(a->{position=(float)a.getAnimatedValue();host.home.invalidate();});animation.start();describe();}
-    void open(){if(entries.isEmpty()||removing)return;Entry e=entries.get(selected);final int token=generation;host.loader.execute(()->{try{TaskBridgeClient.task("switch",e.taskId);host.handler.post(()->{if(generation==token&&!host.isDestroyed())close();});}catch(Exception error){Diagnostics.event("TASK_SWITCH_FAILED");host.handler.post(()->{if(generation!=token||host.isDestroyed())return;host.toast("任务已结束或系统不支持切换，请刷新");load();});}});}
+    void open(){if(entries.isEmpty()){if(!loading)recovery();return;}if(removing)return;Entry e=entries.get(selected);final int token=generation;host.loader.execute(()->{try{TaskBridgeClient.task("switch",e.taskId);host.handler.post(()->{if(generation==token&&!host.isDestroyed())close();});}catch(Exception error){Diagnostics.event("TASK_SWITCH_FAILED");host.handler.post(()->{if(generation!=token||host.isDestroyed())return;host.toast("任务已结束或系统不支持切换，请刷新");load();});}});}
     void remove(){
         if(entries.isEmpty()||removing)return;Entry entry=entries.get(selected);
         if(!entry.removable){dragY=0;host.home.invalidate();host.toast("此任务暂不支持单独清除");return;}
@@ -94,13 +94,13 @@ final class RecentApps {
         paint.setShader(null);paint.setColor(Color.argb(Math.round(value("dim",65)*2.55f*(preview?1:backdrop)),0,0,0));c.drawRect(0,0,1920,1080,paint);
         text(c,"最近任务",112,120,46,bold,0xFFF5F7FA,Paint.Align.LEFT);
         text(c,"系统任务 · 返回上次停留的页面",112,168,24,normal,0xBBDCE3EC,Paint.Align.LEFT);
-        if(entries.isEmpty()){text(c,loading?"正在读取系统任务…":"暂无可显示任务",960,preview?360:485,32,normal,0xFFD8E1EA,Paint.Align.CENTER);text(c,bridgeStatus,960,preview?410:545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);}
+        if(entries.isEmpty()){text(c,loading?"正在读取系统任务…":bridgeConnected?"暂无可显示任务":"需要连接系统任务服务",960,preview?360:485,32,normal,0xFFD8E1EA,Paint.Align.CENTER);text(c,bridgeStatus,960,preview?410:545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);}
         else{
             ArrayList<Integer> drawOrder=new ArrayList<>();for(int i=0;i<count();i++)if(Math.abs(i-position)<4)drawOrder.add(i);
             Collections.sort(drawOrder,(a,b)->Float.compare(Math.abs(b-position),Math.abs(a-position)));
             for(int i:drawOrder)card(c,entries.get(i),i-position,preview);
         }
-        if(!preview){text(c,"左右切换  ·  确定返回任务  ·  "+(!entries.isEmpty()&&entries.get(selected).removable?"上滑 / 上键清除":"此任务暂不支持清除")+"  ·  菜单键自定义  ·  返回桌面",960,976,25,normal,0xFFE2E8EF,Paint.Align.CENTER);
+        if(!preview){text(c,"左右切换  ·  确定返回任务  ·  "+(!entries.isEmpty()&&entries.get(selected).removable?"上滑 / 上键清除":(entries.isEmpty()?"确定查看恢复选项":"此任务暂不支持清除"))+"  ·  菜单键自定义  ·  返回桌面",960,976,25,normal,0xFFE2E8EF,Paint.Align.CENTER);
             text(c,"Marco TV  ·  Pilipala",1808,1030,19,normal,0x99DCE3EC,Paint.Align.RIGHT);}
     }
     private void card(Canvas c,Entry e,float offset,boolean preview){
@@ -127,6 +127,16 @@ final class RecentApps {
     }
     private String fit(String s,float width,float size){paint.setTypeface(bold);paint.setTextSize(size);if(paint.measureText(s)<=width)return s;int end=s.length();while(end>0&&paint.measureText(s.substring(0,end)+"…")>width)end=s.offsetByCodePoints(end,-1);return s.substring(0,end)+"…";}
     private void text(Canvas c,String s,float x,float y,float size,Typeface face,int color,Paint.Align align){paint.setShader(null);paint.setColor(color);paint.setTypeface(face);paint.setTextSize(size);paint.setTextAlign(align);c.drawText(s,x,y,paint);}
+    void recovery(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("task_recovery").setTitle("最近任务连接")
+            .setMessage("完整任务列表需要系统任务服务。电视重启、应用更新或系统清理后，服务可能断开；这不代表没有后台任务。\n\n重新连接：电脑打开安装说明中的“启动任务服务”工具，选择电视并完成授权。随后回到这里重新检测。")
+            .setItems(new String[]{"重新检测连接","打开系统最近任务","Home 按键兼容设置","查看状态中心"},(d,w)->{
+                if(w==0){host.exitMenus();load();}
+                else if(w==1){if(HomeKeyService.openSystemRecents()){close();host.exitMenus();}else host.toast("系统未提供此入口，请检查无障碍服务或使用原厂 Home 按键模式");}
+                else if(w==2)SystemIntegration.homeGestures(host,host::showDialog);
+                else host.health.status();
+            }).setNegativeButton("返回",null).create());
+    }
     void settings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("recents").setTitle("最近任务")
             .setOrder("recents","enabled","open","style","double","status")
@@ -145,8 +155,6 @@ final class RecentApps {
                 case 6:slider("显示数量","limit",3,20,10," 个");break;}
         }).setNegativeButton("返回",null).create());}
     private void slider(String title,String key,int min,int max,int fallback,String unit){
-        ContinuousSlider control=new ContinuousSlider(host,title,unit,min,max,value(key,fallback),n->{host.preferences.edit().putInt("recent_"+key,n).apply();if(key.equals("limit")){selected=Math.max(0,Math.min(count()-1,selected));stop();}host.home.invalidate();});control.compact();
-        host.showDialog(new TvDialog.Builder(host).setPageId("slider:recent_"+key).setTitle(title).setPreview("recent_"+key).setView(control).setPositiveButton("返回上一级",null)
-            .setNeutralButton("试播切换",(d,w)->{move(selected==count()-1?-1:1);slider(title,key,min,max,fallback,unit);}).create());
+        host.navigator.slider(title,"recent_"+key,min,max,fallback,unit);
     }
 }

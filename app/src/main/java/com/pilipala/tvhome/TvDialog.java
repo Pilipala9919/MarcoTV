@@ -19,6 +19,26 @@ final class TvDialog extends Dialog {
     private LinearLayout body;
     private LinearLayout panel;
     private boolean returning;
+    private PanelWindow surface;
+    private boolean showing;
+    private View savedFocus;
+    private DialogInterface.OnDismissListener dismissListener;
+    private Runnable leaveAction;
+    void onLeave(Runnable action){leaveAction=action;}
+    void leave(){if(leaveAction!=null){Runnable action=leaveAction;leaveAction=null;action.run();}}
+    void focusItem(int index){for(TextView item:itemViews)if(item.getTag() instanceof Integer&&(Integer)item.getTag()==index){savedFocus=item;break;}}
+    void rememberFocus(){if(panel!=null){View v=panel.findFocus();if(v!=null)savedFocus=v;}}
+    void restoreFocus(){if(savedFocus!=null&&savedFocus.requestFocus())return;if(spec.single&&spec.selected>=0&&spec.selected<choices.size()&&choices.get(spec.selected).requestFocus())return;for(View v:choices)if(v.requestFocus())return;}
+    @Override public void show(){
+        if(panel==null)super.create();
+        surface=((MainActivity)spec.activity).panelWindow();showing=true;
+        surface.present(this,panel,spec.preview!=null,spec.centered,spec.network);onStart();
+    }
+    @Override public boolean isShowing(){return showing&&surface!=null&&surface.displays(this);}
+    @Override public void dismiss(){if(!showing)return;rememberFocus();showing=false;onStop();if(dismissListener!=null)dismissListener.onDismiss(this);}
+    @Override public void setOnDismissListener(DialogInterface.OnDismissListener listener){dismissListener=listener;}
+    @Override public Window getWindow(){return surface==null?super.getWindow():surface.getWindow();}
+    @Override public View getCurrentFocus(){return panel==null?null:panel.findFocus();}
     private static final android.animation.ArgbEvaluator COLORS=new android.animation.ArgbEvaluator();
     void returning(boolean value){returning=value;}
     private final ArrayList<View> choices = new ArrayList<>();
@@ -63,7 +83,9 @@ final class TvDialog extends Dialog {
         if (spec.message != null && !preview) {
             TextView message = text(spec.message, 16, 0xFFBDC4CF); message.setLineSpacing(dp(5), 1);
             messageView=message;
-            message.setPadding(dp(3), 0, dp(3), dp(18)); body.addView(message);
+            message.setPadding(dp(spec.network?18:3),dp(spec.network?16:0),dp(spec.network?18:3),dp(18));
+            if(spec.network){message.setTextColor(Color.WHITE);message.setBackground(background(0xFF234C65,dp(18)));}
+            body.addView(message);
         }
         if (spec.view != null) {
             View input = spec.view;
@@ -80,6 +102,8 @@ final class TvDialog extends Dialog {
             if(ids==null){ids=new String[spec.items.length];for(int i=0;i<ids.length;i++)ids[i]=String.valueOf(i);}
             itemOrder=MenuOrder.resolve(spec.orderKey==null?"":getContext().getSharedPreferences("menu_order",0).getString(spec.orderKey,""),ids);
         }
+        LinearLayout quick=null;
+        if(spec.network){quick=new LinearLayout(getContext());quick.setPadding(0,dp(12),0,dp(12));body.addView(quick);}
         if (spec.items != null) for (int position = 0; position < itemOrder.size(); position++) {
             final int index = itemOrder.get(position);
             TextView item = row(spec.items[index], spec.single && index == spec.selected);
@@ -88,8 +112,8 @@ final class TvDialog extends Dialog {
             }
             if (spec.signals != null && index < spec.signals.length && spec.signals[index] >= 0) {
                 item.setSingleLine(true); item.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                SignalDrawable signal = new SignalDrawable(spec.signals[index]);
-                signal.setBounds(0, 0, dp(28), dp(24));
+                SignalDrawable signal = new SignalDrawable(spec.signals[index],spec.secured!=null&&spec.secured[index],spec.connected!=null&&spec.connected[index]);
+                signal.setBounds(0, 0, dp(spec.network?68:28), dp(24));
                 item.setCompoundDrawables(null, null, signal, null); item.setCompoundDrawablePadding(dp(20));
                 item.setContentDescription(spec.items[index] + "，信号" + new String[]{"弱", "一般", "良好", "强"}[spec.signals[index]]);
             }
@@ -104,7 +128,8 @@ final class TvDialog extends Dialog {
             });
             item.setTag(index);itemViews.add(item);
             if(spec.orderKey!=null)item.setOnLongClickListener(v->{beginMove(index,true);return true;});
-            body.addView(item, rowParams()); choices.add(item);
+            if(spec.network&&index<3){item.setTextSize(13);item.setGravity(Gravity.CENTER);item.setMaxLines(3);item.setPadding(dp(5),dp(10),dp(5),dp(10));LinearLayout.LayoutParams tile=new LinearLayout.LayoutParams(0,dp(76),1);tile.setMargins(dp(3),0,dp(3),0);quick.addView(item,tile);}
+            else {if(spec.network&&index==3){TextView heading=text("附近网络",13,0xFFAEBCCD);heading.setPadding(dp(8),dp(6),0,dp(8));body.addView(heading);}body.addView(item,rowParams());}choices.add(item);
         }
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(getContext()); buttons.setOrientation(LinearLayout.HORIZONTAL);
@@ -113,7 +138,7 @@ final class TvDialog extends Dialog {
             TextView button = row(action.text, false); button.setGravity(Gravity.CENTER); button.setTextSize(15);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(preview?34:44), 1); p.setMargins(dp(3), 0, dp(3), 0);
             buttons.addView(button, p); choices.add(button);
-            button.setOnClickListener(v -> { forwardDismiss=false;dismiss(); if (action.callback != null) action.callback.onClick(this, action.which); });
+            button.setOnClickListener(v -> { forwardDismiss=false;if(!action.stayOpen)dismiss(); if (action.callback != null) action.callback.onClick(this, action.which); });
         }
         if(spec.orderKey!=null){
             TextView sort=row("调整顺序",false);sort.setTextSize(15);sort.setGravity(Gravity.CENTER);
@@ -142,7 +167,7 @@ final class TvDialog extends Dialog {
     @Override protected void onStart(){
         super.onStart();
         // Back reuses the existing dialog, so animate every show, not only onCreate.
-        panel.animate().cancel();panel.setAlpha(.55f);
+        panel.animate().cancel();panel.setAlpha(1);
         panel.setTranslationX(spec.preview!=null?0:dp(returning?-26:48));
         panel.setTranslationY(spec.preview!=null?dp(16):0);
         panel.animate().alpha(1).translationX(0).translationY(0).setDuration(motionDuration())
@@ -158,7 +183,8 @@ final class TvDialog extends Dialog {
         for(TextView item:itemViews){item.setText(spec.items[(Integer)item.getTag()]);item.setPressed(false);}
         moving=-1;swallowMoveRelease=false;hint.setText("长按确定调整顺序  ·  返回上一级  ·  Home 回桌面");
     }
-    @Override public boolean dispatchKeyEvent(KeyEvent event){
+    @Override public boolean dispatchKeyEvent(KeyEvent event){return surface!=null?surface.dispatchKeyEvent(event):super.dispatchKeyEvent(event);}
+    boolean handlePageKey(KeyEvent event){
         int key=event.getKeyCode();
         // Some TV remotes report a long hold as a repeated key event rather than
         // allowing the View's delayed long-click callback to run first.
@@ -188,7 +214,7 @@ final class TvDialog extends Dialog {
             }
             if(key==KeyEvent.KEYCODE_BACK){if(event.getAction()==KeyEvent.ACTION_UP)finishMove();return true;}
         }
-        return super.dispatchKeyEvent(event);
+        return false;
     }
     private TextView text(String value, int size, int color) {
         TextView t = new TextView(getContext()); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -217,19 +243,20 @@ final class TvDialog extends Dialog {
             animator[0]=android.animation.ValueAnimator.ofFloat(progress[0],focus?1:0);
             animator[0].setDuration(Math.min(180,motionDuration()));
             animator[0].addUpdateListener(a->{progress[0]=(float)a.getAnimatedValue();
-                fill.setColor((Integer)COLORS.evaluate(progress[0],checked?0xFF344258:0xFF292E38,0xFFE9EDF4));});
+                fill.setColor((Integer)COLORS.evaluate(progress[0],checked?0xFF344258:0xFF292E38,0xFF3A586C));});
             animator[0].start();
-            t.setTextColor(focus ? 0xFF17202D : 0xFFDCE1E9);
+            fill.setStroke(dp(1),focus?0xFFABD6DF:0x00000000);t.setTextColor(focus ? Color.WHITE : 0xFFDCE1E9);
         });
         return t;
     }
     private static final class ButtonSpec {
-        String text; int which; DialogInterface.OnClickListener callback;
+        String text; int which; boolean stayOpen; DialogInterface.OnClickListener callback;
         ButtonSpec(String t, int w, DialogInterface.OnClickListener c) { text=t; which=w; callback=c; }
     }
     static final class Builder {
         final Activity activity; String title="", message; String[] items; int selected=-1;
-        boolean single; View view; DialogInterface.OnClickListener itemClick;
+        boolean single,centered,network; View view; DialogInterface.OnClickListener itemClick;
+        boolean[] secured,connected;
         String pageId,orderKey,preview;String[] ids; int[] signals; android.graphics.drawable.Drawable[] icons;
         final ArrayList<ButtonSpec> buttons = new ArrayList<>();
         Builder(Activity activity) { this.activity=activity; }
@@ -237,15 +264,19 @@ final class TvDialog extends Dialog {
         Builder setPageId(String s) { pageId=s; return this; }
         Builder setMessage(String s) { message=s; return this; }
         Builder setView(View v) { view=v; return this; }
+        Builder centered(){centered=true;return this;}
+        Builder network(){network=true;return this;}
         Builder setPreview(String key){preview=key;return this;}
         Builder setOrder(String key,String... stableIds){orderKey=key;ids=stableIds;return this;}
         Builder setItems(String[] a, DialogInterface.OnClickListener c) { items=a; itemClick=c; return this; }
         Builder setIcons(android.graphics.drawable.Drawable[] values){icons=values;return this;}
+        Builder setNetworkStates(boolean[] locks,boolean[] current){secured=locks;connected=current;return this;}
         Builder setSignals(int[] levels) { signals=levels; return this; }
         Builder setSingleChoiceItems(String[] a, int i, DialogInterface.OnClickListener c) { single=true; selected=i; return setItems(a,c); }
         Builder setPositiveButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_POSITIVE,c)); return this; }
         Builder setNegativeButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_NEGATIVE,c)); return this; }
         Builder setNeutralButton(String s, DialogInterface.OnClickListener c) { buttons.add(new ButtonSpec(s, DialogInterface.BUTTON_NEUTRAL,c)); return this; }
+        Builder setInlineButton(String s,DialogInterface.OnClickListener c){ButtonSpec b=new ButtonSpec(s,DialogInterface.BUTTON_NEUTRAL,c);b.stayOpen=true;buttons.add(b);return this;}
         TvDialog create() { return new TvDialog(this); }
     }
 }

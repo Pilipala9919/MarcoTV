@@ -22,10 +22,11 @@ final class SettingsNavigator {
     TvDialog settingsDialog() {
         return new TvDialog.Builder(host).setPageId("main").setTitle("桌面设置")
             .setOrder("main_v2",SettingsCatalog.ROOT_IDS).setItems(SettingsCatalog.ROOT_LABELS,(d,w)->host.handler.post(()->{
-                switch(w){case 0:desktopSettings();break;case 1:applicationSettings();break;case 2:host.recents.settings();break;
-                    case 3:host.playback.settings();break;case 4:deviceSettings();break;case 5:systemPanel();break;case 6:maintenance();break;case 7:host.phone.show();break;}
+                openCategory(w);
             })).setNegativeButton("返回桌面",null).create();
     }
+    void openCategory(int index){switch(index){case 0:desktopSettings();break;case 1:applicationSettings();break;case 2:host.recents.settings();break;
+        case 3:host.playback.settings();break;case 4:deviceSettings();break;case 5:systemPanel();break;case 6:maintenance();break;case 7:host.phone.show();break;}}
     void desktopSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("appearance").setTitle("桌面与外观")
         .setOrder("appearance","wallpaper","cards","clock").setItems(new String[]{"壁纸","桌面卡片样式","时钟与屏保"},(d,w)->{
             if(w==0)wallpaperSettings();else if(w==1)appearanceSettings();else ambientSettings();
@@ -75,16 +76,21 @@ final class SettingsNavigator {
     }
 
     void slider(String title, String key, int min, int max, int fallback, String unit) {
-        ContinuousSlider slider = new ContinuousSlider(host, title, unit, min, max, host.preferences.getInt(key, fallback), value -> {
-            host.preferences.edit().putInt(key, value).apply(); host.home.refreshAppearance(); host.home.invalidate();
+        // Local and phone previews have independent ownership; only Save writes preferences.
+        if(host.phone!=null)host.phone.clearPreview();
+        PreviewPreferences draft=new PreviewPreferences(host.preferences);
+        final int[] chosen={host.preferences.getInt(key,fallback)};
+        ContinuousSlider slider=new ContinuousSlider(host,title,unit,min,max,chosen[0],value->{
+            chosen[0]=value;draft.values.put(key,value);host.home.refreshAppearance();host.home.invalidate();
             if(key.equals("ambient_transition"))host.home.replayPreview();
-        });
-        slider.compact();
-        TvDialog.Builder builder=new TvDialog.Builder(host).setPageId("slider:"+key).setTitle(title).setPreview(key)
-                .setView(slider).setPositiveButton("返回上一级",null);
-        if(key.equals("ambient_transition"))builder.setNeutralButton("重播预览",(d,w)->host.handler.post(()->slider(title,key,min,max,fallback,unit)));
-        if(key.equals("motion_duration"))builder.setNeutralButton("重播动效",(d,w)->host.handler.post(()->{slider(title,key,min,max,fallback,unit);host.home.enter();}));
-        host.showDialog(builder.create());
+        });slider.compact();
+        TvDialog page=new TvDialog.Builder(host).setPageId("slider:"+key).setTitle(title).setPreview(key).setView(slider)
+            .setPositiveButton("保存",(d,w)->host.preferences.edit().putInt(key,chosen[0]).apply())
+            .setNegativeButton("取消",null).setInlineButton("默认值",(d,w)->{
+                slider.setValue(fallback);
+            }).create();
+        page.onLeave(()->{if(host.localPreview==draft){host.localPreview=null;host.home.refreshAppearance();host.home.invalidate();}});
+        host.showDialog(page);host.localPreview=draft;
     }
 
     void wallpaperGallery() {

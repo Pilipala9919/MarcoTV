@@ -48,9 +48,9 @@ final class PhoneManager implements PhoneHttp.Handler {
     void clearPreview(){if(host.previewPreferences.values.isEmpty())return;host.previewPreferences.values.clear();previewAt=0;host.home.refreshAppearance();host.home.invalidate();}
     void show(){
         if(active()){
-            host.showDialog(new TvDialog.Builder(host).setPageId("phone").setTitle("手机管理")
+            host.showDialog(new TvDialog.Builder(host).setPageId("phone").setTitle("Marco 互联")
                 .setMessage((approved?"手机已连接":"等待手机扫码确认")+"\n仅限当前局域网；15 分钟未操作自动关闭。\n关闭连接会取消未保存的外观预览。")
-                .setItems(new String[]{"显示连接二维码","断开并关闭手机管理"},(d,w)->{if(w==0)qr();else{stop();host.exitMenus();host.toast("手机连接已关闭");}}).setNegativeButton("返回桌面",null).create());return;
+                .setItems(new String[]{"显示连接二维码","断开并关闭 Marco 互联"},(d,w)->{if(w==0)qr();else{stop();host.exitMenus();host.toast("手机连接已关闭");}}).setNegativeButton("返回桌面",null).create());return;
         }
         String address=address();if(address==null){host.toast("请先连接可用的 Wi-Fi 或有线局域网");return;}
         try{
@@ -59,7 +59,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             // Bind only the chosen physical interface. It is not a VPN or public relay.
             server=new PhoneHttp(InetAddress.getByName(address),0,new File(host.getCacheDir(),"phone-transfer"),this);
             authority=address+":"+server.port();closed=false;generation++;host.armIdle();host.handler.post(timeout);qr();
-        }catch(Exception e){stop();host.toast("暂时无法开启手机管理，请重新连接网络后重试");}
+        }catch(Exception e){stop();host.toast("暂时无法开启Marco 互联，请重新连接网络后重试");}
     }
     private String address(){try{
         ConnectivityManager cm=(ConnectivityManager)host.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -76,19 +76,26 @@ final class PhoneManager implements PhoneHttp.Handler {
         QrCode q=QrCode.encodeText(url,QrCode.Ecc.MEDIUM);int side=q.size+8,scale=6;
         Bitmap bmp=Bitmap.createBitmap(side*scale,side*scale,Bitmap.Config.RGB_565);Canvas c=new Canvas(bmp);c.drawColor(Color.WHITE);Paint p=new Paint();p.setColor(Color.BLACK);
         for(int y=0;y<q.size;y++)for(int x=0;x<q.size;x++)if(q.getModule(x,y))c.drawRect((x+4)*scale,(y+4)*scale,(x+5)*scale,(y+5)*scale,p);
-        LinearLayout box=new LinearLayout(host);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(android.view.Gravity.CENTER);
-        ImageView image=new ImageView(host);image.setImageBitmap(bmp);image.setAdjustViewBounds(true);box.addView(image,new LinearLayout.LayoutParams(260,260));
-        TextView text=new TextView(host);text.setTextColor(Color.WHITE);text.setTextSize(13);text.setGravity(android.view.Gravity.CENTER);
-        text.setText("手机与电视连接同一局域网，扫码后请在电视确认。\n二维码有效 5 分钟；地址变化后重新开启。\n手动输入：http://"+authority+"/\n连接码："+pairCode);box.addView(text);
-        host.showDialog(new TvDialog.Builder(host).setPageId("phone_qr").setTitle("手机管理 · 扫码连接").setView(box)
-            .setPositiveButton("返回桌面",null).setNeutralButton("关闭连接",(d,w)->stop()).create());
+        LinearLayout box=new LinearLayout(host);box.setOrientation(LinearLayout.HORIZONTAL);box.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        ImageView image=new ImageView(host);image.setImageBitmap(bmp);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setContentDescription("用手机相机扫描连接电视");
+        box.addView(image,new LinearLayout.LayoutParams(dp(210),dp(210)));
+        LinearLayout instructions=new LinearLayout(host);instructions.setOrientation(LinearLayout.VERTICAL);instructions.setPadding(dp(28),0,0,0);
+        TextView intro=new TextView(host);intro.setTextColor(Color.WHITE);intro.setTextSize(21);intro.setText("你的电视，随手整理。");intro.setPadding(0,0,0,dp(12));instructions.addView(intro);
+        TextView text=new TextView(host);text.setTextColor(0xFFCBD6E2);text.setTextSize(15);text.setLineSpacing(dp(5),1);
+        text.setText("1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 调整外观 · 上传壁纸\n本地备份 · 导出诊断\n二维码 5 分钟有效 · 无需手机 App");instructions.addView(text);
+        box.addView(instructions,new LinearLayout.LayoutParams(0,-2,1));
+        host.showDialog(new TvDialog.Builder(host).centered().setPageId("phone_qr").setTitle("Marco 互联 · 扫码连接").setView(box)
+            .setPositiveButton("返回",null).setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host).setPageId("phone_manual").setTitle("手动连接电视")
+                .setMessage("手机浏览器打开：http://"+authority+"/\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
+                .setNegativeButton("返回二维码",null).create())).setNegativeButton("关闭连接",(d,w)->{stop();host.exitMenus();}).create());
     }
+    private int dp(float value){return Math.round(value*host.getResources().getDisplayMetrics().density);}
     void stop(){closed=true;generation++;approved=false;nonce="";pairCode="";cookie="";csrf="";host.handler.removeCallbacks(timeout);clearPreview();if(server!=null){server.close();server=null;}host.armIdle();}
     void destroy(){stop();for(String g:BackupStore.GROUPS)host.getSharedPreferences(g,0).unregisterOnSharedPreferenceChangeListener(changed);}
     private static String secret(){byte[] b=new byte[16];new SecureRandom().nextBytes(b);return BackupStore.hex(b);}
     private boolean authorized(PhoneHttp.Request r){return approved&&!cookie.isEmpty()&&Arrays.asList(r.header("cookie").split(";\\s*")).contains("MarcoSession="+cookie);}
     public PhoneHttp.Response check(PhoneHttp.Request r)throws Exception{
-        if(closed||SystemClock.elapsedRealtime()>until)return fail(410,"连接已过期，请在电视重新开启手机管理");
+        if(closed||SystemClock.elapsedRealtime()>until)return fail(410,"连接已过期，请在电视重新开启Marco 互联");
         if(!authority.equals(r.header("host")))return fail(403,"无效的访问地址");
         if(r.method.equals("POST")&&!r.header("origin").equals("http://"+authority))return fail(403,"请从电视提供的页面操作");
         if(r.path.equals("/")||r.path.equals("/phone.js")||r.path.equals("/phone.css"))return r.method.equals("GET")?null:fail(405,"不支持的操作");
@@ -128,8 +135,8 @@ final class PhoneManager implements PhoneHttp.Handler {
         if(nonce.isEmpty()){
             if(!host.foreground)return fail(409,"请先回到 Marco TV 桌面");
             nonce=supplied;final String expected=nonce;
-            host.showDialog(new TvDialog.Builder(host).setPageId("phone_approve").setTitle("允许手机管理桌面？")
-                .setMessage("仅允许你刚刚扫码的手机连接。\n手机可读取应用卡片、调整外观、上传壁纸和下载备份。\n无需 ADB；可随时在“手机管理”断开。")
+            host.showDialog(new TvDialog.Builder(host).setPageId("phone_approve").setTitle("允许手机通过 Marco 互联连接？")
+                .setMessage("仅允许你刚刚扫码的手机连接。\n手机可读取应用卡片、调整外观、上传壁纸和下载备份。\n无需 ADB；可随时在“Marco 互联”断开。")
                 .setPositiveButton("允许连接",(d,w)->{if(!closed&&nonce.equals(expected)){approved=true;host.exitMenus();host.toast("手机已连接，未保存的预览不会写入配置");}})
                 .setNegativeButton("拒绝",(d,w)->stop()).create());
         }
@@ -156,6 +163,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         if(b.optLong("revision",-1)!=revision)return fail(409,"电视上的设置已变化，请刷新后再操作");
         if(!host.foreground)return fail(409,"请先回到 Marco TV 桌面");
         if(host.home.isMoving())return fail(409,"电视正在移动卡片，请完成后重试");
+        if(host.localPreview!=null&&(op.equals("preview")||op.equals("save")||op.equals("cancel")))return fail(409,"电视正在调整外观，请先在电视保存或取消");
         if(op.equals("preview")){
             JSONObject values=b.getJSONObject("values");Map<String,Integer> next=new HashMap<>();
             for(Iterator<String> it=values.keys();it.hasNext();){String k=it.next();if(!Arrays.asList(KEYS).contains(k))return fail(400,"不支持的设置");Object raw=values.get(k);int v=values.getInt(k);int[] range=BackupStore.range(k);if(!(raw instanceof Number)||((Number)raw).doubleValue()!=v||v<range[0]||v>range[1])return fail(400,"参数超出范围");next.put(k,v);}

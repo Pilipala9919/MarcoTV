@@ -7,7 +7,7 @@ import java.util.*;
 /** Stable settings identities and deterministic migration; independent of labels and Android. */
 final class SettingsCatalog {
     static final String[] ROOT_IDS={"appearance","apps","recents","playback","device","startup","maintenance","phone"};
-    static final String[] ROOT_LABELS={"桌面与外观","应用与分类","最近任务","正在播放","网络与声音","系统与启动","维护与帮助","手机管理"};
+    static final String[] ROOT_LABELS={"桌面与外观","应用与分类","最近任务","正在播放","网络与声音","系统与启动","维护与帮助","Marco 互联"};
     static final Set<String> ORDER_KEYS=Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
         "main","main_v2","clock","device","startup","cards","appearance","apps","wallpaper",
         "maintenance","recents","task_style","playback","diagnostics","health","backup","updates")));

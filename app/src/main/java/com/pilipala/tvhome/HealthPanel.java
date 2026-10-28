@@ -66,7 +66,7 @@ final class HealthPanel {
                 .setPositiveButton("清除",(x,y)->{Diagnostics.clear(host);host.toast("记录正在清除");}).setNegativeButton("返回",null).create());
         }).setNegativeButton("返回",null).create());}
     String reportText(){return reportHeader()+Diagnostics.recent(host);}
-    String reportHeader(){return "Marco TV · Pilipala\n版本："+ProjectInfo.VERSION+"\n设备："+Build.MANUFACTURER+" / "+Build.MODEL+"\nAndroid："+Build.VERSION.RELEASE+"\n\n"+summary()
+    String reportHeader(){return "Marco TV · Pilipala\n版本："+ProjectInfo.VERSION+"\n设备："+Build.MANUFACTURER+" / "+Build.MODEL+"\nAndroid："+Build.VERSION.RELEASE+" / API "+Build.VERSION.SDK_INT+"\n固件："+Build.DISPLAY+"\n处理器架构："+java.util.Arrays.toString(Build.SUPPORTED_ABIS)+"\n\n"+summary()
         +"\n\n事件说明：CRASH = 本应用异常；UI_UNRESPONSIVE_SUSPECTED = 前台疑似无响应；PREVIOUS_RUN_INTERRUPTED_UNKNOWN = 上次前台运行中断，原因未确定。\n不含网络名称、IP、设备序列号、应用清单、节目标题、图片或密码。\n\n近期事件\n";}
     private void report(boolean export){final int epoch=host.menuEpoch;final String header=reportHeader();host.loader.execute(()->{
         String report=header+Diagnostics.recent(host);host.handler.post(()->{if(epoch!=host.menuEpoch||host.isDestroyed())return;

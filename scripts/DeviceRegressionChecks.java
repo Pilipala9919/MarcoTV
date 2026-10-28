@@ -144,7 +144,7 @@ public final class DeviceRegressionChecks extends Instrumentation {
                 final boolean[] visuals={false,false};runOnMainSync(()->{
                     for(int i=0;i<host.recents.entries.size();i++)if(host.recents.entries.get(i).taskId==older)host.recents.selected=i;host.recents.stop();
                     RecentApps.Entry entry=host.recents.entries.get(host.recents.selected);visuals[1]=entry.snapshot!=null||entry.artwork!=null;
-                    Bitmap image=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);host.recents.draw(new android.graphics.Canvas(image),false);visuals[0]=Color.alpha(image.getPixel(690,600))==255;image.recycle();
+                    Bitmap image=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);host.recents.draw(new android.graphics.Canvas(image),false);visuals[0]=Color.alpha(image.getPixel(960,555))==255;image.recycle();
                     host.recents.touch(android.view.MotionEvent.ACTION_DOWN,960,600);host.recents.touch(android.view.MotionEvent.ACTION_MOVE,960,360);host.recents.touch(android.view.MotionEvent.ACTION_UP,960,280);
                 });check("task_card_background_is_opaque",visuals[0]);check("task_card_has_snapshot_or_logo",visuals[1]);
                 for(int i=0;i<30&&fixtureTasks().contains(older);i++)Thread.sleep(100);Thread.sleep(350);

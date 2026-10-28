@@ -83,7 +83,7 @@ def main():
                      'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
         print(output)
         (folder / ('phone-result.txt' if args.phone_only else 'appearance-result.txt' if args.appearance_only else 'update-result.txt' if args.updates_only else 'task-result.txt' if args.task_actions else 'bridge-result.txt' if args.bridge_only else 'result.txt')).write_text(output, encoding='utf-8')
-        expected='OK 18 phone checks' if args.phone_only else 'OK 14 appearance checks' if args.appearance_only else 'OK 17 update device checks' if args.updates_only else 'OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 85 device regression checks'
+        expected='OK 20 phone checks' if args.phone_only else 'OK 30 appearance checks' if args.appearance_only else 'OK 17 update device checks' if args.updates_only else 'OK 13 task action checks' if args.task_actions else 'OK 4 bridge checks' if args.bridge_only else 'OK 85 device regression checks'
         if expected not in output or 'FAIL' in output:
             raise RuntimeError('Device regression failed; see local result.txt')
     finally:

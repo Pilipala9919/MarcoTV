@@ -31,7 +31,8 @@ public final class MainActivity extends Activity {
     UpdatePanel updates;
     PhoneManager phone;
     PreviewPreferences previewPreferences;
-    SharedPreferences appearance(){return previewPreferences==null?preferences:previewPreferences;}
+    PreviewPreferences localPreview;
+    SharedPreferences appearance(){return localPreview!=null?localPreview:previewPreferences==null?preferences:previewPreferences;}
     boolean canShowUpdateNotice(){return foreground&&!dialogOpen&&(recents==null||!recents.visible);}
     RecentApps recents;
     private final HomePressTracker homePressTracker=new HomePressTracker();
@@ -41,6 +42,8 @@ public final class MainActivity extends Activity {
         @Override public void onReceive(Context c, Intent i) { if(playback!=null)playback.refresh(); }
     };
     private TvDialog activeDialog;
+    private PanelWindow panels;
+    PanelWindow panelWindow(){if(panels==null)panels=new PanelWindow(this);return panels;}
     private final ArrayList<TvDialog> dialogHistory = new ArrayList<>();
     int menuEpoch;
     final ArrayList<Tile> allTiles = new ArrayList<>();
@@ -381,10 +384,22 @@ public final class MainActivity extends Activity {
         // Explicit callbacks which refresh an existing page replace it rather than
         // adding a duplicate ancestor. Keep parent views so focus/scroll survive Back.
         for(int i=0;i<dialogHistory.size();i++)if(dialogHistory.get(i).pageKey().equals(dialog.pageKey())){
-            while(dialogHistory.size()>i)dialogHistory.remove(dialogHistory.size()-1);break;
+            while(dialogHistory.size()>i)dialogHistory.remove(dialogHistory.size()-1).leave();break;
         }
         if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey().equals("网络与 Wi-Fi")||dialog.pageKey().equals("壁纸图库")))dialogHistory.add(navigator.settingsDialog());
         dialog.returning(false);dialogHistory.add(dialog);presentDialog(dialog);
+    }
+    int settingsCategory(){
+        if(dialogHistory.size()<2||!dialogHistory.get(0).pageKey().equals("main"))return -1;
+        String key=dialogHistory.get(1).pageKey();
+        for(int i=0;i<SettingsCatalog.ROOT_IDS.length;i++)if(SettingsCatalog.ROOT_IDS[i].equals(key))return i;
+        return -1;
+    }
+    void switchCategory(int index){
+        if(activeDialog!=null){activeDialog.setOnDismissListener(null);activeDialog.dismiss();}
+        while(dialogHistory.size()>1)dialogHistory.remove(dialogHistory.size()-1).leave();
+        if(!dialogHistory.isEmpty())dialogHistory.get(0).focusItem(index);
+        navigator.openCategory(index);
     }
     boolean isPage(String id){return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);}
     private void presentDialog(TvDialog dialog){
@@ -403,14 +418,15 @@ public final class MainActivity extends Activity {
         if(dialogHistory.isEmpty())return;
         if(dialogHistory.size()==1){closeMenus();home.requestFocus();armIdle();return;}
         if(activeDialog!=null){activeDialog.setOnDismissListener(null);activeDialog.dismiss();}
-        dialogHistory.remove(dialogHistory.size()-1);
+        dialogHistory.remove(dialogHistory.size()-1).leave();
         TvDialog parent=dialogHistory.get(dialogHistory.size()-1);parent.returning(true);presentDialog(parent);
     }
     private void closeMenus(){
         if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
-        menuEpoch++;TvDialog previous=activeDialog;activeDialog=null;dialogHistory.clear();dialogOpen=false;
+        menuEpoch++;TvDialog previous=activeDialog;activeDialog=null;for(TvDialog page:dialogHistory)page.leave();dialogHistory.clear();dialogOpen=false;
         if(previous!=null){previous.setOnDismissListener(null);previous.dismiss();}
+        if(panels!=null)panels.close();
         if(home!=null)home.preview(null);
     }
 

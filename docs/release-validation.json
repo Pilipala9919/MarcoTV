@@ -1,13 +1,13 @@
 {
-  "version": "0.12.0",
-  "version_code": 27,
-  "date": "2026-10-28",
+  "version": "0.13.0",
+  "version_code": 28,
+  "date": "2026-10-29",
   "author": "Pilipala",
   "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218",
+  "apk_sha256": "8de2df863ab1f09a4741b5187cb997070ed9aa82b75d58b82b35d064d23e7662",
   "automated": {
     "device": {
       "passed": 85,
@@ -99,32 +99,64 @@
         "media_stale_pause_is_hidden"
       ]
     },
+    "phone": {
+      "passed": 20,
+      "checks": [
+        "phone_page_is_available",
+        "unpaired_state_is_denied",
+        "cross_origin_pair_is_denied",
+        "pair_requires_tv_confirmation",
+        "pending_pair_cannot_read_state",
+        "tv_confirmation_establishes_session",
+        "paired_state_lists_rows",
+        "mutation_requires_csrf",
+        "valid_preview_accepted",
+        "preview_does_not_write_preferences",
+        "preview_changes_render_preferences",
+        "cancel_restores_preview",
+        "stale_revision_is_rejected",
+        "out_of_range_is_rejected",
+        "save_commits_preview",
+        "tv_change_cancels_phone_preview",
+        "phone_preview_cannot_override_tv_editor",
+        "phone_preview_resumes_after_tv_editor_closes",
+        "disconnect_acknowledged",
+        "disconnect_stops_server"
+      ]
+    },
     "appearance": {
-      "passed": 14,
+      "passed": 30,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
         "panel_entry_has_intermediate_frames",
         "panel_entry_settles",
+        "settings_reuse_same_native_window",
         "cached_parent_replays_return_animation",
         "material_adds_top_light_and_bottom_shade",
         "material_keeps_corners_transparent",
         "new_appearance_parameters_are_backed_up",
         "motion_backup_bounds",
+        "preview_does_not_write_saved_preferences",
+        "back_discards_local_preview",
+        "home_discards_local_preview",
+        "preview_save_commits_value",
+        "second_card_keeps_row_at_origin",
+        "later_cards_anchor_to_second_position",
+        "root_back_closes_shared_window",
+        "home_down_waits_for_release",
+        "home_release_returns_desktop",
+        "home_double_release_opens_recents",
+        "home_hold_opens_configured_action",
+        "home_hold_release_does_not_launch_again",
+        "native_mode_passes_home_down_and_up",
+        "non_home_navigation_passes_through",
+        "power_cancels_pending_home_hold",
         "card_press_animates_without_jump",
         "card_release_returns_to_rest",
         "uniform_icon_can_extend",
         "transparent_icon_not_stretched",
         "complex_edge_not_stretched"
-      ]
-    },
-    "task_bridge": {
-      "passed": 4,
-      "checks": [
-        "bridge_authenticated_connection",
-        "bridge_version_matches_app",
-        "bridge_returns_unique_real_task_ids",
-        "bridge_rejects_invalid_task"
       ]
     },
     "task_actions": {
@@ -145,29 +177,6 @@
         "remote_up_clears_fixture_task"
       ]
     },
-    "phone": {
-      "passed": 18,
-      "checks": [
-        "phone_page_is_available",
-        "unpaired_state_is_denied",
-        "cross_origin_pair_is_denied",
-        "pair_requires_tv_confirmation",
-        "pending_pair_cannot_read_state",
-        "tv_confirmation_establishes_session",
-        "paired_state_lists_rows",
-        "mutation_requires_csrf",
-        "valid_preview_accepted",
-        "preview_does_not_write_preferences",
-        "preview_changes_render_preferences",
-        "cancel_restores_preview",
-        "stale_revision_is_rejected",
-        "out_of_range_is_rejected",
-        "save_commits_preview",
-        "tv_change_cancels_phone_preview",
-        "disconnect_acknowledged",
-        "disconnect_stops_server"
-      ]
-    },
     "bridge": {
       "passed": 4,
       "checks": [
@@ -175,28 +184,6 @@
         "bridge_version_matches_app",
         "bridge_returns_unique_real_task_ids",
         "bridge_rejects_invalid_task"
-      ]
-    },
-    "update_candidate": {
-      "passed": 17,
-      "checks": [
-        "newer_same_signed_apk_accepted",
-        "different_signer_rejected",
-        "wrong_download_size_rejected",
-        "wrong_digest_rejected",
-        "metadata_code_mismatch_rejected",
-        "metadata_name_mismatch_rejected",
-        "installed_version_rejected_as_update",
-        "update_provider_not_exported",
-        "provider_rejects_other_paths",
-        "provider_rejects_write_access",
-        "enabled_override_respected",
-        "disabled_override_respected",
-        "default_disabled_stays_disabled",
-        "tv_launcher_alias_discovered",
-        "private_entry_not_exposed",
-        "permission_guarded_entry_not_exposed",
-        "disabled_entry_not_exposed"
       ]
     }
   },
@@ -212,49 +199,50 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Signed code 27 installed over rc.6 on Xiaomi Android 9 without data removal. All device suites rerun on the final stable APK; 17 update candidate checks ran before upgrade against this same APK. Physical phones and other brands are not covered.",
+  "validation_scope": "Code 28 overwrite installation and targeted checks on Xiaomi Android 9. Gesture tests invoke the actual Home service logic with isolated preferences and captured launch intents; these are not physical remote tests. No TCL or Huawei device was connected.",
   "not_verified": [
-    "TCL 75T 8G Max Android 11 launch routes",
-    "Huawei HD65DESA",
-    "physical remote and full reboot on this release",
-    "long duration performance",
-    "iPhone Safari and Android phone browser",
-    "system-wide phone remote control is not implemented"
+    "TCL 75T8G Max Android 11 physical Home and task service",
+    "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
+    "physical remote on 0.13.0 (user will test later)",
+    "full reboot and long duration stability on this version",
+    "physical iPhone Safari and Android phone browser",
+    "real Wi-Fi network switching on Android 10+"
   ],
   "browser_checks": {
-    "browser": "Microsoft Edge via Playwright (Browser plugin not available)",
+    "browser": "Microsoft Edge via Playwright",
+    "reason": "Browser plugin not available",
+    "target": "local showcase corresponding to docs/showcase",
     "viewports": [
-      "390x844",
-      "1280x900"
+      [
+        1280,
+        900
+      ],
+      [
+        390,
+        844
+      ]
     ],
-    "backend": "real Xiaomi Android 9 television",
     "passed": [
-      "TV-confirmed pairing",
-      "nonblank app list",
-      "card settings modal",
-      "appearance preview and cancellation",
-      "diagnostic preview",
-      "full backup download",
-      "photo crop and wallpaper upload",
-      "uploaded backup restored after TV confirmation",
-      "disconnect",
-      "no JavaScript runtime errors",
-      "no horizontal overflow"
+      "page identity",
+      "nonblank",
+      "no error overlay",
+      "no console errors",
+      "no horizontal overflow",
+      "Marco 互联 navigation",
+      "new screenshot viewer",
+      "Wi-Fi search"
     ],
-    "not_verified": [
-      "physical iPhone Safari",
-      "physical Android browser",
-      "touch drag on a phone"
-    ],
-    "tested_version": "0.12.0",
-    "apk_sha256": "72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218"
+    "phone_web_history": {
+      "version": "0.12.0",
+      "scope": "Original phone page browser checks; not represented as a new physical-phone test."
+    }
   },
   "upgrade": {
-    "from": "0.12.0-rc.6",
-    "to": "0.12.0",
-    "version_code": 27,
-    "same_signature_verified": true,
-    "configuration_backup_created": true,
-    "adb_overwrite_install_succeeded": true
-  }
+    "from": "0.12.0",
+    "to": "0.13.0",
+    "version_code": 28,
+    "adb_overwrite_install_succeeded": true,
+    "same_signature_accepted_by_package_manager": true
+  },
+  "automated_total": 242
 }

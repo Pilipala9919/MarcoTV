@@ -26,6 +26,7 @@ final class ContinuousSlider extends View {
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
     private String label(){return title.equals("进入屏保等待")&&value==0?"不自动进入":value+unit;}
     private void describe(){setContentDescription(title+"，"+label()+"，左右键连续调整");}
+    void setValue(int next){update(next);}
     private void update(int next){next=Math.max(min,Math.min(max,next));if(value==next)return;value=next;describe();listener.changed(value);invalidate();}
     @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(compact?96:146));}
     @Override protected void onDraw(Canvas c){

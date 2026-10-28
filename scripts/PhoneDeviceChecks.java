@@ -62,6 +62,10 @@ final class PhoneDeviceChecks {
             current=state();preview.put("revision",current.getLong("revision"));action(preview);
             inst.runOnMainSync(()->prefs.edit().putInt("card_radius",saved).commit());
             inst.runOnMainSync(()->check.accept("tv_change_cancels_phone_preview",!host.phone.previewing()));
+            inst.runOnMainSync(()->host.navigator.slider("卡片圆角","card_radius",0,80,32,""));
+            current=state();preview.put("revision",current.getLong("revision"));action(preview);check.accept("phone_preview_cannot_override_tv_editor",status==409);
+            inst.runOnMainSync(host::exitMenus);current=state();preview.put("revision",current.getLong("revision"));action(preview);
+            check.accept("phone_preview_resumes_after_tv_editor_closes",status==200);
             action(new JSONObject().put("op","disconnect"));check.accept("disconnect_acknowledged",status==200);
             Thread.sleep(600);inst.runOnMainSync(()->check.accept("disconnect_stops_server",!host.phone.active()));
         }finally{

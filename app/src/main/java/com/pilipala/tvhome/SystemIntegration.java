@@ -165,12 +165,12 @@ final class SystemIntegration {
                 "状态中心", "设为默认桌面",
                 "开机打开 Marco TV：" + (p.getBoolean("boot_home", false) ? "已开启" : "未开启"),
                 "Home 键兼容模式：" + (p.getBoolean("home_compat", false) ? "已开启" : "未开启"),
-                "恢复原桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明"};
+                "恢复原桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明", "Home 长按与原厂兼容"};
         host.show(new TvDialog.Builder(activity).setPageId("startup").setTitle("系统与启动")
                 .setMessage("当前默认桌面：" + (ownHome ? "Marco TV" : "厂商或其他桌面")
                         + "\n唤醒恢复还需开启 Home 兼容并连接任务辅助服务；只打开偏好不代表已经生效。"
                         + (ownHome ? "" : "\n部分电视在 Marco TV 更新后会重置此项，回到本页选择「设为默认桌面」即可恢复。"))
-                .setOrder("startup","adb","status","home","boot","home_key","restore","wake","recover","help").setItems(items, (d, which) ->
+                .setOrder("startup","adb","status","home","boot","home_key","restore","wake","recover","help","home_gestures").setItems(items, (d, which) ->
                 activity.getWindow().getDecorView().post(() -> {
                     switch (which) {
                         case 0:
@@ -228,6 +228,7 @@ final class SystemIntegration {
                                 .setMessage("仅执行当前已启用的 ADB / Home 恢复设置，可能重新打开调试开关或恢复自身 Home 服务；不新增授权。唤醒恢复另外需要 Home 兼容和已连接的任务辅助服务。")
                                 .setPositiveButton("执行恢复",(dialog,button)->{recover(activity);startRecovery(activity);status(activity,host);})
                                 .setNegativeButton("取消",null).create());break;
+                        case 9: homeGestures(activity,host);break;
                         case 8:
                             host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
                                     .setMessage("首次安装需在电视系统中打开 ADB，并通过电脑完成一次授权。授权后可在 Marco TV 内开启自动恢复。\n\n卸载应用或恢复出厂设置后，需要重新授权。网络端口是否能恢复还取决于电视固件。")
@@ -235,6 +236,18 @@ final class SystemIntegration {
                                     .setNegativeButton("返回", null).create()); break;
                     }
                 })).setNegativeButton("返回", null).create());
+    }
+    static void homeGestures(Activity activity,DialogHost host){
+        SharedPreferences p=prefs(activity);
+        boolean nativeKeys=p.getBoolean("home_native_keys",false);
+        String action=p.getString("home_long_action","system");
+        host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("Home 按键")
+            .setMessage("短按返回桌面，双击可打开 Marco 最近任务。长按默认请求系统任务界面；厂商可能不支持。原厂模式会完整放行按键，短按可能经过原桌面，双击也可能受系统限制。")
+            .setItems(new String[]{"长按：系统最近任务"+(action.equals("system")?" ✓":""),"长按：Marco 最近任务"+(action.equals("marco")?" ✓":""),"长按：不执行操作"+(action.equals("none")?" ✓":""),"保留原厂 Home 按键："+(nativeKeys?"已开启":"未开启")},(d,w)->{
+                if(w==3)p.edit().putBoolean("home_native_keys",!nativeKeys).apply();
+                else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w]).apply();
+                homeGestures(activity,host);
+            }).setNegativeButton("返回",null).create());
     }
     private static void restoreHome(Activity activity) {
         SharedPreferences p = prefs(activity);
