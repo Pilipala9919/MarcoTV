@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Copyright (C) 2026 Pilipala · SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>不用 U 盘，安装 Marco TV</title><meta name="description" content="选择电视系统和手边设备，找到适合你的 Marco TV 安装方式。Pilipala 免费开源。"><link rel="stylesheet" href="style.css"></head>
+<body><header><a href="https://marcotv.wlj9919.top/">M <span>Marco TV</span></a><span>by Pilipala</span></header><main>
+<div class="intro"><p class="eyebrow">从第一次安装开始</p><h1>不用 U 盘，<br>也能开始。</h1><p>告诉我们电视的情况，找到适合你的安装方式。<br>不用输入命令，不用猜应该下载哪个文件。</p><div class="free">免费开源 · 如果花钱购买了本软件，请尽快申请退款。</div></div>
+<section class="wizard" aria-label="安装路线选择"><div class="step">01 — 选择设备</div><h2>先看看你手边有什么</h2>
+<form id="choices"><label for="system">电视实际运行什么系统？</label><select id="system" required><option value="">请选择；可在电视“关于”中查看</option><option value="android">Android / Android TV / Google TV（6.0 以上）</option><option value="unknown">不确定 / 华为、荣耀、VIDAA 等待确认</option><option value="other">三星 Tizen / LG webOS / Roku / Apple tvOS</option></select>
+<label for="brand">电视品牌 / 系统系列</label><select id="brand"><option value="generic">选择品牌，或使用通用说明</option><option value="xiaomi">小米 / Redmi 国内旧版部分机型</option><option value="google">海外 Android TV / Google TV / 索尼</option><option value="custom">TCL / 雷鸟 / 海信 / 创维等国内定制系统</option><option value="fire">Amazon Fire TV（Fire OS）</option></select>
+<label for="device">你准备用什么设备安装？</label><select id="device"><option value="windows">Windows 10 / 11 电脑</option><option value="android">安卓手机（Android 8 以上）</option><option value="iphone">iPhone / iPad</option><option value="other">Mac / 其他设备 / 只有电视</option></select>
+<label for="entry">电视目前提供哪个入口？</label><select id="entry"><option value="unknown">还没找到，先帮我看看</option><option value="browser">有浏览器，能下载并打开 APK</option><option value="receive">有厂商提供的文件接收 / 远程安装入口</option><option value="adb">有普通“网络调试 / ADB 调试”</option><option value="pair">只有“无线调试配对码”</option><option value="none">没有这些入口</option></select>
+<button class="primary" type="submit">查看我的安装路线 <span>→</span></button></form>
+<p class="local">选择只在本页面处理，不收集电视型号、IP 或家庭网络信息。</p></section>
+<section id="result" class="route" hidden tabindex="-1" aria-live="polite"><div class="step">02 — 你的安装路线</div><h2 id="routeTitle"></h2><p id="routeIntro"></p><ol id="steps"></ol><div id="download"></div><p id="limits" class="note"></p><details><summary>按品牌查开关位置</summary><p id="brandGuide"></p><a href="https://github.com/Pilipala9919/MarcoTV/blob/main/docs/各品牌电视设置入口.md">完整品牌入口与资料依据 ↗</a></details><a class="again" href="#choices">换一种安装方式 ↑</a></section>
+<section class="after"><div class="step">03 — 安装完成后</div><h2>先用起来，再按需设置</h2><div class="tiles"><article><b>打开桌面</b><p>从电视应用列表启动 Marco TV，先试试方向键、返回键和应用启动。</p></article><article><b>选择你的习惯</b><p>按首次引导选择默认桌面、Home 兼容等功能。安装助手不会替你修改系统权限。</p></article><article><b>以后直接更新</b><p>在“维护与帮助 → 软件更新”检查新版。安装仍需确认，无需反复传送文件。</p></article></div></section>
+<footer>Marco TV · Pilipala · GPL-3.0-only<br><a href="https://github.com/Pilipala9919/MarcoTV/tree/main/installer">助手源码与验证范围</a> · <a href="https://github.com/Pilipala9919/MarcoTV/blob/main/docs/安装说明.md">完整安装说明</a><p>助手 1.0.0 内含电视桌面 0.12.0。助手只支持普通网络 ADB；无线配对码、iOS 助手尚未实现。不能承诺所有品牌均可安装。</p></footer>
+</main><script src="app.js"></script></body></html>

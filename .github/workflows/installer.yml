@@ -1,0 +1,41 @@
+# Copyright (C) 2026 Pilipala
+# SPDX-License-Identifier: GPL-3.0-only
+name: Build installation helpers
+on:
+  push:
+    paths: ['installer/**', 'scripts/build.py', '.github/workflows/installer.yml']
+  pull_request:
+    paths: ['installer/**', 'scripts/build.py', '.github/workflows/installer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONUTF8: '1'
+jobs:
+  helpers:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare toolchain
+        run: python scripts/bootstrap.py
+      - name: Fetch pinned TV release (build verifies SHA-256)
+        shell: python
+        run: |
+          import pathlib, urllib.request
+          out=pathlib.Path('dist');out.mkdir(exist_ok=True)
+          urllib.request.urlretrieve('https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0/MarcoTV-0.12.0.apk',out/'MarcoTV-0.12.0.apk')
+      - name: Build standalone helpers
+        run: python installer/build.py
+      - name: Transport and payload checks
+        run: python installer/tests/run.py
+      - name: Public source boundaries
+        run: python scripts/check_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarcoTV-installers-CI-development-signature
+          path: dist/MarcoTV-Installer-*
+          retention-days: 7

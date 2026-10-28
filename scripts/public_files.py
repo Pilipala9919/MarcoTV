@@ -14,6 +14,9 @@ def source_files():
     files.extend(ROOT/'scripts'/name for name in SCRIPT_FILES)
     for folder in ['app','docs','.github','licenses']:
         files.extend(p for p in (ROOT/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
+    files.extend(p for p in (ROOT/'installer').rglob('*') if p.is_file()
+                 and p.suffix in {'.cs','.java','.py','.xml','.md','.json'}
+                 and '__pycache__' not in p.parts)
     return sorted(files)
 
 if __name__=='__main__':
