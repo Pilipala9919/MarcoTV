@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "versionCode": 25,
-  "versionName": "0.12.0-rc.5",
+  "versionCode": 26,
+  "versionName": "0.12.0-rc.6",
   "minSdk": 23,
-  "size": 8148315,
-  "sha256": "a4423d61da666c6fe67e327e968b8b1b17f3b31f2f5a7570f234515076b17401",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0-rc.5/MarcoTV-0.12.0-rc.5.apk",
+  "size": 8185470,
+  "sha256": "8ca24b12d54d8b74a7ba2a128783c7d36eb72218316b4358e35e3a54f6c4c2ce",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0-rc.6/MarcoTV-0.12.0-rc.6.apk",
   "prerelease": true,
-  "notes": "改善桌面与菜单动效：返回上级也会播放过渡，选中焦点更柔和；卡片增加可调高光、渐暗与轮廓。卡片质感和界面动效时长支持滑块预览与备份。保留镜像优先更新。更新后任务辅助服务仍需电脑重新启动。TCL Android 11 仍待该机复测。"
+  "notes": "新增局域网手机管理：电视确认配对后，可整理卡片、实时预览外观、上传壁纸、备份恢复和下载诊断。卡片增加按下回弹，改善透明及复杂图标显示。顶部导航保持原样。体验版已通过小米 Android 9 测试，TCL 和实体手机浏览器待验证。更新后系统任务辅助服务仍需电脑重新启动。"
 }
