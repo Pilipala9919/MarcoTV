@@ -1,7 +1,7 @@
 {
   "author": "Pilipala",
-  "version": "0.11.1",
-  "updated": "2026-10-26",
+  "version": "0.13.0",
+  "updated": "2026-10-29",
   "modules": [
     {
       "id": "desktop",
@@ -11,14 +11,14 @@
       "entry": "从原桌面打开 Marco TV；配置完成后可用 Home 返回。",
       "steps": [
         "左右选择卡片，上下切换分类或顶部入口，确定打开。",
-        "左上角打开设置，右上角查看时间、日期并进入 Wi-Fi。",
+        "左上角打开设置，顶部可进入 Marco 互联，右上角查看时间、日期与 Wi-Fi。",
         "长按确定编辑卡片；菜单键打开设置。"
       ],
-      "limit": "卡片来自已安装应用；不附带视频会员、频道源或付费影视。图中四张卡片为演示占位。",
+      "limit": "卡片来自已安装应用；不附带视频会员、频道源或付费影视。图中卡片为临时演示内容。",
       "shots": [
         {
-          "file": "assets/01-desktop.webp",
-          "caption": "桌面总览：设置、网络、时钟和横向卡片。"
+          "file": "assets/40-connect-desktop.png",
+          "caption": "0.13.0 · 新版桌面 · Marco 互联入口与横向卡片"
         }
       ]
     },
@@ -37,11 +37,11 @@
       "shots": [
         {
           "file": "assets/37-favorites.webp",
-          "caption": "收藏行示例。"
+          "caption": "0.11.1 历史界面 · 收藏行示例。"
         },
         {
           "file": "assets/38-inputs.webp",
-          "caption": "输入源行示例。"
+          "caption": "0.11.1 历史界面 · 输入源行示例。"
         }
       ]
     },
@@ -59,7 +59,7 @@
       "shots": [
         {
           "file": "assets/02-drawer.webp",
-          "caption": "左侧操作栏展开，应用卡片平滑让出位置。"
+          "caption": "0.11.1 历史界面 · 左侧操作栏展开，应用卡片平滑让出位置。"
         }
       ]
     },
@@ -78,7 +78,7 @@
       "shots": [
         {
           "file": "assets/03-library.webp",
-          "caption": "搜索、常用列表和高级入口；真实应用清单已遮挡。"
+          "caption": "0.11.1 历史界面 · 搜索、常用列表和高级入口；真实应用清单已遮挡。"
         }
       ]
     },
@@ -97,7 +97,7 @@
       "shots": [
         {
           "file": "assets/05-card-settings.webp",
-          "caption": "单张卡片的置顶、隐藏、排序与卸载入口。"
+          "caption": "0.11.1 历史界面 · 单张卡片的置顶、隐藏、排序与卸载入口。"
         }
       ]
     },
@@ -116,11 +116,11 @@
       "shots": [
         {
           "file": "assets/04-card-menu.webp",
-          "caption": "长按卡片后的编辑菜单。"
+          "caption": "0.11.1 历史界面 · 长按卡片后的编辑菜单。"
         },
         {
           "file": "assets/06-cover.webp",
-          "caption": "原始封面、本地图片与纯色选项。"
+          "caption": "0.11.1 历史界面 · 原始封面、本地图片与纯色选项。"
         }
       ]
     },
@@ -139,11 +139,11 @@
       "shots": [
         {
           "file": "assets/07-sort.webp",
-          "caption": "三种排序方式。"
+          "caption": "0.11.1 历史界面 · 三种排序方式。"
         },
         {
           "file": "assets/30-moving.webp",
-          "caption": "拿起并移动：屏幕显示操作提示。"
+          "caption": "0.11.1 历史界面 · 拿起并移动：屏幕显示操作提示。"
         }
       ]
     },
@@ -152,21 +152,17 @@
       "group": "外观与操作",
       "title": "卡片外观与实时预览",
       "summary": "边调边看，让圆角、放大程度和文字亮度有直观参照。",
-      "entry": "设置 → 卡片外观。",
+      "entry": "设置 → 外观与布局 → 卡片外观。",
       "steps": [
         "调整圆角、选中放大幅度及未选中名称亮度。",
         "底部滑块显示当前数值，上方保留桌面预览。",
-        "方向键每次微调一单位，长按加速，返回保留修改。"
+        "方向键每次微调一单位，长按加速，选择保存才写入配置；返回或 Home 取消。"
       ],
-      "limit": "数值按参数的最小单位连续调节，不是只有少数预设档位；滑块修改即时保存。",
+      "limit": "数值按参数的最小单位连续调节，不是只有少数预设档位；滑块实时预览，保存后生效。",
       "shots": [
         {
-          "file": "assets/08-appearance.webp",
-          "caption": "卡片外观选项。"
-        },
-        {
-          "file": "assets/09-preview.webp",
-          "caption": "圆角大小实时预览。"
+          "file": "assets/42-live-preview.png",
+          "caption": "0.13.0 · 真实桌面预览 · 保存、取消与单项默认值"
         }
       ]
     },
@@ -185,7 +181,7 @@
       "shots": [
         {
           "file": "assets/10-wallpapers.webp",
-          "caption": "内置壁纸图库。"
+          "caption": "0.11.1 历史界面 · 内置壁纸图库。"
         }
       ]
     },
@@ -203,7 +199,7 @@
       "shots": [
         {
           "file": "assets/11-clock.webp",
-          "caption": "时钟与屏保参数入口。"
+          "caption": "0.11.1 历史界面 · 时钟与屏保参数入口。"
         }
       ]
     },
@@ -222,11 +218,11 @@
       "shots": [
         {
           "file": "assets/12-screensaver.webp",
-          "caption": "屏保字号滑块与实时预览。"
+          "caption": "0.11.1 历史界面 · 屏保字号滑块与实时预览。"
         },
         {
           "file": "assets/36-saver.webp",
-          "caption": "进入屏保后的时间与压暗背景。"
+          "caption": "0.11.1 历史界面 · 进入屏保后的时间与压暗背景。"
         }
       ]
     },
@@ -244,12 +240,8 @@
       "limit": "设置首页、卡片外观、时钟与屏保、设备设置、开机与默认桌面共五个列表可排序；系统授权、输入法与文件选择页面仍由系统提供。",
       "shots": [
         {
-          "file": "assets/13-settings.webp",
-          "caption": "设置首页。"
-        },
-        {
-          "file": "assets/31-reorder.webp",
-          "caption": "设置条目排序状态。"
+          "file": "assets/41-settings-navigation.png",
+          "caption": "0.13.0 · 左侧分类与逐级返回 · 持续设置面板"
         }
       ]
     },
@@ -262,17 +254,13 @@
       "steps": [
         "开启或关闭 Wi-Fi，刷新附近网络。",
         "选择网络进行连接，查看连接详情。",
-        "每行保留名称和信号图标，连接时再处理安全类型。"
+        "每行显示名称、信号与连接状态，详情在选择后查看。"
       ],
-      "limit": "扫描和连接能力受 Android 版本、权限及厂商限制；展示中的网络名称全部遮挡，没有公开家庭 SSID 或地址。",
+      "limit": "扫描和连接能力受 Android 版本、权限及厂商限制；新版展示使用示例网络，没有公开家庭 SSID 或地址。",
       "shots": [
         {
-          "file": "assets/15-wifi.webp",
-          "caption": "网络入口及连接选项，私人网络信息已遮挡。"
-        },
-        {
-          "file": "assets/16-wifi-list.webp",
-          "caption": "热点列表：名称已遮挡，右侧信号图标保留。"
+          "file": "assets/44-network-controls.png",
+          "caption": "0.13.0 · 网络快捷面板 · 名称与信号 · 示例网络"
         }
       ]
     },
@@ -290,15 +278,15 @@
       "shots": [
         {
           "file": "assets/14-device.webp",
-          "caption": "设备设置总览。"
+          "caption": "0.11.1 历史界面 · 设备设置总览。"
         },
         {
           "file": "assets/17-volume.webp",
-          "caption": "音量滑块。"
+          "caption": "0.11.1 历史界面 · 音量滑块。"
         },
         {
           "file": "assets/32-device-info.webp",
-          "caption": "品牌、型号、系统及软件版本。"
+          "caption": "0.11.1 历史界面 · 品牌、型号、系统及软件版本。"
         }
       ]
     },
@@ -317,7 +305,7 @@
       "shots": [
         {
           "file": "assets/27-media-card.webp",
-          "caption": "左上播放卡片：标题明确标注为演示会话。"
+          "caption": "0.11.1 历史界面 · 左上播放卡片：标题明确标注为演示会话。"
         }
       ]
     },
@@ -336,15 +324,15 @@
       "shots": [
         {
           "file": "assets/26-media-settings.webp",
-          "caption": "播放卡片与权限设置。"
+          "caption": "0.11.1 历史界面 · 播放卡片与权限设置。"
         },
         {
           "file": "assets/28-media-controls.webp",
-          "caption": "演示会话的控制菜单。"
+          "caption": "0.11.1 历史界面 · 演示会话的控制菜单。"
         },
         {
           "file": "assets/29-media-sources.webp",
-          "caption": "自动选择或指定播放来源。"
+          "caption": "0.11.1 历史界面 · 自动选择或指定播放来源。"
         }
       ]
     },
@@ -363,7 +351,7 @@
       "shots": [
         {
           "file": "assets/25-recents.webp",
-          "caption": "系统任务堆叠；应用名称与图标已遮挡，保留原卡片布局。"
+          "caption": "0.11.1 历史界面 · 系统任务堆叠；应用名称与图标已遮挡，保留原卡片布局。"
         }
       ]
     },
@@ -382,11 +370,11 @@
       "shots": [
         {
           "file": "assets/24-recents-settings.webp",
-          "caption": "双击 Home 与系统任务功能入口。"
+          "caption": "0.11.1 历史界面 · 双击 Home 与系统任务功能入口。"
         },
         {
           "file": "assets/33-recents-preview.webp",
-          "caption": "卡片大小预览，任务信息已遮挡。"
+          "caption": "0.11.1 历史界面 · 卡片大小预览，任务信息已遮挡。"
         }
       ]
     },
@@ -405,7 +393,7 @@
       "shots": [
         {
           "file": "assets/18-startup.webp",
-          "caption": "开机、默认桌面和恢复选项。"
+          "caption": "0.11.1 历史界面 · 开机、默认桌面和恢复选项。"
         }
       ]
     },
@@ -424,7 +412,7 @@
       "shots": [
         {
           "file": "assets/20-guide.webp",
-          "caption": "首次引导第 1 步：先试用桌面。"
+          "caption": "0.11.1 历史界面 · 首次引导第 1 步：先试用桌面。"
         }
       ]
     },
@@ -443,7 +431,7 @@
       "shots": [
         {
           "file": "assets/21-status.webp",
-          "caption": "状态页下半部分：恢复、播放与重新检查。"
+          "caption": "0.11.1 历史界面 · 状态页下半部分：恢复、播放与重新检查。"
         }
       ]
     },
@@ -462,11 +450,11 @@
       "shots": [
         {
           "file": "assets/19-backup.webp",
-          "caption": "本地备份、导出与恢复入口。"
+          "caption": "0.11.1 历史界面 · 本地备份、导出与恢复入口。"
         },
         {
           "file": "assets/35-restore-preview.webp",
-          "caption": "恢复前确认影响范围。"
+          "caption": "0.11.1 历史界面 · 恢复前确认影响范围。"
         }
       ]
     },
@@ -485,11 +473,11 @@
       "shots": [
         {
           "file": "assets/22-diagnostics.webp",
-          "caption": "本地诊断开关与检查入口。"
+          "caption": "0.11.1 历史界面 · 本地诊断开关与检查入口。"
         },
         {
           "file": "assets/34-diagnostic-report.webp",
-          "caption": "报告预览与手动导出；这是界面示例，不是设备验收报告。"
+          "caption": "0.11.1 历史界面 · 报告预览与手动导出；这是界面示例，不是设备验收报告。"
         }
       ]
     },
@@ -508,7 +496,7 @@
       "shots": [
         {
           "file": "assets/23-about.webp",
-          "caption": "软件版本、作者、开源协议与退款提示。"
+          "caption": "0.11.1 历史界面 · 软件版本、作者、开源协议与退款提示。"
         }
       ]
     }
