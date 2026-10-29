@@ -51,6 +51,7 @@ final class ClockScene {
     }
     float left(SharedPreferences prefs){return 1798-layout(prefs).width*size(prefs,0)/280;}
     void draw(Canvas c,SharedPreferences prefs,float ambient){
+        TimeZone currentZone=TimeZone.getDefault();if(!time.getTimeZone().equals(currentZone)){time.setTimeZone(currentZone);date.setTimeZone(currentZone);cachedTime="";}
         Date current=new Date(System.currentTimeMillis());String shown=time.format(current);
         Layout glyphs=layout(prefs);int style=style(prefs),tilt=tilt(prefs,style);
         // Only rebuild on minute/style/tilt changes. The same pixels are scaled

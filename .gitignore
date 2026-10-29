@@ -52,6 +52,7 @@ scripts/*
 !scripts/build_lite.py
 !scripts/test_lite.py
 !scripts/test_lite_device.py
+!scripts/test_lite_stability.py
 
 # Local platform promotion deliverables are distributed separately.
 宣传/

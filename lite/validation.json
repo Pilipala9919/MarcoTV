@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "package": "com.pilipala.tvhome.lite",
   "compile_api": 14,
   "min_api": 14,
@@ -8,13 +8,13 @@
     "MotionSpring.java",
     "PreviewPreferences.java"
   ],
-  "bytes": 304530,
-  "sha256": "e785a5c0e664616f2fe99ec03040f01a8ea240f1e2680c6083bd1e1250ce0c30",
+  "bytes": 308626,
+  "sha256": "ea06ef9ca03cfd792ec3be37f85e5d4a356f3120cc7a63ea19e7cde98837d576",
   "physical_android4_tv_verified": false,
   "upgrade_from_0_1_0_install_verified": true,
   "optimization_evidence": {
     "previous_apk_bytes": 4326802,
-    "current_apk_bytes": 304530,
+    "current_apk_bytes": 308626,
     "apk_reduction_percent_rounded": 93,
     "static_desktop_observation_ms": 2200,
     "static_desktop_periodic_redraws_observed": 0,
@@ -120,24 +120,42 @@
     "lite/tests/LiteDeviceChecks.java",
     "lite/tests/LiteSettingsChecks.java",
     "scripts/test_lite.py",
-    "scripts/test_lite_device.py"
+    "scripts/test_lite_device.py",
+    "lite/tests/LiteStabilityChecks.java",
+    "scripts/test_lite_stability.py"
   ],
   "screenshots": [
     {
       "path": "docs/assets/lite-clock-api14.png",
-      "sha256": "362456acd47f14e1340215897a2e570be0eb7f08674ff17abb352194f2f23944"
+      "sha256": "e40a021bc56663adf01b052f07fc02d3e9691044c0c39e7cce9f4955c46aeed1"
     },
     {
       "path": "docs/assets/lite-home-api14.png",
-      "sha256": "3073986f2b8dfe0818656f434de02e37915e318480db778eb42c1a8b059cceea"
+      "sha256": "2e27a3c02822dfcdc3e638e6686f69ebcbbea203629853bf7204a51dd2091939"
     },
     {
       "path": "docs/assets/lite-magic-api14.png",
-      "sha256": "478fc437f922a3295f9ffc251e1b4615b7ed415778122a542af349f04ef28c38"
+      "sha256": "85a04d82f1cd4cb62d8c6278581d0eb2c50402a96d5b1c3c3a0db1c7331d3d98"
     },
     {
       "path": "docs/assets/lite-magic-saver-api14.png",
-      "sha256": "2086647639c6ce256caef31b05ee2e9235eec0a1a7133c6a276e1e5d6f58d461"
+      "sha256": "8e21359c51f5c3a75cac88e4d3649e3b1806b67d2d4932697408e5107ca1980c"
     }
-  ]
+  ],
+  "stability_passed": [
+    "pause_resume_preserves_system_settings_return_location",
+    "temporary_pause_keeps_unsaved_magic_draft",
+    "saved_instance_state_restores_draft",
+    "home_still_discards_preserved_draft",
+    "existing_clock_follows_new_timezone",
+    "failed_restore_commit_reports_failure",
+    "800_dispatched_direction_events_keep_valid_selection",
+    "100_nested_navigation_cycles_restore_focus",
+    "50_wake_confirm_cycles_do_not_activate_app",
+    "three_view_sizes_render_without_exception"
+  ],
+  "stability_check_count": 10,
+  "total_lite_check_count": 72,
+  "upgrade_from_0_1_1_install_verified": true,
+  "state_restoration_scope": "Bundle save/restore and same-instance lifecycle callbacks; full process death not verified"
 }

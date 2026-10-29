@@ -18,18 +18,20 @@ import org.json.*;
 /** Separate API-14 entry point. Never loads full-edition services or permissions. */
 public final class LiteActivity extends Activity {
     SharedPreferences prefs;LiteView home;ArrayList<App> apps=new ArrayList<App>();
-    final Handler handler=new Handler();boolean alive;volatile boolean destroyed;boolean loaded,loading,dirty=true,reloadRequested;int loadGeneration,scanCount;String status="正在读取应用…";
+    final Handler handler=new Handler();boolean alive;volatile boolean destroyed;boolean loaded,loading,dirty=true,reloadRequested;int loadGeneration,scanCount;String status="正在读取应用…",restoreStatus="",restoredSelection;
     ArrayList<App> catalog=new ArrayList<App>();
     final BroadcastReceiver packageChanges=new BroadcastReceiver(){public void onReceive(Context c,Intent i){dirty=true;if(alive)loadApps();}};
+    final BroadcastReceiver timeChanges=new BroadcastReceiver(){public void onReceive(Context c,Intent i){home.invalidate();home.scheduleTick();}};
     static final class App {String id,label;Intent intent;Bitmap icon;boolean pinned;long opened;}
-    @Override public void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("lite_home",0);home=new LiteView(this);setContentView(home);IntentFilter filter=new IntentFilter();for(String action:new String[]{Intent.ACTION_PACKAGE_ADDED,Intent.ACTION_PACKAGE_REMOVED,Intent.ACTION_PACKAGE_CHANGED,Intent.ACTION_PACKAGE_REPLACED})filter.addAction(action);filter.addDataScheme("package");registerReceiver(packageChanges,filter);}
+    @Override public void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("lite_home",0);home=new LiteView(this);setContentView(home);IntentFilter filter=new IntentFilter();for(String action:new String[]{Intent.ACTION_PACKAGE_ADDED,Intent.ACTION_PACKAGE_REMOVED,Intent.ACTION_PACKAGE_CHANGED,Intent.ACTION_PACKAGE_REPLACED})filter.addAction(action);filter.addDataScheme("package");registerReceiver(packageChanges,filter);IntentFilter timeFilter=new IntentFilter();timeFilter.addAction(Intent.ACTION_TIME_CHANGED);timeFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);registerReceiver(timeChanges,timeFilter);if(state!=null)home.restoreState(state);}
     @Override protected void onResume(){super.onResume();alive=true;home.resume();if(!loaded||dirty)loadApps();else rebuildVisible();}
     @Override protected void onPause(){alive=false;home.pause();super.onPause();}
-    @Override protected void onDestroy(){destroyed=true;loadGeneration++;unregisterReceiver(packageChanges);home.release();recycle(catalog);super.onDestroy();}
+    @Override protected void onDestroy(){destroyed=true;loadGeneration++;unregisterReceiver(packageChanges);unregisterReceiver(timeChanges);home.release();recycle(catalog);super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);home.closePage();home.wake();}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);home.saveState(out);}
     void toast(String text){Toast.makeText(this,text,Toast.LENGTH_SHORT).show();}
     void rebuildVisible(){
-        String selected=home.selectedId();ArrayList<App> visible=new ArrayList<App>();
+        String selected=restoredSelection==null?home.selectedId():restoredSelection;restoredSelection=null;ArrayList<App> visible=new ArrayList<App>();
         for(App app:catalog){app.pinned=prefs.getBoolean("pinned:"+app.id,false);app.opened=prefs.getLong("opened:"+app.id,0);if(!prefs.getBoolean("hidden:"+app.id,false))visible.add(app);}
         final boolean alphabetic=prefs.getBoolean("alphabetic",false);
         Collections.sort(visible,new Comparator<App>(){public int compare(App a,App b){if(a.pinned!=b.pinned)return a.pinned?-1:1;if(!alphabetic&&a.opened!=b.opened)return a.opened>b.opened?-1:1;return a.label.compareToIgnoreCase(b.label);}});
@@ -77,9 +79,13 @@ public final class LiteActivity extends Activity {
                 if(!file.exists()){toast("还没有本机外观备份");return;}if(file.length()>16384)throw new IOException("size");FileInputStream in=new FileInputStream(file);ByteArrayOutputStream data=new ByteArrayOutputStream();try{byte[] b=new byte[1024];int n;while((n=in.read(b))!=-1){data.write(b,0,n);if(data.size()>16384)throw new IOException("size");}}finally{in.close();}
                 JSONObject o=new JSONObject(data.toString("UTF-8"));if(!"MarcoTV-Lite".equals(o.getString("format"))||o.getInt("schema")!=1)throw new IOException("format");JSONObject values=o.getJSONObject("appearance");int[] checked=new int[LiteSettings.KEYS.length];
                 for(int i=0;i<checked.length;i++){Object raw=values.get(LiteSettings.KEYS[i]);if(!(raw instanceof Integer))throw new IOException("type");checked[i]=(Integer)raw;if(checked[i]!=LiteSettings.clamp(i,checked[i]))throw new IOException("range");}int wall=values.getInt("wallpaper");if(wall<0||wall>1)throw new IOException("wallpaper");
-                SharedPreferences.Editor edit=prefs.edit();for(int i=0;i<checked.length;i++)edit.putInt(LiteSettings.KEYS[i],checked[i]);edit.putInt("wallpaper",wall).commit();home.loadWallpaper();home.invalidate();toast("本机外观已恢复");
+                SharedPreferences.Editor edit=prefs.edit();for(int i=0;i<checked.length;i++)edit.putInt(LiteSettings.KEYS[i],checked[i]);int[] previous=new int[checked.length];for(int i=0;i<previous.length;i++)previous[i]=prefs.getInt(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]);int oldWallpaper=prefs.getInt("wallpaper",0);
+                if(!edit.putInt("wallpaper",wall).commit()){
+                    SharedPreferences.Editor rollback=prefs.edit();for(int i=0;i<previous.length;i++)rollback.putInt(LiteSettings.KEYS[i],previous[i]);rollback.putInt("wallpaper",oldWallpaper).commit();
+                    restoreStatus="write_failed";toast("存储写入失败，恢复未完成。请检查可用空间后重试");return;
+                }restoreStatus="success";home.loadWallpaper();home.invalidate();toast("本机外观已恢复");
             }
-        }catch(Exception e){toast("备份或恢复失败，原配置保持不变");}
+        }catch(Exception e){toast("备份或恢复未完成，请检查文件和可用空间后重试");}
     }
     void appAction(int item){App a=null;for(App entry:catalog)if(entry.id.equals(home.managedId)){a=entry;break;}if(a==null){home.backPage();return;}
         if(item==0){prefs.edit().putBoolean("pinned:"+a.id,!a.pinned).apply();rebuildVisible();}
@@ -105,8 +111,10 @@ public final class LiteActivity extends Activity {
         LiteView(LiteActivity h){super(h);host=h;clock=new ClockScene(h);setFocusable(true);setFocusableInTouchMode(true);requestFocus();loadWallpaper();wake();}
         void scheduleTick(){removeCallbacks(tick);if(!running)return;long delay=60000-System.currentTimeMillis()%60000;int seconds=prefs.getInt("idle_seconds",60);if(page==0&&!ambient&&seconds>0)delay=Math.min(delay,Math.max(1,touched+seconds*1000L-SystemClock.uptimeMillis()));nextTickDelay=delay;postDelayed(tick,delay);}
         void resume(){running=true;wake();lastMinute=System.currentTimeMillis()/60000;invalidate();scheduleTick();}
-        void pause(){running=false;removeCallbacks(frame);removeCallbacks(tick);closePage();}
-        void release(){pause();if(wallpaper!=null)wallpaper.recycle();}
+        void pause(){running=false;removeCallbacks(frame);removeCallbacks(tick);}
+        void saveState(Bundle out){out.putInt("page",page);out.putInt("choice",choice);out.putInt("top",top);out.putBoolean("topFocus",topFocus);out.putString("selected",selectedId());out.putString("managed",managedId);int[] parents=new int[history.size()*2];int index=0;for(int[] item:history){parents[index++]=item[0];parents[index++]=item[1];}out.putIntArray("parents",parents);if(draft!=null){Bundle values=new Bundle();for(Map.Entry<String,Integer> item:draft.values.entrySet())values.putInt(item.getKey(),item.getValue());out.putBundle("draft",values);}}
+        void restoreState(Bundle saved){page=Math.max(0,Math.min(5,saved.getInt("page",0)));choice=saved.getInt("choice",0);top=Math.max(0,Math.min(1,saved.getInt("top",0)));topFocus=saved.getBoolean("topFocus",false);restoredSelection=saved.getString("selected");managedId=saved.getString("managed");history.clear();int[] parents=saved.getIntArray("parents");if(parents!=null)for(int i=0;i+1<Math.min(12,parents.length);i+=2)history.addLast(new int[]{Math.max(0,Math.min(5,parents[i])),Math.max(0,parents[i+1])});if(page==2){draft=new PreviewPreferences(prefs);Bundle values=saved.getBundle("draft");if(values!=null)for(int i=0;i<LiteSettings.KEYS.length;i++)if(values.containsKey(LiteSettings.KEYS[i]))draft.values.put(LiteSettings.KEYS[i],LiteSettings.clamp(i,values.getInt(LiteSettings.KEYS[i])));}choice=Math.max(0,Math.min(count()-1,choice));invalidate();}
+        void release(){pause();closePage();if(wallpaper!=null)wallpaper.recycle();}
         void wake(){touched=SystemClock.uptimeMillis();ambient=false;if(saver.target!=0||saver.value!=0){saver.target(0);scheduleMotion();}scheduleTick();}
         void scheduleMotion(){if(!running)return;removeCallbacks(frame);if(appearance().getInt("motion",1)==0){scroll.snap(scroll.target);saver.snap(saver.target);demo.snap(demo.target);ambientAmount=saver.value;invalidate();return;}lastFrame=SystemClock.uptimeMillis();post(frame);}
         float previewAmbient(){return page==2&&choice>=7&&choice<=9?1:0;}
