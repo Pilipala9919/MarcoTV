@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -605,6 +605,34 @@
       "version": "0.14.1",
       "captured_on": "2026-10-29",
       "sha256": "2b4e1831b0ee24773608dac0b1f741e86f52c3b7e5ae5d6deef7e98368937acc"
+    },
+    {
+      "file": "assets/82-magic-layout.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.2",
+      "captured_on": "2026-10-29",
+      "sha256": "5819b12b4bf9198fe7a67d43e3fa1054014862c1345ef91b04397f299344fd2c"
+    },
+    {
+      "file": "assets/83-cards-high-compact.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.2",
+      "captured_on": "2026-10-29",
+      "sha256": "ce71d5646b10f1c40841c956f01d8f9f0fde44db771cdfe550bb2c8c108813be"
+    },
+    {
+      "file": "assets/84-cards-low-tall.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.2",
+      "captured_on": "2026-10-29",
+      "sha256": "cfaa4a1ef3cee1f77aea378c971e18227c9920530a2edb795cfe17b85c592c01"
+    },
+    {
+      "file": "assets/85-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.2",
+      "captured_on": "2026-10-29",
+      "sha256": "f03ed707d2687edfd58bbf632547c226ccc9851f39f873e959ef8393dc176748"
     }
   ]
 }

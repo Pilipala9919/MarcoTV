@@ -318,7 +318,7 @@ final class HomeView extends View {
                     if (Math.abs(distance) < 1.35f) {
                         float opacity = contentAlpha * Math.max(0, 1 - Math.abs(distance) * 0.75f);
                         canvas.save();canvas.translate(edge.value*390,0);
-                        drawRow(canvas, rows.get(i), 660 + distance * 515, opacity*(1-edge.value*.35f));canvas.restore();
+                        drawRow(canvas, rows.get(i), shelfCenterY() + distance * 515, opacity*(1-edge.value*.35f));canvas.restore();
                     }
                 }
                 canvas.restoreToCount(shelfClip);
@@ -395,11 +395,18 @@ final class HomeView extends View {
         canvas.drawText(glyph, x, y - (paint.ascent() + paint.descent()) / 2, paint);
     }
 
+    float cardHeight(){return 1.8f*Math.max(70,Math.min(130,host.appearance().getInt("card_height",100)));}
+    float shelfCenterY(){
+        float extra=cardHeight()/2-90,position=Math.max(0,Math.min(100,host.appearance().getInt("card_row_position",75)))/100f;
+        return 495+extra+(220-2*extra)*position;
+    }
+    boolean inShelfTouchBand(float y){return y>shelfCenterY()-cardHeight()/2-50&&y<shelfCenterY()+cardHeight()/2+60;}
+
     private void drawRow(Canvas canvas, Row r, float y, float opacity) {
         float arrival=Math.max(0,Math.min(1,entrance.value));
         y+=30*(1-arrival);opacity*=.65f+.35f*arrival;
-        icon(canvas, r.symbol, 136, y - 172, 48, alphaColor(Color.WHITE, opacity));
-        text(canvas, r.title, 176, y - 165, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
+        icon(canvas, r.symbol, 136, y - cardHeight()/2-82, 48, alphaColor(Color.WHITE, opacity));
+        text(canvas, r.title, 176, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
         if(r.tiles.isEmpty())text(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xC0FFFFFF,opacity),Paint.Align.LEFT);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
@@ -412,7 +419,8 @@ final class HomeView extends View {
         float emphasis = clampedEmphasis(tile);
         float zoom = (1 + focusScale * emphasis)*(1-.035f*Math.max(0,Math.min(1,tile.press.value)));
         float y = shelfY - 14 * emphasis;
-        float w = 320 * zoom, h = 180 * zoom;
+        float baseHeight=cardHeight(),contentZoom=zoom*Math.min(1,baseHeight/180);
+        float w = 320 * zoom, h = baseHeight * zoom;
         rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
         if(surfaceStrength>0){
             // Several translucent rounded silhouettes avoid GPU blur and hard clip-path edges.
@@ -425,22 +433,23 @@ final class HomeView extends View {
         if (tile.artwork != null) {
             if (tile.banner) {
                 if (tile.shader == null) tile.shader = new BitmapShader(tile.artwork, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-                artworkMatrix.setScale(rect.width() / tile.artwork.getWidth(), rect.height() / tile.artwork.getHeight());
-                artworkMatrix.postTranslate(rect.left, rect.top); tile.shader.setLocalMatrix(artworkMatrix);
+                float fit=Math.max(rect.width()/tile.artwork.getWidth(),rect.height()/tile.artwork.getHeight());
+                artworkMatrix.setScale(fit,fit);
+                artworkMatrix.postTranslate(rect.centerX()-tile.artwork.getWidth()*fit/2,rect.centerY()-tile.artwork.getHeight()*fit/2); tile.shader.setLocalMatrix(artworkMatrix);
                 artworkPaint.setShader(tile.shader); artworkPaint.setAlpha(Math.round(255 * opacity));
                 canvas.drawRoundRect(rect, radius * zoom, radius * zoom, artworkPaint);
                 artworkPaint.setShader(null);
             } else {
-                float size = 116 * zoom;
+                float size = 116 * contentZoom;
                 iconBounds.set(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
                 artworkPaint.setAlpha(Math.round(255 * opacity));
                 canvas.drawBitmap(tile.artwork, null, iconBounds, artworkPaint);
             }
         } else if (tile.tint != 0) {
-            icon(canvas, tile.glyph, x, y - 20 * zoom, 60 * zoom, alphaColor(0xB0FFFFFF, opacity));
+            icon(canvas, tile.glyph, x, y - 20 * contentZoom, 60 * contentZoom, alphaColor(0xB0FFFFFF, opacity));
             if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
-            text(canvas, tile.coverLabel, x, y + 48 * zoom, 28 * zoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
-        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * zoom, alphaColor(Color.WHITE, opacity));
+            text(canvas, tile.coverLabel, x, y + 48 * contentZoom, 28 * contentZoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
+        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * contentZoom, alphaColor(Color.WHITE, opacity));
         if(surfaceStrength>0){
             surfaceMatrix.setScale(rect.width(),rect.height());surfaceMatrix.postTranslate(rect.left,rect.top);
             surfaceGradient.setLocalMatrix(surfaceMatrix);surfacePaint.setShader(surfaceGradient);surfacePaint.setAlpha(Math.round(255*opacity*surfaceStrength));
@@ -460,7 +469,7 @@ final class HomeView extends View {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
             }
-            text(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + 188-6*emphasis, 36, bold,
+            text(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight/2+98-6*emphasis, 36, bold,
                     alphaColor(Color.WHITE, opacity * (labelOpacity + (1-labelOpacity) * emphasis)), Paint.Align.LEFT);
         }
     }
@@ -580,7 +589,7 @@ final class HomeView extends View {
         if (y < 175 && x < 365) { host.settings(); return true; }
         if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) { host.network.show(); return true; }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}
-        if (!rows.isEmpty() && y > 520 && y < 810) {
+        if (!rows.isEmpty() && inShelfTouchBand(y)) {
             Row r = rows.get(Math.max(0, row));
             int index = Math.round((x - 272 + r.scroll.value) / 350);
             if (index >= 0 && index < r.tiles.size()) {

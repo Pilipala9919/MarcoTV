@@ -1,16 +1,16 @@
 {
-  "version": "0.14.1",
-  "version_code": 32,
+  "version": "0.14.2",
+  "version_code": 33,
   "date": "2026-10-29",
   "author": "Pilipala",
   "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "3ae34b402c2d50a0cb59b5a54ca8503744aa10106970f3f06e9ec4f099552a01",
+  "apk_sha256": "47a54bf5f60c4f0086b73aa0e7c13e844c3c078406188a5fa794e34424e72203",
   "automated": {
     "appearance": {
-      "passed": 74,
+      "passed": 93,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
@@ -53,7 +53,9 @@
         "second_card_keeps_row_at_origin",
         "later_cards_anchor_to_second_position",
         "root_back_closes_shared_window",
-        "personalization_contains_twenty_two_controls",
+        "personalization_contains_twenty_four_controls",
+        "font_menu_opens_with_selected_option_focused",
+        "font_menu_back_closes_choices_keeps_editor",
         "clock_style_preview_does_not_write_preferences",
         "four_clock_styles_render_distinct_glyphs",
         "clock_styles_keep_header_clear_and_follow_screensaver",
@@ -73,6 +75,23 @@
         "personalization_back_discards_all_draft",
         "personalization_save_commits_draft",
         "personalization_home_discards_draft",
+        "row_position_upgrade_keeps_original_center",
+        "row_position_previews_without_saving",
+        "row_position_touch_band_moves_with_row",
+        "row_position_extremes_keep_heading_and_label_in_safe_area",
+        "row_position_lower_touch_band_follows",
+        "row_position_back_restores_saved_layout",
+        "row_position_save_commits_layout",
+        "row_position_backup_contains_saved_value",
+        "row_position_clamps_invalid_imported_values",
+        "card_height_preview_keeps_saved_value",
+        "combined_height_and_position_extremes_fit_content",
+        "card_height_back_discards_draft",
+        "tall_banner_preserves_image_aspect_ratio",
+        "tall_card_renders_added_height",
+        "card_height_save_commits_value",
+        "card_height_backup_has_bounded_range",
+        "card_height_clamps_invalid_values",
         "home_down_waits_for_release",
         "home_release_returns_desktop",
         "home_double_release_opens_recents",
@@ -200,11 +219,11 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 32 on Xiaomi Android 9: 74 appearance, 85 base regression and 4 bridge checks; 90 local checks. Four bundled static fonts and C tilt 0/7/14 tested at ten representative times each. Stable bounds, transparent edge margins, cache reuse and backup roundtrip verified. 11 fixture screenshots inspected. No claim of all 1440 minute combinations or older Android hardware validation.",
+  "validation_scope": "Code 33 on Xiaomi Android 9: 93 appearance, 85 base/backup, 4 bridge and 90 local checks. Includes row position and height, combined extremes, touch band, equal-axis artwork scaling, draft cancellation, save and backup roundtrip. Public screenshots use demo cards.",
   "not_verified": [
     "TCL 75T8G Max Android 11 physical Home and task service",
     "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
-    "physical remote on 0.14.1 (user will test later)",
+    "physical remote on 0.14.2 (user will test later)",
     "full reboot and long duration stability on this version",
     "physical iPhone Safari and Android phone browser",
     "real Wi-Fi network switching on Android 10+",
@@ -225,15 +244,10 @@
       ]
     ],
     "passed": [
-      "page identity",
-      "nonblank",
-      "no error overlay",
-      "no console errors",
-      "no horizontal overflow",
-      "Marco 互联 navigation",
-      "new screenshot viewer",
-      "Wi-Fi search",
-      "new clock module and public asset integrity"
+      "390px and 1280px page display without horizontal overflow",
+      "Marco interconnect navigation",
+      "image lightbox and Wi-Fi search",
+      "all public asset hashes match"
     ],
     "phone_web_history": {
       "version": "0.12.0",
@@ -241,15 +255,15 @@
     }
   },
   "upgrade": {
-    "from": "0.14.0",
-    "to": "0.14.1",
-    "version_code": 32,
+    "from": "0.14.1",
+    "to": "0.14.2",
+    "version_code": 33,
     "adb_overwrite_install_succeeded": true,
     "same_signature_accepted_by_package_manager": true
   },
-  "automated_total": 253,
+  "automated_total": 272,
   "previous_release_validation": {
-    "version": "0.14.0",
+    "version": "0.14.1",
     "suites_not_rerun": {
       "phone": 20,
       "task_actions": 13

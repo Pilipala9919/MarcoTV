@@ -153,8 +153,12 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{try{
                 editorPage[0]=(TvDialog)field(host,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
-                check.accept("personalization_contains_twenty_two_controls",controls.size()==22);
-                int savedStyle=prefs.getInt("clock_style",0);controls.get("clock_style").setValue((savedStyle+1)%4);
+                ChoiceMenu fontMenu=(ChoiceMenu)field(editor[0],"clockStyle");
+                check.accept("personalization_contains_twenty_four_controls",controls.size()==23&&fontMenu!=null&&!controls.containsKey("clock_style"));
+                fontMenu.openMenu();check.accept("font_menu_opens_with_selected_option_focused",fontMenu.isExpanded()&&((View[])field(fontMenu,"options"))[fontMenu.getValue()].isFocused());
+                fontMenu.dispatchKeyEvent(new android.view.KeyEvent(0,4));fontMenu.dispatchKeyEvent(new android.view.KeyEvent(1,4));
+                check.accept("font_menu_back_closes_choices_keeps_editor",!fontMenu.isExpanded()&&host.isPage("personalization"));
+                int savedStyle=prefs.getInt("clock_style",0);fontMenu.setValue((savedStyle+1)%4);
                 check.accept("clock_style_preview_does_not_write_preferences",prefs.getInt("clock_style",0)==savedStyle&&host.appearance().getInt("clock_style",0)!=(savedStyle));
                 ClockScene clock=new ClockScene(host);PreviewPreferences fontPrefs=new PreviewPreferences(prefs);Bitmap target=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(target);
                 java.util.HashSet<Integer> signatures=new java.util.HashSet<>();boolean anchorsFit=true;
@@ -166,10 +170,10 @@ final class AppearanceDeviceChecks {
                 check.accept("four_clock_styles_render_distinct_glyphs",signatures.size()==4);
                 check.accept("clock_styles_keep_header_clear_and_follow_screensaver",anchorsFit);
                 check.accept("clock_style_is_backed_up_with_valid_bounds",BackupStore.HOME.contains("clock_style")&&java.util.Arrays.equals(BackupStore.range("clock_style"),new int[]{0,3}));target.recycle();
-                int savedTilt=prefs.getInt("clock_tilt",10);controls.get("clock_style").setValue(2);controls.get("clock_tilt").setValue(savedTilt==14?0:14);
+                int savedTilt=prefs.getInt("clock_tilt",10);fontMenu.setValue(2);controls.get("clock_tilt").setValue(savedTilt==14?0:14);
                 check.accept("clock_tilt_slider_is_visible_for_round_style",controls.get("clock_tilt").getVisibility()==View.VISIBLE);
                 check.accept("clock_tilt_preview_does_not_write_preferences",prefs.getInt("clock_tilt",10)==savedTilt&&host.appearance().getInt("clock_tilt",10)!=savedTilt);
-                controls.get("clock_style").setValue(0);check.accept("clock_tilt_slider_hides_for_other_styles",controls.get("clock_tilt").getVisibility()==View.GONE);
+                fontMenu.setValue(0);check.accept("clock_tilt_slider_hides_for_other_styles",controls.get("clock_tilt").getVisibility()==View.GONE);
                 check.accept("clock_tilt_backup_has_bounded_range",BackupStore.HOME.contains("clock_tilt")&&java.util.Arrays.equals(BackupStore.range("clock_tilt"),new int[]{0,14}));
                 ClockScene stable=new ClockScene(host);Bitmap surface=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas drawing=new Canvas(surface);
                 java.lang.reflect.Field timeField=ClockScene.class.getDeclaredField("time");timeField.setAccessible(true);
@@ -217,6 +221,44 @@ final class AppearanceDeviceChecks {
                 host.navigator.personalization("cards");host.exitMenus();
                 check.accept("personalization_home_discards_draft",host.localPreview==null);
             });
+            ui(inst,()->{try{
+                host.exitMenus();boolean had=prefs.contains("card_row_position");int before=prefs.getInt("card_row_position",75);boolean hadHeight=prefs.contains("card_height");int oldHeight=prefs.getInt("card_height",100);
+                try{
+                    prefs.edit().remove("card_row_position").remove("card_height").commit();
+                    check.accept("row_position_upgrade_keeps_original_center",Math.abs(host.home.shelfCenterY()-660)<.01f);
+                    host.navigator.personalization("cards");TvDialog current=(TvDialog)field(host,"activeDialog");
+                    PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                    java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");
+                    controls.get("card_row_position").setValue(0);
+                    check.accept("row_position_previews_without_saving",host.home.shelfCenterY()==495&&!prefs.contains("card_row_position"));
+                    check.accept("row_position_touch_band_moves_with_row",host.home.inShelfTouchBand(370)&&!host.home.inShelfTouchBand(750));
+                    controls.get("card_row_position").setValue(100);
+                    check.accept("row_position_extremes_keep_heading_and_label_in_safe_area",495-172-24>285&&host.home.shelfCenterY()+188<925);
+                    check.accept("row_position_lower_touch_band_follows",host.home.inShelfTouchBand(850)&&!host.home.inShelfTouchBand(370));
+                    current.onBackPressed();check.accept("row_position_back_restores_saved_layout",host.localPreview==null&&Math.abs(host.home.shelfCenterY()-660)<.01f);
+                    host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                    controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_row_position").setValue(25);
+                    PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();host.exitMenus();
+                    check.accept("row_position_save_commits_layout",prefs.getInt("card_row_position",75)==25&&host.home.shelfCenterY()==550);
+                    check.accept("row_position_backup_contains_saved_value",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_row_position").getInt("value")==25&&java.util.Arrays.equals(BackupStore.range("card_row_position"),new int[]{0,100}));
+                    prefs.edit().putInt("card_row_position",-100).commit();boolean top=host.home.shelfCenterY()==495;prefs.edit().putInt("card_row_position",500).commit();
+                    check.accept("row_position_clamps_invalid_imported_values",top&&host.home.shelfCenterY()==715);
+                    prefs.edit().putInt("card_row_position",75).remove("card_height").commit();host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                    controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
+                    check.accept("card_height_preview_keeps_saved_value",Math.abs(host.home.cardHeight()-234)<.01f&&!prefs.contains("card_height"));
+                    boolean safe=true;for(int height:new int[]{70,100,130})for(int position:new int[]{0,75,100}){controls.get("card_height").setValue(height);controls.get("card_row_position").setValue(position);float h=host.home.cardHeight(),y=host.home.shelfCenterY();safe&=y-h/2-106>285&&y+h/2+98<925;}
+                    check.accept("combined_height_and_position_extremes_fit_content",safe);
+                    controls.get("card_height").setValue(70);current.onBackPressed();check.accept("card_height_back_discards_draft",Math.abs(host.home.cardHeight()-180)<.01f);
+                    host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
+                    Tile sample=new Tile();sample.label="Fixture";sample.banner=true;sample.artwork=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);sample.artwork.eraseColor(Color.WHITE);Bitmap target=Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888);
+                    Method draw=HomeView.class.getDeclaredMethod("drawTile",Canvas.class,Tile.class,float.class,float.class,float.class);draw.setAccessible(true);draw.invoke(host.home,new Canvas(target),sample,400f,300f,1f);
+                    float[] matrix=new float[9];((Matrix)field(host.home,"artworkMatrix")).getValues(matrix);check.accept("tall_banner_preserves_image_aspect_ratio",Math.abs(matrix[0]-matrix[4])<.001f);
+                    check.accept("tall_card_renders_added_height",Color.alpha(target.getPixel(400,190))>0&&Color.alpha(target.getPixel(400,175))==0);target.recycle();sample.artwork.recycle();
+                    PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();host.exitMenus();check.accept("card_height_save_commits_value",prefs.getInt("card_height",0)==130);
+                    check.accept("card_height_backup_has_bounded_range",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_height").getInt("value")==130&&java.util.Arrays.equals(BackupStore.range("card_height"),new int[]{70,130}));
+                    prefs.edit().putInt("card_height",999).commit();check.accept("card_height_clamps_invalid_values",Math.abs(host.home.cardHeight()-234)<.01f);
+                }finally{host.exitMenus();if(had)prefs.edit().putInt("card_row_position",before).commit();else prefs.edit().remove("card_row_position").remove("card_height").commit();if(hadHeight)prefs.edit().putInt("card_height",oldHeight).commit();else prefs.edit().remove("card_height").commit();host.home.invalidate();}
+            }catch(Exception e){throw new RuntimeException(e);}});
             final HomeKeyService[] service={null};final android.content.Intent[] launch={null};
             final SharedPreferences gesturePrefs=host.getSharedPreferences("test013_home_gestures",0);
             ui(inst,()->{try{
