@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "package": "com.pilipala.tvhome.lite",
   "compile_api": 14,
   "min_api": 14,
@@ -8,9 +8,18 @@
     "MotionSpring.java",
     "PreviewPreferences.java"
   ],
-  "bytes": 4326802,
-  "sha256": "2ce5a7af7fea727102c715e18335e2fecf651e0a3ec566cdf3269227b5b14d24",
+  "bytes": 304530,
+  "sha256": "e785a5c0e664616f2fe99ec03040f01a8ea240f1e2680c6083bd1e1250ce0c30",
   "physical_android4_tv_verified": false,
+  "upgrade_from_0_1_0_install_verified": true,
+  "optimization_evidence": {
+    "previous_apk_bytes": 4326802,
+    "current_apk_bytes": 304530,
+    "apk_reduction_percent_rounded": 93,
+    "static_desktop_observation_ms": 2200,
+    "static_desktop_periodic_redraws_observed": 0,
+    "physical_tv_performance_claim": false
+  },
   "author": "Pilipala",
   "edition": "Lite",
   "status": "experimental",
@@ -42,10 +51,12 @@
       "font_licenses_bundled": true,
       "four_static_fonts_bundled": true,
       "apk_crc": true,
-      "no_native_arch_dependency": true
+      "no_native_arch_dependency": true,
+      "lite_wallpapers_only": true,
+      "compressed_wallpapers_budget": true
     }
   },
-  "local_check_count": 18,
+  "local_check_count": 20,
   "runtime_passed": [
     "actual_android_api_is_14",
     "lite_has_separate_package",
@@ -67,11 +78,30 @@
     "wake_confirm_does_not_open_menu",
     "settings_back_returns_to_desktop",
     "status_back_returns_one_level",
+    "status_back_restores_parent_focus",
+    "magic_back_restores_settings_and_discards_draft",
+    "magic_save_returns_to_settings",
+    "ambient_size_changes_preview_pixels",
+    "ambient_dim_changes_preview_pixels",
+    "normal_parameters_restore_desktop_preview",
+    "motion_off_draft_snaps_preview",
+    "motion_on_draft_animates_preview",
+    "resume_reuses_catalog_and_icons",
+    "pin_uses_cache",
+    "hide_uses_cache",
+    "restore_hidden_uses_cache",
+    "all_hidden_has_clear_empty_state",
+    "idle_timer_schedules_event_not_one_second_poll",
     "paused_view_stops_frame_and_timer_loop",
     "resume_restarts_desktop",
+    "repeated_refresh_coalesces_to_two_scans",
+    "async_scan_preserves_current_selection",
+    "static_desktop_has_no_periodic_redraw",
+    "dispatched_long_press_opens_app_menu",
+    "long_press_release_does_not_activate_menu",
     "application_launch_leaves_lite"
   ],
-  "runtime_check_count": 23,
+  "runtime_check_count": 42,
   "all_executed_checks_passed": true,
   "dex_version": "035",
   "signature_verified_min_api": 14,
@@ -95,15 +125,19 @@
   "screenshots": [
     {
       "path": "docs/assets/lite-clock-api14.png",
-      "sha256": "d3cafb73542687f942477eb5b79627475e2cd22de74d7c924c46b74e4ead2c97"
+      "sha256": "362456acd47f14e1340215897a2e570be0eb7f08674ff17abb352194f2f23944"
     },
     {
       "path": "docs/assets/lite-home-api14.png",
-      "sha256": "bf688a2e323d78451bb056a8cfefb8b93c62ea7b20cc0e627820cdfd4ccbc039"
+      "sha256": "3073986f2b8dfe0818656f434de02e37915e318480db778eb42c1a8b059cceea"
     },
     {
       "path": "docs/assets/lite-magic-api14.png",
-      "sha256": "4feb62beaf924e3f1cf2db01bbf0b1f77e013c047674207425da96b8f96bd762"
+      "sha256": "478fc437f922a3295f9ffc251e1b4615b7ed415778122a542af349f04ef28c38"
+    },
+    {
+      "path": "docs/assets/lite-magic-saver-api14.png",
+      "sha256": "2086647639c6ce256caef31b05ee2e9235eec0a1a7133c6a276e1e5d6f58d461"
     }
   ]
 }

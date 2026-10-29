@@ -31,6 +31,6 @@ def main():
  print(call('install','-r',str(f/'tests.apk')),flush=True)
  try:
   result=call('shell','am','instrument','-w','com.pilipala.tvhome.lite.tests/com.pilipala.tvhome.LiteDeviceChecks');(f/'result.txt').write_text(result,encoding='utf8');print(result)
-  if 'OK 23 Lite API14 checks' not in result or 'FAIL' in result:raise RuntimeError('Lite device checks failed')
+  if 'OK 42 Lite API14 checks' not in result or 'FAIL' in result:raise RuntimeError('Lite device checks failed')
  finally:print(call('uninstall','com.pilipala.tvhome.lite.tests'))
 if __name__=='__main__':main()

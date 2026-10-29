@@ -12,11 +12,11 @@ def build():
  if not SDK14.is_file():raise RuntimeError('Install official API 14 platform and set MARCOTV_API14_JAR. See lite/README.md.')
  version=ET.parse(SOURCE/'AndroidManifest.xml').getroot().get('{http://schemas.android.com/apk/res/android}versionName')
  for folder in ['classes','dex','assets/fonts','assets/licenses','assets/wallpapers']:(BUILD/folder).mkdir(parents=True,exist_ok=True)
- for folder,pattern in [('classes','*.class'),('dex','*.dex')]:
+ for folder,pattern in [('classes','*.class'),('dex','*.dex'),('assets/wallpapers','*')]:
   for p in (BUILD/folder).rglob(pattern):
    assert p.resolve().is_relative_to(BUILD.resolve());p.unlink()
  for p in (ROOT/'app/src/main/assets/fonts').glob('*'):shutil.copy2(p,ASSETS/'fonts'/p.name)
- for name in ['aurora.png','coast.png']:shutil.copy2(ROOT/'app/src/main/assets/wallpapers'/name,ASSETS/'wallpapers'/name)
+ for name in ['aurora.jpg','coast.jpg']:shutil.copy2(SOURCE/'assets/wallpapers'/name,ASSETS/'wallpapers'/name)
  for p in [ROOT/'LICENSE',ROOT/'NOTICE',*list((ROOT/'licenses').glob('*-OFL.txt'))]:shutil.copy2(p,ASSETS/'licenses'/p.name)
  run(executable(TOOLS,'aapt2'),'compile','--dir',SOURCE/'res','-o',BUILD/'resources.zip')
  run(executable(TOOLS,'aapt2'),'link','-o',BUILD/'resources.apk','--manifest',SOURCE/'AndroidManifest.xml','-I',SDK14,'-A',ASSETS,BUILD/'resources.zip')

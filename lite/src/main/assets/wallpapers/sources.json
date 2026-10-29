@@ -1,0 +1,28 @@
+[
+  {
+    "file": "aurora.jpg",
+    "author": "Pilipala",
+    "source": "app/src/main/assets/wallpapers/aurora.png",
+    "source_sha256": "f356ea85b40aefe03f62e274b2b5ae8f9a0c7f0777e4a92f7f34fa587289d54b",
+    "sha256": "a193aa118514741948bb3de54c8dcd2689b53e2ba5159cd411b8c31f8bdbae3f",
+    "width": 836,
+    "height": 470,
+    "quality": 93,
+    "subsampling": 0,
+    "bytes": 105837,
+    "psnr_db": 42.61
+  },
+  {
+    "file": "coast.jpg",
+    "author": "Pilipala",
+    "source": "app/src/main/assets/wallpapers/coast.png",
+    "source_sha256": "e09e6c045f686d16ff7c5e2dba831bebd0ed1f65c62e59919896b4dbc99e90f3",
+    "sha256": "69c47978eb731c6a699a72c8b2fea2e53569ce53d4f31ffdfb1fdddf3f625fa2",
+    "width": 836,
+    "height": 470,
+    "quality": 93,
+    "subsampling": 0,
+    "bytes": 128955,
+    "psnr_db": 41.35
+  }
+]

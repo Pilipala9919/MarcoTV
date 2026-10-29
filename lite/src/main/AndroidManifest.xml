@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.lite" android:versionCode="1" android:versionName="0.1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.lite" android:versionCode="2" android:versionName="0.1.1">
     <uses-sdk android:minSdkVersion="14" android:targetSdkVersion="28" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:label="Marco TV Lite" android:icon="@drawable/app_icon" android:theme="@style/LiteTheme" android:allowBackup="false" android:hardwareAccelerated="true">

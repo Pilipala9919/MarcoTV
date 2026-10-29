@@ -21,6 +21,8 @@ with zipfile.ZipFile(ROOT/f'dist/MarcoTV-Lite-{version}.apk') as z:
  checks['four_static_fonts_bundled']=len([n for n in z.namelist() if n.startswith('assets/fonts/') and n.endswith('.ttf')])==4
  checks['apk_crc']=z.testzip() is None
  checks['no_native_arch_dependency']=not any(n.startswith('lib/') for n in z.namelist())
+ checks['lite_wallpapers_only']=sorted(n for n in z.namelist() if n.startswith('assets/wallpapers/'))==['assets/wallpapers/aurora.jpg','assets/wallpapers/coast.jpg']
+ checks['compressed_wallpapers_budget']=sum(i.file_size for i in z.infolist() if i.filename.startswith('assets/wallpapers/'))<300000
 for name,ok in checks.items():print(('PASS ' if ok else 'FAIL ')+name)
 assert all(checks.values());(f/'result.json').write_text(json.dumps({'layout_checks':8,'apk_checks':checks},indent=2))
-print('OK 18 Lite local checks')
+print('OK 20 Lite local checks')
