@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "versionCode": 33,
-  "versionName": "0.14.2",
+  "versionCode": 34,
+  "versionName": "0.14.3",
   "minSdk": 23,
-  "size": 8223006,
-  "sha256": "47a54bf5f60c4f0086b73aa0e7c13e844c3c078406188a5fa794e34424e72203",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.14.2/MarcoTV-0.14.2.apk",
+  "size": 8227102,
+  "sha256": "3cc2dea03102d1e6a95760e29beee31b80b5ecd5da95b0855d0121702698c4c7",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.14.3/MarcoTV-0.14.3.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.14.2 · Pilipala\n\nMagic Desktop 新增两个独立滑块：卡片行上下位置 0–100%（默认 75%），卡片高度 70–130%（默认 100%）。实时预览，保存后生效，返回或取消撤销，支持本地备份。旧版升级保持原布局。\n\n卡片名称、标题与点击区域随布局变化；图标保持比例，横幅等比填充。组合极限值仍保留安全边距。时钟字体使用展开选择菜单，返回先收起菜单。\n\n小米 Android 9 覆盖安装，93 项界面检查、85 项基础与备份检查、4 项任务服务检查及 90 项本地检查通过，共 272 项。更多机型待实测反馈，快来加入吧！实体遥控器、完整重启和长期稳定性仍待验证。\n\n更新后系统最近任务辅助服务需要电脑工具重新启动。覆盖安装保留配置。\n\n本软件免费开源。如果付费购买，请尽快申请退款。\n"
+  "notes": "# Marco TV 0.14.3 · Pilipala\n\n完整版新增「全部应用」五列抽屉：首页顶部打开，方向键选择，确定直接启动，长按进入添加到桌面流程。包含在桌面隐藏的可启动应用；后台进程和无法外部打开的页面不作为普通应用显示。\n\n默认桌面引导简化：设置 → 系统与启动 → 设为默认桌面。在系统页面选择 Marco TV，再选「始终」或确认，返回可检查当前默认桌面。Android 10+ 尝试系统桌面角色请求，旧系统尝试默认桌面设置页。\n\n系统开放时不需要电脑。部分厂商锁定 Home 或隐藏桌面选择，普通应用无法自行强制替换；只有遇到限制时再查看 Home 兼容／安装助手帮助。设置默认桌面不会同时自动开启开机管理或暂停其他服务。\n\n小米 Android 9 覆盖安装验证，14 项抽屉与引导检查、85 项基础与备份检查通过；93 项界面检查在顶部入口间距最后调整前的候选构建通过。另有 90 项本地检查通过。尚未在 Android 6 或 Android 10+ 上实际运行角色选择；实际系统确认及实体 Home 键请逐台验收。更多机型待实测反馈，欢迎加入！\n\n覆盖安装保留配置。更新后如需完整系统最近任务，请重新启动任务辅助服务。Lite 独立维护，本次不更新 Lite。\n\n**本软件免费开源。如果你付费购买了本软件，请尽快申请退款。** 作者 Pilipala，GPL-3.0-only。\n\n[安装说明](https://github.com/Pilipala9919/MarcoTV/blob/v0.14.3/docs/安装说明.md) · [完整展示](https://marcotv.wlj9919.top/showcase/) · [验证记录](https://github.com/Pilipala9919/MarcoTV/blob/v0.14.3/docs/release-validation.json)\n"
 }
