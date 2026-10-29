@@ -546,12 +546,13 @@
         "方向键选择，确定打开。",
         "长按进入添加应用流程，查找其他入口打开原有应用库。"
       ],
-      "conditions": [
-        "只展示允许外部启动的应用，不显示所有后台进程。"
+      "shots": [
+        {
+          "file": "assets/87-all-apps-drawer.png",
+          "caption": "0.14.3 实机界面，临时示例应用图标"
+        }
       ],
-      "images": [
-        "assets/87-all-apps-drawer.png"
-      ]
+      "limit": "系统需提供允许外部启动的入口；Android 6 与其他品牌尚未运行验证。"
     }
   ]
 }
