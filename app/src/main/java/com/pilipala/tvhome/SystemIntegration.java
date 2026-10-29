@@ -58,7 +58,7 @@ final class SystemIntegration {
         ArrayList<ComponentName> names = new ArrayList<>();
         try { context.getPackageManager().getPreferredActivities(filters, names, null); }
         catch (RuntimeException e) { return false; }
-        for (ComponentName name : names) if (name.getPackageName().equals(context.getPackageName())) return true;
+        for (int i=0;i<names.size()&&i<filters.size();i++) if (names.get(i).getPackageName().equals(context.getPackageName())&&filters.get(i).hasAction(Intent.ACTION_MAIN)&&filters.get(i).hasCategory(Intent.CATEGORY_HOME)) return true;
         return false;
     }
     static void rememberHome(Context context) {
@@ -135,7 +135,7 @@ final class SystemIntegration {
             Log.w(TAG, "Settings recovery failed", e);
         }
     }
-    private static void enableHome(Context context, boolean enabled) {
+    static void enableHome(Context context, boolean enabled) {
         context.getPackageManager().setComponentEnabledSetting(new ComponentName(context, "com.pilipala.tvhome.HomeActivity"),
                 enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP);
@@ -183,21 +183,7 @@ final class SystemIntegration {
                             else { p.edit().putBoolean("adb_restore", false).commit(); startRecovery(activity); show(activity,host); }
                             break;
                         case 1: status(activity, host); break;
-                        case 2:
-                            host.show(new TvDialog.Builder(activity).setTitle("使用 Marco TV 桌面")
-                                    .setMessage("将开放 Marco TV 的默认桌面入口，并开启开机打开。已授权时会暂停已识别的其他桌面辅助服务，保留其他无障碍服务。可通过“恢复原桌面”撤销。")
-                                    .setPositiveButton("继续", (dialog, button) -> {
-                                        prepareHome(activity);
-                                        Intent choose = new Intent(Settings.ACTION_HOME_SETTINGS);
-                                        ResolveInfo info = activity.getPackageManager().resolveActivity(choose, 0);
-                                        if (info != null && !info.activityInfo.name.endsWith("EmptyStubActivity")) {
-                                            try { activity.startActivity(choose); return; } catch (RuntimeException ignored) { }
-                                        }
-                                        activity.getWindow().getDecorView().post(() -> host.show(new TvDialog.Builder(activity)
-                                                .setTitle("这台电视隐藏了默认桌面选择")
-                                                .setMessage("可用电脑设置，或返回开启 Home 键兼容模式。\n\nadb shell cmd package set-home-activity --user 0 com.pilipala.tvhome/.HomeActivity")
-                                                .setPositiveButton("知道了", null).create()));
-                                    }).setNegativeButton("返回", null).create()); break;
+                        case 2: ((MainActivity)activity).defaultHome.show();break;
                         case 3: p.edit().putBoolean("boot_home", !p.getBoolean("boot_home", false)).commit(); show(activity,host); break;
                         case 4:
                             if (p.getBoolean("home_compat", false)) {

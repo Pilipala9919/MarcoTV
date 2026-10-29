@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "updated": "2026-10-29",
   "modules": [
     {
@@ -534,6 +534,23 @@
           "file": "assets/23-about.webp",
           "caption": "0.11.1 历史界面 · 软件版本、作者、开源协议与退款提示。"
         }
+      ]
+    },
+    {
+      "id": "all-apps",
+      "group": "日常桌面",
+      "title": "全部应用抽屉",
+      "summary": "五列网格直接打开应用，包含桌面隐藏的可启动应用。",
+      "entry": "首页顶部 → 全部应用",
+      "steps": [
+        "方向键选择，确定打开。",
+        "长按进入添加应用流程，查找其他入口打开原有应用库。"
+      ],
+      "conditions": [
+        "只展示允许外部启动的应用，不显示所有后台进程。"
+      ],
+      "images": [
+        "assets/87-all-apps-drawer.png"
       ]
     }
   ]

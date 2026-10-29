@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -633,6 +633,30 @@
       "version": "0.14.2",
       "captured_on": "2026-10-29",
       "sha256": "f03ed707d2687edfd58bbf632547c226ccc9851f39f873e959ef8393dc176748"
+    },
+    {
+      "file": "assets/86-desktop-all-apps.png",
+      "kind": "native screenshot with temporary demo application fixtures",
+      "redacted_regions": 0,
+      "sha256": "b551346c372bb472d9f7e67e63f9b2c4502d1a3c660015c0f10f624c64c823d8",
+      "version": "0.14.3",
+      "captured_on": "2026-10-29"
+    },
+    {
+      "file": "assets/87-all-apps-drawer.png",
+      "kind": "native screenshot with temporary demo application fixtures",
+      "redacted_regions": 0,
+      "sha256": "de4b3d2c254de16afea857dcb8eabada63adbf1d16b34d06419bb373424dd93a",
+      "version": "0.14.3",
+      "captured_on": "2026-10-29"
+    },
+    {
+      "file": "assets/88-default-home-guide.png",
+      "kind": "native screenshot with temporary demo application fixtures",
+      "redacted_regions": 0,
+      "sha256": "1571d937c17cb9f9697bd7d757eb159393cb09bf315a7ab127919937913345f1",
+      "version": "0.14.3",
+      "captured_on": "2026-10-29"
     }
   ]
 }

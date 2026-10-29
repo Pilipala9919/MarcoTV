@@ -25,6 +25,7 @@ public final class MainActivity extends Activity {
     SettingsNavigator navigator;
     CoverManager cover;
     AppLibrary library;
+    AllAppsDrawer drawer;DefaultHomePanel defaultHome;
     LocalFiles files;
     BackupPanel backups;
     HealthPanel health;
@@ -91,7 +92,7 @@ public final class MainActivity extends Activity {
         network = new NetworkPanel(this, this::showDialog);
         navigator = new SettingsNavigator(this);
         cover = new CoverManager(this);
-        library = new AppLibrary(this);
+        library = new AppLibrary(this);drawer=new AllAppsDrawer(this);defaultHome=new DefaultHomePanel(this);
         files = new LocalFiles(this);backups=new BackupPanel(this);health=new HealthPanel(this);updates=new UpdatePanel(this);
         recents=new RecentApps(this);
         playback = new NowPlaying(this);
@@ -137,7 +138,7 @@ public final class MainActivity extends Activity {
         if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
-        if(updates!=null)updates.resume();
+        if(updates!=null)updates.resume();if(defaultHome!=null)defaultHome.resumed();
     }
 
     @Override protected void onPause() {

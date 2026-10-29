@@ -46,7 +46,7 @@ final class AppLibrary {
     }
     private void search(String query,boolean advanced){EditText input=new EditText(host);input.setSingleLine(true);input.setHint("应用名称或包名");input.setInputType(InputType.TYPE_CLASS_TEXT);input.setText(query);input.selectAll();
         host.showDialog(new TvDialog.Builder(host).setTitle("搜索应用").setView(input).setPositiveButton("搜索",(d,w)->show(input.getText().toString(),advanced)).setNegativeButton("返回",null).create());}
-    private void choose(ApplicationInfo app){
+    void choose(ApplicationInfo app){
         final int epoch=host.menuEpoch;host.toast("正在检查启动入口…");
         host.loader.execute(()->{AppEntries.Scan scan=AppEntries.scan(host,app.packageName);host.handler.post(()->{
             if(host.isDestroyed()||epoch!=host.menuEpoch)return;

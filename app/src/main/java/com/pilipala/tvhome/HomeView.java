@@ -164,7 +164,7 @@ final class HomeView extends View {
         if(movingRow!=null)setContentDescription("移动卡片，"+movingRow.tiles.get(movingRow.selected).label+"，左右移动，确定保存，返回取消");
         else if(edgeOpen)setContentDescription("分类操作栏，"+edgeItems[edgeSelected]);
         else if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
-        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":topSelected==2?"Magic Desktop，预览并调整桌面":"网络与 Wi-Fi");
+        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":topSelected==2?"Magic Desktop，预览并调整桌面":topSelected==3?"全部应用":"网络与 Wi-Fi");
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
             setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
@@ -294,20 +294,21 @@ final class HomeView extends View {
             icon(canvas, "\ue8b8", 132, 110, 40, muted);
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
-            connectIcon(canvas,405,110,muted);
-            text(canvas,"Marco 互联",440,119,23,normal,muted,Paint.Align.LEFT);
-            magicIcon(canvas,690,110,muted);
-            text(canvas,"Magic Desktop",724,119,23,normal,muted,Paint.Align.LEFT);
-            if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(420,90,5,paint);}
+            connectIcon(canvas,335,110,muted);
+            text(canvas,"Marco 互联",370,119,23,normal,muted,Paint.Align.LEFT);
+            magicIcon(canvas,550,110,muted);
+            text(canvas,"Magic Desktop",584,119,23,normal,muted,Paint.Align.LEFT);
+            icon(canvas,"\ue5c3",815,110,36,muted);text(canvas,"全部应用",849,119,21,normal,muted,Paint.Align.LEFT);
+            if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(350,90,5,paint);}
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
             if(movingRow!=null)text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
             if(host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
-                float selectedX = topSelected == 0 ? 132 : topSelected==1?405:topSelected==2?690:wifiX;
+                float selectedX = topSelected == 0 ? 132 : topSelected==1?335:topSelected==2?550:topSelected==3?815:wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
                 if(topSelected==1)connectIcon(canvas,selectedX,110,alphaColor(Color.WHITE,contentAlpha));
                 else if(topSelected==2)magicIcon(canvas,selectedX,110,alphaColor(Color.WHITE,contentAlpha));
-                else icon(canvas,topSelected==0?"\ue8b8":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
+                else icon(canvas,topSelected==0?"\ue8b8":topSelected==3?"\ue5c3":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
             }
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
             else {
@@ -535,7 +536,7 @@ final class HomeView extends View {
         if (row == -1) {
             if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = host.playback.item==null?0:-2;
             else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = Math.max(0,topSelected-1);
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(3,topSelected+1);
+            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(4,topSelected+1);
             ensureVisible(); animateFocus();
         } else {
             Row r = rows.get(row);
@@ -565,7 +566,7 @@ final class HomeView extends View {
             pressSelected(false);
             if (longPressed) { longPressed = false; return true; }
             if (row == -2) host.playback.controls();
-            else if (row == -1) { if (topSelected == 0) host.settings(); else if(topSelected==1)host.phone.show();else if(topSelected==2)host.navigator.personalization("cards");else host.network.show(); }
+            else if (row == -1) { if (topSelected == 0) host.settings(); else if(topSelected==1)host.phone.show();else if(topSelected==2)host.navigator.personalization("cards");else if(topSelected==3)host.drawer.show();else host.network.show(); }
             else if (!rows.isEmpty()) { Row r = rows.get(row); if (!r.tiles.isEmpty()) host.launch(r.tiles.get(r.selected)); }
             return true;
         }
@@ -584,9 +585,10 @@ final class HomeView extends View {
             if(x>=88&&x<=420&&y>=465&&y<465+edgeItems.length*78){edgeSelected=Math.min(edgeItems.length-1,(int)((y-465)/78));edgeAction();}
             else edge(false);return true;
         }
-        if(y<175&&x>=365&&x<650){host.phone.show();return true;}
-        if(y<175&&x>=650&&x<940){host.navigator.personalization("cards");return true;}
-        if (y < 175 && x < 365) { host.settings(); return true; }
+        if(y<175&&x>=300&&x<520){host.phone.show();return true;}
+        if(y<175&&x>=520&&x<790){host.navigator.personalization("cards");return true;}
+        if(y<175&&x>=790&&x<950){host.drawer.show();return true;}
+        if (y < 175 && x < 300) { host.settings(); return true; }
         if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) { host.network.show(); return true; }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}
         if (!rows.isEmpty() && inShelfTouchBand(y)) {

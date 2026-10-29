@@ -53,6 +53,8 @@ scripts/*
 !scripts/test_lite.py
 !scripts/test_lite_device.py
 !scripts/test_lite_stability.py
+!scripts/test_drawer_home.py
+!scripts/DrawerHomeChecks.java
 
 # Local platform promotion deliverables are distributed separately.
 宣传/
