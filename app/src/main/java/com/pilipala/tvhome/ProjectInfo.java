@@ -7,7 +7,7 @@ import java.io.*;
 
 /** Author, release identity and bundled licensing for offline access. */
 final class ProjectInfo {
-    static final String VERSION="0.14.0";
+    static final String VERSION="0.14.1";
     static final String AUTHOR="Pilipala";
     static final String REPOSITORY="https://github.com/Pilipala9919/MarcoTV";
     static final String FREE_NOTICE="本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。";
@@ -21,7 +21,8 @@ final class ProjectInfo {
                 +"\n\n—— 第三方资源声明 ——\n"+read(context,"licenses/NOTICE")
                 +"\n\n—— GNU GPL v3 ——\n"+read(context,"licenses/GPL-3.0-only.txt")
                 +"\n\n—— Apache License 2.0 ——\n"+read(context,"licenses/Material-Icons-Apache-2.0.txt")
-                +"\n\n—— QR Code generator (MIT) ——\n"+read(context,"licenses/QR-Code-generator-MIT.txt");
+                +"\n\n—— QR Code generator (MIT) ——\n"+read(context,"licenses/QR-Code-generator-MIT.txt")
+                +"\n\n—— 时钟字体 (SIL OFL 1.1) ——\n"+read(context,"licenses/robotoflex-OFL.txt")+"\n\n"+read(context,"licenses/barlowcondensed-OFL.txt")+"\n\n"+read(context,"licenses/nunito-OFL.txt")+"\n\n"+read(context,"licenses/bodonimoda-OFL.txt");
     }
     private static String read(Context context,String name){
         try(InputStream in=context.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()){

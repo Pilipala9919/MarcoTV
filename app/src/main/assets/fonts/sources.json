@@ -1,0 +1,59 @@
+[
+  {
+    "file": "clock-0.ttf",
+    "upstream": "robotoflex",
+    "source_url": "https://github.com/google/fonts/tree/main/ofl/robotoflex",
+    "source_sha256": "9b523f7d82593df0107173849ebb8c817471a1df4b4fb2c3cbf40cfd810c8281",
+    "axes": {
+      "wght": 750,
+      "wdth": 130,
+      "opsz": 72
+    },
+    "characters": "0123456789:",
+    "modified_family": "Marco Clock A",
+    "fonttools": "4.68.0",
+    "sha256": "9e734cd796b056ae172d723aa9da2656aeffc8edc40855c0957bdd0137847004",
+    "bytes": 3672
+  },
+  {
+    "file": "clock-1.ttf",
+    "upstream": "barlowcondensed",
+    "source_url": "https://github.com/google/fonts/tree/main/ofl/barlowcondensed",
+    "source_sha256": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17",
+    "axes": {},
+    "characters": "0123456789:",
+    "modified_family": "Marco Clock B",
+    "fonttools": "4.68.0",
+    "sha256": "8dc9bbf6020e17b799ee733126e2cfe4c030b94d8fac607c7d928439c24b813b",
+    "bytes": 11068
+  },
+  {
+    "file": "clock-2.ttf",
+    "upstream": "nunito",
+    "source_url": "https://github.com/google/fonts/tree/main/ofl/nunito",
+    "source_sha256": "bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207",
+    "axes": {
+      "wght": 850
+    },
+    "characters": "0123456789:",
+    "modified_family": "Marco Clock C",
+    "fonttools": "4.68.0",
+    "sha256": "beea5ef3e9598d44441bdc08eb182526da86d308a72187fce43bc5916bebe523",
+    "bytes": 4936
+  },
+  {
+    "file": "clock-3.ttf",
+    "upstream": "bodonimoda",
+    "source_url": "https://github.com/google/fonts/tree/main/ofl/bodonimoda",
+    "source_sha256": "550f5e34ee0a828d7941b1fe9bc58b34e5260d3f33a61532e6d0a0114e79a5cf",
+    "axes": {
+      "wght": 500,
+      "opsz": 48
+    },
+    "characters": "0123456789:",
+    "modified_family": "Marco Clock D",
+    "fonttools": "4.68.0",
+    "sha256": "5c2d9893266562bf4c2fa22ca40ddbf35cf37f82f0670a62220c84667577862d",
+    "bytes": 3848
+  }
+]

@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -528,6 +528,83 @@
       "version": "0.14.0",
       "captured_on": "2026-10-29",
       "sha256": "383c31391d187541c1467f46f332b28fc93cd533157f79943d64d7ea070a5d67"
+    },
+    {
+      "file": "assets/71-preview-coast-blur.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "d009cdc4dcb812e96440f0445b695cd82fc2833e31c7684d193fea2156a392f5"
+    },
+    {
+      "file": "assets/72-preview-aurora-blur.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "c6cacdf0eb0b8e08633336332485280c4fccba3aec567edcb83a2eb2bde1a7ed"
+    },
+    {
+      "file": "assets/73-clock-style.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "070d9fc2723068d6eb50f9fa5e118914bbca955475d0106c86a1fd6114e18185"
+    },
+    {
+      "file": "assets/74-clock-style.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "1d9e7dedb09f2173936b2784d76c561d1dfc99dd84c0bc3fd06ea73e6384761d"
+    },
+    {
+      "file": "assets/75-clock-style.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "d36183a17f9f5e49da906bf3650a706e5f51c126a50aec7ac808b750d69829b1"
+    },
+    {
+      "file": "assets/76-clock-style.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "678748a5675eab446556d0e2830dae2cb7e24df4abf0e71a7aa003b88bd24732"
+    },
+    {
+      "file": "assets/77-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "f92ac09f2a2e6643074a14269b24ddfcab29214903a23b7989c305d6f0427e7d"
+    },
+    {
+      "file": "assets/78-connect-qr.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "c39abb97e1be4a1ae9260eda694f099b6562488b521ae6111ca7949962f49a6d"
+    },
+    {
+      "file": "assets/79-round-tilt-max.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "8161fba0ba6e7eb18760fa0e3c02b62a725a055221d133143613e911f12075a8"
+    },
+    {
+      "file": "assets/80-round-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "5a2c347f5cf93e9cfbb548a9b2e4e90e3ae57afafddd1b0f959da66585c5bfc3"
+    },
+    {
+      "file": "assets/81-round-screensaver.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.1",
+      "captured_on": "2026-10-29",
+      "sha256": "2b4e1831b0ee24773608dac0b1f741e86f52c3b7e5ae5d6deef7e98368937acc"
     }
   ]
 }

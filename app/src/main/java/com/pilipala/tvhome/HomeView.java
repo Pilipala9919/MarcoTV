@@ -49,7 +49,7 @@ final class HomeView extends View {
     int row = 0;
     private int topSelected = 0;
     private float uiAlpha = 1, ambientProgress;
-    private final ClockScene clockScene = new ClockScene();
+    private final ClockScene clockScene;
     private boolean idleMode, wakingKey, longPressed;
     private Row movingRow;
     private ArrayList<Tile> moveOriginal;
@@ -111,6 +111,7 @@ final class HomeView extends View {
     private Canvas overviewCanvas;
     private BitmapShader overviewShader;
     private final Paint overviewPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+    private final PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
     float wifiAnchorX(){return (getWidth()-1920*Math.min(getWidth()/1920f,getHeight()/1080f))/2+(clockScene.left(host.appearance())-70)*Math.min(getWidth()/1920f,getHeight()/1080f);}
     float wifiAnchorY(){float s=Math.min(getWidth()/1920f,getHeight()/1080f);return (getHeight()-1080*s)/2+110*s;}
     private float previewAmbient;
@@ -141,7 +142,7 @@ final class HomeView extends View {
     }
 
     HomeView(MainActivity host) {
-        super(host); this.host = host;
+        super(host); this.host = host; clockScene=new ClockScene(host);
         symbols = Typeface.createFromAsset(host.getAssets(), "MaterialIcons-Regular.ttf");
         setFocusable(true); setFocusableInTouchMode(true);
         setContentDescription("Marco TV。方向键选择应用，确定键打开，菜单键设置。");
@@ -229,7 +230,7 @@ final class HomeView extends View {
         motionScheduled = false; lastFrameNanos = 0;
     }
 
-    @Override protected void onDetachedFromWindow() { stopMotion(); super.onDetachedFromWindow(); }
+    @Override protected void onDetachedFromWindow() { stopMotion(); overviewBackdrop.clear(); super.onDetachedFromWindow(); }
 
     private float clampedEmphasis(Tile t) {
         return Math.max(0, Math.min(1, t.emphasis.value));
@@ -244,8 +245,8 @@ final class HomeView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if(overview<=0){if(overviewBitmap!=null){overviewBitmap.recycle();overviewBitmap=null;overviewCanvas=null;overviewShader=null;}drawScene(canvas);return;}
-        canvas.drawColor(0xFF0B121C);
+        if(overview<=0){overviewBackdrop.clear();if(overviewBitmap!=null){overviewBitmap.recycle();overviewBitmap=null;overviewCanvas=null;overviewShader=null;}drawScene(canvas);return;}
+        overviewBackdrop.draw(canvas,wallpaper,getWidth(),getHeight());
         float density=getResources().getDisplayMetrics().density;
         overviewCamera.save();overviewCamera.setLocation(0,0,-Math.max(12,getWidth()/72f));
         overviewCamera.rotateY(12*overview);

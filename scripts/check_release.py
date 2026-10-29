@@ -46,6 +46,11 @@ def check():
     if validation.get('version')!=version:errors.append('Validation summary version mismatch')
     for source,destination in [('licenses/QR-Code-generator-MIT.txt','QR-Code-generator-MIT.txt'),('LICENSE','GPL-3.0-only.txt'),('NOTICE','NOTICE'),('licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
         if (ROOT/source).read_bytes()!=(ROOT/'app/src/main/assets/licenses'/destination).read_bytes():errors.append('Bundled license mismatch: '+source)
+    for license in (ROOT/'licenses').glob('*-OFL.txt'):
+        if license.read_bytes()!=(ROOT/'app/src/main/assets/licenses'/license.name).read_bytes():errors.append('Bundled font license mismatch: '+license.name)
+    fonts=json.loads((ROOT/'app/src/main/assets/fonts/sources.json').read_text(encoding='utf8'))
+    for font in fonts:
+        if hashlib.sha256((ROOT/'app/src/main/assets/fonts'/font['file']).read_bytes()).hexdigest()!=font['sha256']:errors.append('Clock font hash mismatch: '+font['file'])
     if '本软件免费开源' not in info or '申请退款' not in info:errors.append('Missing free software notice')
     report={'version':version,'public_source_files':len(files),'passed':not errors,'errors':errors}
     (ROOT/'build').mkdir(exist_ok=True)

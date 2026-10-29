@@ -78,11 +78,22 @@ final class AppearanceDeviceChecks {
                 check.accept("preview_right_edge_recedes",corners[3]>corners[1]&&corners[5]<corners[7]);
                 android.graphics.Paint previewPaint=(android.graphics.Paint)field(host.home,"overviewPaint");
                 check.accept("preview_uses_filtered_antialiased_surface",field(host.home,"overviewBitmap")!=null&&previewPaint.isAntiAlias()&&previewPaint.isFilterBitmap());
+                PreviewBackdrop backdrop=new PreviewBackdrop();Bitmap source=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);
+                Canvas pattern=new Canvas(source);pattern.drawColor(0xFFFF6000);Paint stripe=new Paint();stripe.setColor(0xFF2060FF);pattern.drawRect(160,0,320,180,stripe);
+                Bitmap output=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);Canvas target=new Canvas(output);backdrop.draw(target,source,320,180);
+                Bitmap blur=(Bitmap)field(backdrop,"blurred");
+                check.accept("preview_blur_has_bounded_small_cache",blur.getWidth()<=160&&blur.getHeight()<=160);
+                check.accept("preview_blur_softens_wallpaper_boundary",Color.red(output.getPixel(150,90))<Color.red(output.getPixel(40,90))&&Color.blue(output.getPixel(150,90))>Color.blue(output.getPixel(40,90)));
+                check.accept("preview_blur_retains_dim_wallpaper_colors",Color.red(output.getPixel(40,90))>Color.blue(output.getPixel(40,90))&&Color.blue(output.getPixel(280,90))>Color.red(output.getPixel(280,90))&&Color.red(output.getPixel(40,90))<140);
+                backdrop.draw(target,source,320,180);check.accept("preview_blur_reuses_cache_between_frames",field(backdrop,"blurred")==blur);
+                source.eraseColor(0xFF20FF60);backdrop.draw(target,source,320,180);check.accept("preview_blur_refreshes_changed_wallpaper",field(backdrop,"blurred")!=blur&&Color.green(output.getPixel(40,90))>Color.red(output.getPixel(40,90)));
+                backdrop.clear();check.accept("preview_blur_releases_cache",field(backdrop,"blurred")==null);source.recycle();output.recycle();
                 host.exitMenus();
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(350);
             ui(inst,()->{try{
                 check.accept("preview_releases_surface_on_exit",field(host.home,"overviewBitmap")==null);
+                check.accept("preview_exit_releases_wallpaper_blur",field(field(host.home,"overviewBackdrop"),"blurred")==null);
                 check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
                 host.network.show();
             }catch(Exception e){throw new RuntimeException(e);}});
@@ -142,7 +153,46 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{try{
                 editorPage[0]=(TvDialog)field(host,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
-                check.accept("personalization_contains_all_twenty_parameters",controls.size()==20);
+                check.accept("personalization_contains_twenty_two_controls",controls.size()==22);
+                int savedStyle=prefs.getInt("clock_style",0);controls.get("clock_style").setValue((savedStyle+1)%4);
+                check.accept("clock_style_preview_does_not_write_preferences",prefs.getInt("clock_style",0)==savedStyle&&host.appearance().getInt("clock_style",0)!=(savedStyle));
+                ClockScene clock=new ClockScene(host);PreviewPreferences fontPrefs=new PreviewPreferences(prefs);Bitmap target=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(target);
+                java.util.HashSet<Integer> signatures=new java.util.HashSet<>();boolean anchorsFit=true;
+                for(int style=0;style<4;style++){
+                    fontPrefs.values.put("clock_style",style);fontPrefs.values.put("clock_size",160);clock.draw(canvas,fontPrefs,0);
+                    Bitmap glyphs=(Bitmap)field(clock,"clockBitmap");int[] pixels=new int[glyphs.getWidth()*glyphs.getHeight()];glyphs.getPixels(pixels,0,glyphs.getWidth(),0,0,glyphs.getWidth(),glyphs.getHeight());signatures.add(java.util.Arrays.hashCode(pixels));
+                    anchorsFit&=clock.left(fontPrefs)>1050;clock.draw(canvas,fontPrefs,1);anchorsFit&=((Integer)field(clock,"cachedStyle"))==style;
+                }
+                check.accept("four_clock_styles_render_distinct_glyphs",signatures.size()==4);
+                check.accept("clock_styles_keep_header_clear_and_follow_screensaver",anchorsFit);
+                check.accept("clock_style_is_backed_up_with_valid_bounds",BackupStore.HOME.contains("clock_style")&&java.util.Arrays.equals(BackupStore.range("clock_style"),new int[]{0,3}));target.recycle();
+                int savedTilt=prefs.getInt("clock_tilt",10);controls.get("clock_style").setValue(2);controls.get("clock_tilt").setValue(savedTilt==14?0:14);
+                check.accept("clock_tilt_slider_is_visible_for_round_style",controls.get("clock_tilt").getVisibility()==View.VISIBLE);
+                check.accept("clock_tilt_preview_does_not_write_preferences",prefs.getInt("clock_tilt",10)==savedTilt&&host.appearance().getInt("clock_tilt",10)!=savedTilt);
+                controls.get("clock_style").setValue(0);check.accept("clock_tilt_slider_hides_for_other_styles",controls.get("clock_tilt").getVisibility()==View.GONE);
+                check.accept("clock_tilt_backup_has_bounded_range",BackupStore.HOME.contains("clock_tilt")&&java.util.Arrays.equals(BackupStore.range("clock_tilt"),new int[]{0,14}));
+                ClockScene stable=new ClockScene(host);Bitmap surface=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas drawing=new Canvas(surface);
+                java.lang.reflect.Field timeField=ClockScene.class.getDeclaredField("time");timeField.setAccessible(true);
+                boolean unclipped=true,stableBounds=true,reused=true,anglesStable=true;java.util.HashSet<Integer> tiltHashes=new java.util.HashSet<>();
+                String[] times={"00:00","01:23","04:56","07:08","09:59","11:11","12:34","16:57","20:48","23:59"};
+                for(int style=0;style<4;style++)for(int tilt:new int[]{0,7,14}){
+                    fontPrefs.values.put("clock_style",style);fontPrefs.values.put("clock_tilt",tilt);int width=-1,height=-1;float anchor=-1;float[] firstAngles=null;
+                    for(String shown:times){
+                        timeField.set(stable,new java.text.SimpleDateFormat("'"+shown+"'",java.util.Locale.ROOT));stable.draw(drawing,fontPrefs,0);
+                        Bitmap glyphs=(Bitmap)field(stable,"clockBitmap");int w=glyphs.getWidth(),h=glyphs.getHeight();
+                        if(width<0){width=w;height=h;anchor=stable.left(fontPrefs);}else stableBounds&=w==width&&h==height&&anchor==stable.left(fontPrefs);
+                        for(int x=0;x<w;x++)unclipped&=Color.alpha(glyphs.getPixel(x,0))==0&&Color.alpha(glyphs.getPixel(x,h-1))==0;
+                        for(int y=0;y<h;y++)unclipped&=Color.alpha(glyphs.getPixel(0,y))==0&&Color.alpha(glyphs.getPixel(w-1,y))==0;
+                        float[] angles=(float[])field(field(stable,"layout"),"angles");if(firstAngles==null)firstAngles=angles.clone();else anglesStable&=java.util.Arrays.equals(firstAngles,angles);
+                        stable.draw(drawing,fontPrefs,.5f);reused&=glyphs==field(stable,"clockBitmap");stable.draw(drawing,fontPrefs,1);reused&=glyphs==field(stable,"clockBitmap");
+                        if(style==2&&shown.equals("20:48")){int[] data=new int[w*h];glyphs.getPixels(data,0,w,0,0,w,h);tiltHashes.add(java.util.Arrays.hashCode(data));}
+                    }
+                }
+                check.accept("all_clock_styles_and_tilts_keep_transparent_edge_margin",unclipped);
+                check.accept("clock_slots_and_wifi_anchor_stay_fixed_across_minutes",stableBounds);
+                check.accept("clock_bitmap_is_reused_through_screensaver_transition",reused);
+                check.accept("clock_digit_angles_stay_fixed_across_minutes",anglesStable);
+                check.accept("clock_tilt_zero_mid_and_max_render_differently",tiltHashes.size()==3);surface.recycle();
                 controls.get("card_radius").setValue(originalRadius==70?60:70);
                 check.accept("personalization_edits_stay_in_draft",prefs.getInt("card_radius",32)==originalRadius&&host.appearance().getInt("card_radius",32)!=originalRadius);
                 controls.get("ambient_clock_size").requestFocus();

@@ -48,3 +48,6 @@ scripts/*
 !scripts/PhoneDeviceChecks.java
 !scripts/PhoneHttpChecks.java
 !scripts/test_phone_http.py
+
+# Local platform promotion deliverables are distributed separately.
+宣传/

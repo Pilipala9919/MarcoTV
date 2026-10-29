@@ -47,6 +47,7 @@ def build():
     for original, name in [(ROOT/'licenses/QR-Code-generator-MIT.txt','QR-Code-generator-MIT.txt'), (ROOT/'LICENSE','GPL-3.0-only.txt'), (ROOT/'NOTICE','NOTICE'),
                            (ROOT/'licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:
         shutil.copy2(original, licenses/name)
+    for original in (ROOT/'licenses').glob('*-OFL.txt'): shutil.copy2(original, licenses/original.name)
     for p in [BUILD, BUILD / 'classes', BUILD / 'dex', BUILD / 'resources', DIST]: p.mkdir(exist_ok=True, parents=True)
     # Renamed or removed Java classes must not survive incremental local builds.
     # Only delete compiler outputs inside the verified build directories.

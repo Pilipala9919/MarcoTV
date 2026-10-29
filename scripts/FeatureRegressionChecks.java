@@ -32,7 +32,7 @@ final class FeatureRegressionChecks {
             check.accept("home_gate_waits_for_wake_focus",!gate.allow(true,5500));check.accept("home_gate_allows_settled_wake",gate.allow(true,5801));
             HomePressTracker presses=new HomePressTracker();check.accept("home_first_press_is_immediate_single",!presses.press(1000,400));
             check.accept("home_second_press_opens_recents",presses.press(1250,400));check.accept("home_third_press_starts_new_pair",!presses.press(1400,400));check.accept("home_slow_press_is_single",!presses.press(1900,400));
-            prefs.edit().putInt("card_radius",44).putString("tv_sort","custom").putString("order_tv","one|two").putBoolean("ambient_enabled",false).putString("saved_dream","private-system-state").commit();
+            prefs.edit().putInt("clock_style",2).putInt("clock_tilt",13).putInt("card_radius",44).putString("tv_sort","custom").putString("order_tv","one|two").putBoolean("ambient_enabled",false).putString("saved_dream","private-system-state").commit();
             CardStore cards=new CardStore(context);cards.setName("com.fixture.missing","测试卡片");cards.toggle("pinned","com.fixture.missing",true);
             Bitmap image=Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888);image.eraseColor(Color.GREEN);
             try(OutputStream out=new FileOutputStream(cards.imageFile("com.fixture.missing"))){image.compress(Bitmap.CompressFormat.JPEG,90,out);}image.recycle();cards.cover("com.fixture.missing","image");
@@ -48,7 +48,7 @@ final class FeatureRegressionChecks {
                 check.accept("backup_image_roundtrip",input.value.images.size()==1);
                 check.accept("backup_missing_apps_reported",input.value.missing==1);
                 prefs.edit().putInt("card_radius",12).commit();BackupStore.restore(context,input.value);
-                check.accept("backup_restores_settings",prefs.getInt("card_radius",0)==44&&prefs.getString("tv_sort","").equals("custom"));
+                check.accept("backup_restores_settings",prefs.getInt("clock_style",-1)==2&&prefs.getInt("clock_tilt",-1)==13&&prefs.getInt("card_radius",0)==44&&prefs.getString("tv_sort","").equals("custom"));
                 check.accept("backup_restores_cards",cards.contains("pinned","com.fixture.missing")&&cards.cover("com.fixture.missing").equals("image"));
                 check.accept("backup_preserves_local_system_state",prefs.getString("saved_dream","").equals("private-system-state"));
                 check.accept("legacy_backup_replaces_new_menu_order",menus.getString("main_v2","").equals("apps|recents|appearance"));
@@ -78,7 +78,7 @@ final class FeatureRegressionChecks {
             check.accept("rejected_backup_keeps_configuration",prefs.getInt("card_radius",0)==before);
             BackupStore.write(context,new File(context.getFilesDir(),"backups/before-restore.zip"),BackupStore.capture(context,true));
             prefs.edit().putInt("card_radius",8).commit();try(OutputStream out=new FileOutputStream(new File(context.getFilesDir(),"backup-restore-pending"))){out.write(1);}
-            BackupStore.recoverInterrupted(context);check.accept("interrupted_restore_rolls_back",prefs.getInt("card_radius",0)==44&&!new File(context.getFilesDir(),"backup-restore-pending").exists());
+            BackupStore.recoverInterrupted(context);check.accept("interrupted_restore_rolls_back",prefs.getInt("clock_style",-1)==2&&prefs.getInt("clock_tilt",-1)==13&&prefs.getInt("card_radius",0)==44&&!new File(context.getFilesDir(),"backup-restore-pending").exists());
             Throwable error=new IllegalStateException("password=secret https://private/video");String safe=Diagnostics.safeStack(error);
             check.accept("diagnostics_omits_exception_message",!safe.contains("secret")&&!safe.contains("https://")&&safe.contains("IllegalStateException"));
             File expired=new File(Diagnostics.folder(context),"expired.txt");try(OutputStream out=new FileOutputStream(expired)){out.write(1);}expired.setLastModified(System.currentTimeMillis()-Diagnostics.RETENTION-1000);

@@ -18,6 +18,8 @@ final class ContinuousSlider extends View {
     private final RectF rect=new RectF();
     private boolean compact;
     private boolean inline;
+    private String[] choices;
+    void choices(String[] names){choices=names.clone();describe();invalidate();}
     void inline(){inline=true;compact=true;setMinimumHeight(dp(66));requestLayout();}
     void compact(){compact=true;setMinimumHeight(dp(96));requestLayout();}
     ContinuousSlider(Context c,String title,String unit,int min,int max,int value,Listener listener) {
@@ -26,7 +28,7 @@ final class ContinuousSlider extends View {
         setFocusable(true);setFocusableInTouchMode(true);setMinimumHeight(dp(146));describe();
     }
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
-    private String label(){return title.equals("进入屏保等待")&&value==0?"不自动进入":value+unit;}
+    private String label(){return choices!=null&&value>=0&&value<choices.length?choices[value]:title.equals("进入屏保等待")&&value==0?"不自动进入":value+unit;}
     private void describe(){setContentDescription(title+"，"+label()+"，左右键连续调整");}
     void setValue(int next){update(next);}
     private void update(int next){next=Math.max(min,Math.min(max,next));if(value==next)return;value=next;describe();listener.changed(value);invalidate();}

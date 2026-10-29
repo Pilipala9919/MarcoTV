@@ -19,6 +19,7 @@ final class PersonalizationPanel extends LinearLayout {
     private final Map<String,Integer> defaults=new LinkedHashMap<>();
     private final Map<String,View> groups=new LinkedHashMap<>();
     private TvDialog page;
+    private TextView tiltHint;
     private String scene="personalization";
     private boolean recentPreviewLoaded;
     PersonalizationPanel(MainActivity host){
@@ -31,6 +32,9 @@ final class PersonalizationPanel extends LinearLayout {
         slider("卡片质感","card_surface",0,100,55,"%");
         slider("界面动效时长","motion_duration",120,500,260," ms");
         section("clock","时间与屏保");
+        slider("时钟字体","clock_style",0,ClockScene.STYLES.length-1,0,"");controls.get("clock_style").choices(ClockScene.STYLES);
+        slider("圆体倾斜幅度","clock_tilt",0,14,10,"°");
+        tiltHint=new TextView(host);TextView tip=tiltHint;tip.setText("倾斜幅度仅用于「柔圆错倾」字体");tip.setTextColor(0xFF9AB2C0);tip.setTextSize(11);tip.setPadding(dp(8),0,dp(8),dp(8));addView(tip);
         slider("桌面时间大小","clock_size",36,160,96,"");
         slider("进入屏保等待","idle_seconds",0,600,30," 秒");
         slider("屏保时间大小","ambient_clock_size",100,280,176,"");
@@ -50,6 +54,11 @@ final class PersonalizationPanel extends LinearLayout {
         slider("任务动画时长","recent_duration",120,700,280," ms");
         slider("任务显示数量","recent_limit",3,20,10," 个");
         slider("Home 双击间隔","recent_double_ms",200,700,400," ms");
+        updateClockControls();
+    }
+    private void updateClockControls(){
+        View tilt=controls.get("clock_tilt");int visibility=draft.getInt("clock_style",0)==2?VISIBLE:GONE;
+        if(tilt!=null)tilt.setVisibility(visibility);if(tiltHint!=null)tiltHint.setVisibility(visibility);
     }
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private void section(String id,String title){
@@ -57,7 +66,7 @@ final class PersonalizationPanel extends LinearLayout {
     }
     private void slider(String title,String key,int min,int max,int fallback,String unit){
         ContinuousSlider control=new ContinuousSlider(host,title,unit,min,max,host.preferences.getInt(key,fallback),value->{
-            draft.values.put(key,value);host.home.refreshAppearance();host.home.invalidate();
+            draft.values.put(key,value);if(key.equals("clock_style"))updateClockControls();host.home.refreshAppearance();host.home.invalidate();
             if(key.equals("ambient_transition"))host.home.replayPreview();
         });control.inline();controls.put(key,control);defaults.put(key,fallback);
         control.setOnFocusChangeListener((v,focused)->{control.invalidate();if(focused)selectScene(key);});

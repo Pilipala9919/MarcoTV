@@ -26,7 +26,7 @@ public final class MarcoDreamService extends DreamService {
     @Override public void onDetachedFromWindow(){if(view!=null)view.stop();view=null;handler.removeCallbacksAndMessages(null);super.onDetachedFromWindow();}
     @Override public void onDestroy(){loader.shutdownNow();super.onDestroy();}
     private final class AmbientView extends View {
-        Bitmap wallpaper;float ambient;final ClockScene clock=new ClockScene();final Paint paint=new Paint(3);final RectF rect=new RectF();
+        Bitmap wallpaper;float ambient;final ClockScene clock=new ClockScene(MarcoDreamService.this);final Paint paint=new Paint(3);final RectF rect=new RectF();
         final SharedPreferences prefs=getSharedPreferences("home",0);ValueAnimator animator;
         AmbientView(){super(MarcoDreamService.this);setContentDescription("Marco TV 时钟屏保");}
         void start(){animator=ValueAnimator.ofFloat(0,1);animator.setDuration(prefs.getInt("ambient_transition",3)*1000L);animator.addUpdateListener(a->{ambient=(float)a.getAnimatedValue();invalidate();});animator.start();}

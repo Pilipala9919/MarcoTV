@@ -24,3 +24,10 @@ Third-party resources:
   Source: https://github.com/nayuki/QR-Code-generator
   Revision: 3c6d0b3cefb4e049dc337e82237c9644399716a8
   License: licenses/QR-Code-generator-MIT.txt (also available in the app).
+
+- Clock digit fonts: Roboto Flex (The Roboto Flex Project Authors), Barlow
+  Condensed (Jeremy Tribby), Nunito (The Nunito Project Authors), Bodoni Moda
+  (The Bodoni Moda Project Authors), SIL Open Font License 1.1.
+  Modified static digit subsets are named Marco Clock A/B/C/D. Source hashes,
+  variation coordinates and subset details: app/src/main/assets/fonts/sources.json.
+  Full upstream copyrights and licenses: licenses/*-OFL.txt, also bundled in-app.
