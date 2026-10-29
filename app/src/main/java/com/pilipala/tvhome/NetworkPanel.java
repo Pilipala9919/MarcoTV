@@ -27,6 +27,9 @@ final class NetworkPanel {
     private int settingsEpoch = -1, permissionEpoch = -1;
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
+            if(WifiManager.WIFI_STATE_CHANGED_ACTION.equals(i.getAction())&&visible!=null&&visible.isShowing()&&visible.pageKey().equals("wifi_popover")){
+                show();return;
+            }
             if (scanning && WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(i.getAction())) {
                 scanning = false;
                 if (visible != null && visible.isShowing()) {
@@ -67,7 +70,7 @@ final class NetworkPanel {
     private void show(String subtitle) {
         if (activity.isDestroyed() || activity.isFinishing()) return;
         if (wifi == null) { present(new TvDialog.Builder(activity).setTitle("网络与 Wi-Fi").setMessage("此设备没有可用的 Wi-Fi 模块。").setNegativeButton("返回",null).create()); return; }
-        if (!registered) { activity.registerReceiver(updates,new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)); registered=true; }
+        if (!registered) { IntentFilter filter=new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);activity.registerReceiver(updates,filter); registered=true; }
         final ArrayList<ScanResult> networks = new ArrayList<>();
         boolean permitted=activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;
         if (permitted) try {
@@ -84,7 +87,7 @@ final class NetworkPanel {
         Collections.sort(networks,(a,b)->{int current=Boolean.compare(b.SSID.equals(ssid),a.SSID.equals(ssid));return current!=0?current:Integer.compare(b.level,a.level);});
         int count=Math.min(4,networks.size());
         ArrayList<String> labels=new ArrayList<>();
-        labels.add("Wi-Fi · "+(wifi.isWifiEnabled()?"已开启":"已关闭"));
+        labels.add("Wi-Fi");
         int[] signals = new int[count+2]; Arrays.fill(signals,-1);
         boolean[] locks=new boolean[signals.length],current=new boolean[signals.length];
         for (int i=0;i<count;i++) {
@@ -97,7 +100,7 @@ final class NetworkPanel {
         String summary=summaryLines[0];
         if(networks.isEmpty())summary+=ssid.isEmpty()?" · 在更多设置中查找网络":" · "+ssid;
         if(scanning)summary="正在查找附近网络…";
-        present(new TvDialog.Builder(activity).network().setPageId("wifi_popover").setTitle("Wi-Fi").setMessage(summary)
+        present(new TvDialog.Builder(activity).network().setWifiEnabled(wifi.isWifiEnabled()).setPageId("wifi_popover").setTitle("Wi-Fi").setMessage(summary)
                 .setItems(labels.toArray(new String[0]),(d,index)->{
                     if(index==0) toggle(); else if(index==labels.size()-1) more(networks); else choose(networks.get(index-1));
                 }).setSignals(signals).setNetworkStates(locks,current).create());

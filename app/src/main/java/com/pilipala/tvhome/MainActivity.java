@@ -395,6 +395,7 @@ public final class MainActivity extends Activity {
         for(int i=0;i<SettingsCatalog.ROOT_IDS.length;i++)if(SettingsCatalog.ROOT_IDS[i].equals(key))return i;
         return -1;
     }
+    TvDialog settingsRoot(){return dialogHistory.size()>1&&dialogHistory.get(0).pageKey().equals("main")?dialogHistory.get(0):null;}
     void switchCategory(int index){
         if(activeDialog!=null){activeDialog.setOnDismissListener(null);activeDialog.dismiss();}
         while(dialogHistory.size()>1)dialogHistory.remove(dialogHistory.size()-1).leave();

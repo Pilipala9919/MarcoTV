@@ -17,9 +17,14 @@ final class AppearanceDeviceChecks {
         int savedSurface=prefs.getInt("card_surface",55),savedMotion=prefs.getInt("motion_duration",260);
         final TvDialog[] dialog={null};final Throwable[] failure={null};
         try{
+            final boolean[] ready={false};
+            for(int attempt=0;attempt<50;attempt++){ui(inst,()->ready[0]=host.home.isShown()&&host.home.hasWindowFocus());if(ready[0])break;Thread.sleep(100);}
+            if(!ready[0])throw new AssertionError("Desktop did not acquire input focus");
             ui(inst,()->{host.exitMenus();host.home.setIdle(false);prefs.edit().putInt("motion_duration",500).commit();host.home.refreshAppearance();host.home.enter();});
             MotionSpring entrance=(MotionSpring)field(host.home,"entrance");
-            Thread.sleep(100);ui(inst,()->check.accept("desktop_entry_has_intermediate_frames",entrance.value>0&&entrance.value<1));
+            final boolean[] intermediate={false};
+            for(int attempt=0;attempt<25;attempt++){Thread.sleep(20);ui(inst,()->intermediate[0]=entrance.value>0&&entrance.value<1);if(intermediate[0])break;}
+            check.accept("desktop_entry_has_intermediate_frames",intermediate[0]);
             for(int attempt=0;attempt<30;attempt++){Thread.sleep(100);final boolean[] done={false};ui(inst,()->done[0]=entrance.value==1);if(done[0])break;}ui(inst,()->check.accept("desktop_entry_settles",entrance.value==1));
             ui(inst,()->{
                 dialog[0]=new TvDialog.Builder(host).setPageId("appearance_fixture").setTitle("Animation fixture").setItems(new String[]{"One","Two"},null).create();
@@ -32,11 +37,42 @@ final class AppearanceDeviceChecks {
             Thread.sleep(600);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
             Thread.sleep(600);
-            ui(inst,()->{host.exitMenus();host.navigator.settings();host.navigator.desktopSettings();});
+            final View[] parentFocus={null};
+            ui(inst,()->{try{host.exitMenus();host.navigator.settings();TvDialog parent=(TvDialog)field(host,"activeDialog");parent.focusItem(0);parent.restoreFocus();parentFocus[0]=parent.getCurrentFocus();host.navigator.desktopSettings();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(350);
             ui(inst,()->{try{android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
                 float density=host.getResources().getDisplayMetrics().density;
                 check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=641*density);
+                check.accept("short_settings_open_as_anchored_bubble",(Boolean)field(host.panelWindow(),"popoverVisible")&&root.getChildCount()==3&&root.getChildAt(1).getWidth()<=321*density);
+                android.view.ViewGroup body=(android.view.ViewGroup)field((TvDialog)field(host,"activeDialog"),"body");
+                check.accept("short_bubble_shows_all_rows_without_clipping",body.getHeight()<=((View)body.getParent()).getHeight());
+                android.view.ViewGroup shield=(android.view.ViewGroup)root.getChildAt(0);
+                check.accept("dimmed_settings_cannot_take_remote_focus",shield.getDescendantFocusability()==android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS&&!parentFocus[0].requestFocus());
+                PhoneDeviceChecks.find(root.getChildAt(1),"返回").requestFocus();
+            }catch(Exception e){throw new RuntimeException(e);}});
+            // Wait for the shared dialog window to own input after instrumentation launch.
+            final boolean[] inputReady={false};
+            for(int attempt=0;attempt<30;attempt++){ui(inst,()->inputReady[0]=host.panelWindow().getWindow().getDecorView().hasWindowFocus());if(inputReady[0])break;Thread.sleep(100);}
+            if(!inputReady[0])throw new AssertionError("Settings window did not acquire input focus");
+            inst.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);Thread.sleep(200);
+            ui(inst,()->{try{
+                android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
+                check.accept("bubble_footer_keeps_horizontal_navigation",host.isPage("appearance")&&PhoneDeviceChecks.find(root.getChildAt(1),"调整顺序").isFocused());
+                host.navigator.wallpaperSettings();
+            }catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(350);
+            ui(inst,()->{try{
+                android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
+                check.accept("deeper_bubble_replaces_content_without_stacking",root.getChildCount()==3&&host.isPage("wallpaper"));
+                host.panelWindow().dispatchKeyEvent(new android.view.KeyEvent(0,22));host.panelWindow().dispatchKeyEvent(new android.view.KeyEvent(1,22));
+                check.accept("bubble_right_returns_exactly_one_level",host.isPage("appearance"));
+                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                check.accept("bubble_back_restores_parent_focus",host.isPage("main")&&parentFocus[0].isFocused()&&((View)field((TvDialog)field(host,"activeDialog"),"panel")).getAlpha()==1);
+                host.navigator.maintenance();
+            }catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(350);
+            ui(inst,()->{try{android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
+                check.accept("long_settings_use_single_narrow_drawer",!(Boolean)field(host.panelWindow(),"popoverVisible")&&root.getChildCount()==1&&root.getChildAt(0).getWidth()<=361*host.getResources().getDisplayMetrics().density);
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(400);
@@ -55,6 +91,14 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");View bubble=root.getChildAt(0);float density=host.getResources().getDisplayMetrics().density;
                 check.accept("wifi_bubble_is_small_and_top_anchored",bubble.getWidth()<=301*density&&bubble.getHeight()<=351*density&&bubble.getTop()<host.home.getHeight()/3);
+                android.widget.TextView wifi=(android.widget.TextView)PhoneDeviceChecks.find(bubble,"Wi-Fi");
+                // Find the switch row, not the identical title.
+                java.util.List<?> rows=(java.util.List<?>)field((TvDialog)field(host,"activeDialog"),"itemViews");wifi=(android.widget.TextView)rows.get(0);
+                android.view.accessibility.AccessibilityNodeInfo info=wifi.createAccessibilityNodeInfo();
+                check.accept("wifi_switch_reports_real_checked_state",info.isCheckable()&&info.isChecked()==((android.net.wifi.WifiManager)host.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE)).isWifiEnabled()&&wifi.getCompoundDrawables()[2] instanceof ToggleDrawable);info.recycle();
+                Bitmap on=Bitmap.createBitmap(52,32,Bitmap.Config.ARGB_8888),off=Bitmap.createBitmap(52,32,Bitmap.Config.ARGB_8888);
+                ToggleDrawable onToggle=new ToggleDrawable(true),offToggle=new ToggleDrawable(false);onToggle.setBounds(0,0,52,32);offToggle.setBounds(0,0,52,32);onToggle.draw(new Canvas(on));offToggle.draw(new Canvas(off));
+                check.accept("wifi_switch_moves_knob_and_changes_track",on.getPixel(36,16)==Color.WHITE&&off.getPixel(16,16)==Color.WHITE&&Color.green(on.getPixel(10,16))>Color.green(off.getPixel(42,16)));on.recycle();off.recycle();
                 ((TvDialog)field(host,"activeDialog")).onBackPressed();
                 check.accept("wifi_back_returns_directly_to_desktop",!host.panelWindow().isShowing());
             }catch(Exception e){throw new RuntimeException(e);}});

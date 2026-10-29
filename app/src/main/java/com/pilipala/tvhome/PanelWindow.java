@@ -3,6 +3,7 @@
 package com.pilipala.tvhome;
 
 import android.app.Dialog;
+import android.graphics.*;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -12,6 +13,7 @@ final class PanelWindow extends Dialog {
     private final MainActivity host;
     private FrameLayout root;
     private TvDialog current;
+    private boolean popoverVisible;
     PanelWindow(MainActivity host){super(host);this.host=host;}
     private int dp(float n){return Math.round(n*getContext().getResources().getDisplayMetrics().density);}
     @Override protected void onCreate(Bundle state){
@@ -34,23 +36,12 @@ final class PanelWindow extends Dialog {
         root.setClickable(network);
         int width=getContext().getResources().getDisplayMetrics().widthPixels;
         int height=getContext().getResources().getDisplayMetrics().heightPixels;
-        int category=preview||centered||network?-1:host.settingsCategory();
-        View presented=content;
-        if(category>=0){
-            LinearLayout split=new LinearLayout(getContext());split.setOrientation(LinearLayout.HORIZONTAL);
-            LinearLayout rail=new LinearLayout(getContext());rail.setOrientation(LinearLayout.VERTICAL);rail.setPadding(dp(12),dp(20),dp(12),dp(16));
-            rail.setBackground(TvDialog.background(0xFA18232F,dp(24)));
-            TextView label=new TextView(getContext());label.setText("设置分类");label.setTextColor(0xFF91ABB8);label.setTextSize(13);label.setPadding(dp(8),0,0,dp(14));rail.addView(label);
-            for(int i:MenuOrder.resolve(host.getSharedPreferences("menu_order",0).getString("main_v2",""),SettingsCatalog.ROOT_IDS)){
-                final int index=i;TextView tab=new TextView(getContext());tab.setText(SettingsCatalog.ROOT_LABELS[i]);tab.setTextSize(15);tab.setTextColor(0xFFE0EAF0);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(dp(12),0,dp(8),0);tab.setFocusable(true);tab.setClickable(true);
-                tab.setBackground(TvDialog.background(i==category?0xFF30495B:0x0018232F,dp(12)));
-                tab.setOnFocusChangeListener((v,on)->{android.graphics.drawable.GradientDrawable bg=TvDialog.background(on?0xFF3A586C:index==category?0xFF30495B:0x0018232F,dp(12));bg.setStroke(dp(1),on?0xFFABD6DF:0);v.setBackground(bg);});
-                tab.setOnClickListener(v->host.switchCategory(index));rail.addView(tab,new LinearLayout.LayoutParams(-1,dp(46)));
-            }
-            ScrollView navigation=new ScrollView(getContext());navigation.setVerticalScrollBarEnabled(false);navigation.addView(rail);split.addView(navigation,new LinearLayout.LayoutParams(dp(160),-1));
-            LinearLayout.LayoutParams detail=new LinearLayout.LayoutParams(0,-1,1);detail.leftMargin=dp(12);split.addView(content,detail);presented=split;
-        }
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(preview?300:centered?780:network?300:category>=0?640:470),width-dp(48)),Math.min(dp(preview?218:centered?425:network?page.networkHeight():500),height-dp(32)));
+        content.setAlpha(1);content.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        TvDialog parent=host.settingsRoot();
+        int parentWidth=Math.min(dp(470),width-dp(48));
+        int bubbleWidth=dp(320);
+        popoverVisible=page.isPopover()&&parent!=null&&width-parentWidth-bubbleWidth>=dp(64);
+        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(preview?300:centered?780:network?300:page.pageKey().equals("main")?470:360),width-dp(48)),Math.min(dp(preview?218:centered?425:network?page.networkHeight():500),height-dp(32)));
         p.gravity=centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
         p.rightMargin=centered?0:dp(24);
         if(network){
@@ -58,13 +49,45 @@ final class PanelWindow extends Dialog {
             p.leftMargin=Math.max(dp(16),Math.min(width-p.width-dp(16),Math.round(host.home.wifiAnchorX()-p.width*.5f)));
             p.topMargin=Math.min(Math.round(host.home.wifiAnchorY()+dp(27)),height-p.height-dp(16));
         }
-        root.addView(presented,p);page.restoreFocus();
+        if(popoverVisible){
+            View base=parent.preparedPanel();
+            if(base.getParent()!=null)((ViewGroup)base.getParent()).removeView(base);
+            base.animate().cancel();base.setTranslationX(0);base.setTranslationY(0);base.setAlpha(.42f);
+            base.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            // The dimmed parent is context only: neither remote nor touch can escape into it.
+            FrameLayout shield=new FrameLayout(getContext()){
+                @Override public boolean onInterceptTouchEvent(MotionEvent event){return true;}
+                @Override public boolean onTouchEvent(MotionEvent event){return true;}
+            };
+            shield.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);shield.addView(base,new FrameLayout.LayoutParams(-1,-1));
+            FrameLayout.LayoutParams behind=new FrameLayout.LayoutParams(parentWidth,Math.min(dp(500),height-dp(32)));
+            behind.gravity=Gravity.RIGHT|Gravity.CENTER_VERTICAL;behind.rightMargin=dp(24);root.addView(shield,behind);
+            p.width=bubbleWidth;p.height=Math.min(dp(page.popoverHeight()),height-dp(32));
+            p.gravity=Gravity.TOP|Gravity.LEFT;p.rightMargin=0;p.leftMargin=width-dp(36)-parentWidth-bubbleWidth;
+            p.topMargin=(height-p.height)/2;
+            root.addView(content,p);
+            View pointer=new View(getContext()){
+                private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+                @Override protected void onDraw(Canvas c){Path path=new Path();path.moveTo(0,0);path.lineTo(getWidth(),getHeight()/2f);path.lineTo(0,getHeight());path.close();paint.setColor(0xF51D2028);c.drawPath(path,paint);}
+            };
+            FrameLayout.LayoutParams tip=new FrameLayout.LayoutParams(dp(12),dp(22));tip.leftMargin=p.leftMargin+p.width;root.addView(pointer,tip);
+            root.post(()->{
+                if(current!=page||!popoverVisible)return;
+                float anchor=parent.itemCenterY(host.settingsCategory());
+                if(anchor<dp(32)||anchor>height-dp(32))anchor=height/2f;
+                p.topMargin=Math.max(dp(16),Math.min(height-p.height-dp(16),Math.round(anchor-dp(56))));
+                tip.topMargin=Math.max(p.topMargin+dp(24),Math.min(p.topMargin+p.height-dp(46),Math.round(anchor-dp(11))));
+                content.setLayoutParams(p);pointer.setLayoutParams(tip);
+            });
+        }else root.addView(content,p);
+        page.restoreFocus();
     }
     boolean displays(TvDialog page){return current==page&&isShowing();}
     @Override public void onBackPressed(){if(current!=null)current.onBackPressed();else host.exitMenus();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         if(current!=null&&current.handlePageKey(event))return true;
+        if(popoverVisible&&current.rightReturns()&&event.getKeyCode()==KeyEvent.KEYCODE_DPAD_RIGHT){if(event.getAction()==KeyEvent.ACTION_UP)current.onBackPressed();return true;}
         return super.dispatchKeyEvent(event);
     }
-    void close(){current=null;dismiss();}
+    void close(){current=null;popoverVisible=false;dismiss();}
 }

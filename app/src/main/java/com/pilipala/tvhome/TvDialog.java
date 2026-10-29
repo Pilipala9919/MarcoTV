@@ -19,6 +19,7 @@ final class TvDialog extends Dialog {
     private LinearLayout body;
     private LinearLayout panel;
     private boolean returning;
+    private boolean popover;
     private PanelWindow surface;
     private boolean showing;
     private View savedFocus;
@@ -30,6 +31,7 @@ final class TvDialog extends Dialog {
     void rememberFocus(){if(panel!=null){View v=panel.findFocus();if(v!=null)savedFocus=v;}}
     void restoreFocus(){if(savedFocus!=null&&savedFocus.requestFocus())return;if(spec.single&&spec.selected>=0&&spec.selected<choices.size()&&choices.get(spec.selected).requestFocus())return;for(View v:choices)if(v.requestFocus())return;}
     @Override public void show(){
+        popover=canPopover()&&((MainActivity)spec.activity).settingsCategory()>=0;
         if(panel==null)super.create();
         surface=((MainActivity)spec.activity).panelWindow();showing=true;
         surface.present(this,panel,spec.preview!=null,spec.centered,spec.network);onStart();
@@ -55,6 +57,18 @@ final class TvDialog extends Dialog {
     String pageKey(){return spec.pageId!=null?spec.pageId:spec.orderKey==null?spec.title:spec.orderKey;}
     boolean reorderable(){return spec.orderKey!=null;}
     String previewKey(){return spec.preview;}
+    boolean isPopover(){return popover;}
+    boolean rightReturns(){return moving<0&&itemViews.contains(getCurrentFocus());}
+    private boolean canPopover(){return !spec.centered&&!spec.network&&spec.preview==null&&spec.view==null
+        &&spec.items!=null&&spec.items.length>0&&spec.items.length<=6&&spec.icons==null
+        &&(spec.message==null||spec.message.length()<100)&&!pageKey().startsWith("manage_");}
+    View preparedPanel(){if(panel==null)super.create();return panel;}
+    float itemCenterY(int index){
+        for(TextView item:itemViews)if(item.getTag() instanceof Integer&&(Integer)item.getTag()==index){
+            int[] at=new int[2];item.getLocationOnScreen(at);return at[1]+item.getHeight()/2f;
+        }return -1;
+    }
+    int popoverHeight(){return Math.min(442,176+spec.items.length*44+(spec.message==null?0:54));}
     int networkHeight(){return Math.min(350,94+(spec.items==null?0:spec.items.length)*43);}
     void setBackAction(Runnable action){backAction=action;}
     @Override public void onBackPressed(){if(moving>=0){finishMove();return;}if(backAction!=null)backAction.run();else super.onBackPressed();}
@@ -70,14 +84,14 @@ final class TvDialog extends Dialog {
         // this avoids partially missing text after nested window transitions.
         panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         boolean preview=spec.preview!=null;
-        panel.setPadding(dp(spec.network?14:preview?20:24), dp(spec.network?14:preview?14:22), dp(spec.network?14:preview?20:24), dp(spec.network?10:preview?14:18));
+        panel.setPadding(dp(spec.network?14:popover?16:preview?20:24), dp(spec.network?14:popover?16:preview?14:22), dp(spec.network?14:popover?16:preview?20:24), dp(spec.network?10:preview?14:18));
         panel.setClickable(true);
         GradientDrawable bg = background(0xF51D2028, dp(24)); bg.setStroke(dp(1), 0x20FFFFFF); panel.setBackground(bg);
         TextView brand = text("M A R C O T V", 10, 0xFFB0B8C6); brand.setLetterSpacing(.1f);
-        if(!preview&&!spec.network)panel.addView(brand);
-        TextView title = text(spec.title, preview||spec.network?19:25, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
+        if(!preview&&!spec.network&&!popover)panel.addView(brand);
+        TextView title = text(spec.title, preview||spec.network||popover?19:25, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
         title.setMaxLines(2); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:8), 0, dp(preview||spec.network?8:14)); panel.addView(title);
+        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network||popover?0:8), 0, dp(preview||spec.network?8:14)); panel.addView(title);
         ScrollView scroll = new ScrollView(getContext()); scroll.setFillViewport(false); scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
         body = new LinearLayout(getContext()); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(dp(3), dp(3), dp(3), dp(3));
@@ -121,6 +135,17 @@ final class TvDialog extends Dialog {
                     super.onInitializeAccessibilityNodeInfo(host, info); info.setCheckable(true); info.setChecked(index == spec.selected);
                 }
             });
+            if(spec.network&&index==0&&spec.wifiEnabled!=null){
+                ToggleDrawable toggle=new ToggleDrawable(spec.wifiEnabled);toggle.setBounds(0,0,dp(52),dp(32));
+                item.setCompoundDrawables(null,null,toggle,null);item.setCompoundDrawablePadding(dp(12));
+                item.setContentDescription("Wi-Fi，"+(spec.wifiEnabled?"已开启":"已关闭"));
+                item.setAccessibilityDelegate(new View.AccessibilityDelegate(){
+                    @Override public void onInitializeAccessibilityNodeInfo(View view,android.view.accessibility.AccessibilityNodeInfo info){
+                        super.onInitializeAccessibilityNodeInfo(view,info);info.setClassName("android.widget.Switch");
+                        info.setCheckable(true);info.setChecked(spec.wifiEnabled);
+                    }
+                });
+            }
             item.setOnClickListener(v -> {
                 // Close before invoking a callback so nested panels retain their focus/lifecycle.
                 forwardDismiss=true;dismiss(); if (spec.itemClick != null) spec.itemClick.onClick(this, index);
@@ -128,6 +153,7 @@ final class TvDialog extends Dialog {
             item.setTag(index);itemViews.add(item);
             if(spec.orderKey!=null)item.setOnLongClickListener(v->{beginMove(index,true);return true;});
             if(spec.network){item.setTextSize(14);item.setSingleLine(true);item.setEllipsize(android.text.TextUtils.TruncateAt.END);item.setMinHeight(dp(37));item.setPadding(dp(10),dp(6),dp(10),dp(6));}
+            else if(popover){item.setTextSize(15);item.setMinHeight(dp(38));item.setPadding(dp(12),dp(7),dp(12),dp(7));}
             body.addView(item,rowParams());choices.add(item);
         }
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -145,7 +171,7 @@ final class TvDialog extends Dialog {
             sort.setOnClickListener(v->beginMove(lastItem,false));
         }
         if (buttons.getChildCount()>0) panel.addView(buttons);
-        hint = text(spec.orderKey==null?"返回上一级  ·  Home 回桌面":"长按确定调整顺序  ·  返回上一级  ·  Home 回桌面", 11, 0xFF8993A4);
+        hint = text(popover?"返回上一级 · Home 回桌面":spec.orderKey==null?"返回上一级  ·  Home 回桌面":"长按确定调整顺序  ·  返回上一级  ·  Home 回桌面", 11, 0xFF8993A4);
         hint.setPadding(dp(3), dp(14), 0, 0); if(!preview&&!spec.network)panel.addView(hint);
         setContentView(panel);
         Window w = getWindow();
@@ -254,7 +280,7 @@ final class TvDialog extends Dialog {
     }
     static final class Builder {
         final Activity activity; String title="", message; String[] items; int selected=-1;
-        boolean single,centered,network; View view; DialogInterface.OnClickListener itemClick;
+        boolean single,centered,network; Boolean wifiEnabled; View view; DialogInterface.OnClickListener itemClick;
         boolean[] secured,connected;
         String pageId,orderKey,preview;String[] ids; int[] signals; android.graphics.drawable.Drawable[] icons;
         final ArrayList<ButtonSpec> buttons = new ArrayList<>();
@@ -265,6 +291,7 @@ final class TvDialog extends Dialog {
         Builder setView(View v) { view=v; return this; }
         Builder centered(){centered=true;return this;}
         Builder network(){network=true;return this;}
+        Builder setWifiEnabled(boolean enabled){wifiEnabled=enabled;return this;}
         Builder setPreview(String key){preview=key;return this;}
         Builder setOrder(String key,String... stableIds){orderKey=key;ids=stableIds;return this;}
         Builder setItems(String[] a, DialogInterface.OnClickListener c) { items=a; itemClick=c; return this; }

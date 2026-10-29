@@ -274,7 +274,7 @@ final class HomeView extends View {
             icon(canvas, "\ue8b8", 132, 110, 40, muted);
             text(canvas, "MARCO TV", 178, 119, 23, normal, alphaColor(0xB0FFFFFF,contentAlpha), Paint.Align.LEFT);
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
-            icon(canvas, "\ue325", 405, 110, 38, muted);
+            connectIcon(canvas,405,110,muted);
             text(canvas,"Marco 互联",440,119,23,normal,muted,Paint.Align.LEFT);
             if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(420,90,5,paint);}
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
@@ -283,7 +283,8 @@ final class HomeView extends View {
             if (row == -1) {
                 float selectedX = topSelected == 0 ? 132 : topSelected==1?405:wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
-                icon(canvas,topSelected==0?"\ue8b8":topSelected==1?"\ue325":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
+                if(topSelected==1)connectIcon(canvas,selectedX,110,alphaColor(Color.WHITE,contentAlpha));
+                else icon(canvas,topSelected==0?"\ue8b8":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
             }
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
             else {
@@ -344,6 +345,17 @@ final class HomeView extends View {
         canvas.drawText(text, x, y, paint);
     }
 
+    private void connectIcon(Canvas canvas,float x,float y,int color){
+        canvas.save();canvas.translate(x,y);
+        paint.setColor(color);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2.5f);
+        // Leave a gap around the overlapping phone instead of painting an opaque patch.
+        canvas.save();canvas.clipRect(1,-12,26,24,android.graphics.Region.Op.DIFFERENCE);
+        rect.set(-23,-15,13,9);canvas.drawRoundRect(rect,3.5f,3.5f,paint);canvas.restore();
+        canvas.drawLine(-7,10,-7,15,paint);canvas.drawLine(-15,15,0,15,paint);
+        rect.set(4,-9,23,23);canvas.drawRoundRect(rect,4.5f,4.5f,paint);
+        paint.setStyle(Paint.Style.FILL);rect.set(10,-5.2f,17,-2.8f);canvas.drawRoundRect(rect,1.2f,1.2f,paint);
+        canvas.restore();
+    }
     private void icon(Canvas canvas, String glyph, float x, float y, float size, int color) {
         paint.setTypeface(symbols); paint.setTextSize(size); paint.setTextAlign(Paint.Align.CENTER); paint.setColor(color);
         canvas.drawText(glyph, x, y - (paint.ascent() + paint.descent()) / 2, paint);

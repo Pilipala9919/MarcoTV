@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -409,6 +409,62 @@
       "version": "0.13.1",
       "captured_on": "2026-10-29",
       "sha256": "c9d4ca74516ee5000e00f7b942342d2a52726aca046154517b6013850a1df840"
+    },
+    {
+      "file": "assets/50-settings-root.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "d43e3490b8920bf5a3cdebc2f485477d5326868e1e77115cfdbe61b47c6babc0"
+    },
+    {
+      "file": "assets/51-settings-bubble.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "345d3946630094109e37763da79671bde33ab33262a9a329101000306dd50023"
+    },
+    {
+      "file": "assets/52-settings-deeper.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "65df4877ea8dc08f3b859a2ec35277ac177898872e16b675ab6a600e7a2bcd10"
+    },
+    {
+      "file": "assets/53-settings-drawer.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "29a1b5c918f92fba54f8a186ee5d01988bf507b06be3493eb8db4fd6b3b3edd8"
+    },
+    {
+      "file": "assets/54-wifi-switch.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "ec2e3000f519106d8a1d2db314615a9a19aa67f87f616a3f8400a70fa96688c8"
+    },
+    {
+      "file": "assets/55-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "73e838980b777b035d307fa613e91ca93ace7aa1a0c0af253d6be6c2b04963dc"
+    },
+    {
+      "file": "assets/56-perspective-preview.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "9e98fc77403b403ff7ecc5291dadcc0c1ac2f32938e49c67f339a1d3a3ddcdaf"
+    },
+    {
+      "file": "assets/57-connect.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.13.2",
+      "captured_on": "2026-10-29",
+      "sha256": "5d703fbaff1cbbb5f7cc5a16306ecc9b62d26451018abed48f290a2b971b7c66"
     }
   ]
 }

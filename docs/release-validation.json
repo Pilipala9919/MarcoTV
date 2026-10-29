@@ -1,13 +1,13 @@
 {
-  "version": "0.13.1",
-  "version_code": 29,
+  "version": "0.13.2",
+  "version_code": 30,
   "date": "2026-10-29",
   "author": "Pilipala",
   "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "090bb670f735a6274bc17e28d28c927bc73c845849684dfff915891df546c4ed",
+  "apk_sha256": "9cf1f96b66cac0ff073d5c2cb1fc69c0b3866f11a10e1939e476ee271c66d654",
   "automated": {
     "device": {
       "passed": 85,
@@ -125,7 +125,7 @@
       ]
     },
     "appearance": {
-      "passed": 36,
+      "passed": 46,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
@@ -134,10 +134,20 @@
         "settings_reuse_same_native_window",
         "cached_parent_replays_return_animation",
         "settings_detail_uses_compact_width",
+        "short_settings_open_as_anchored_bubble",
+        "short_bubble_shows_all_rows_without_clipping",
+        "dimmed_settings_cannot_take_remote_focus",
+        "bubble_footer_keeps_horizontal_navigation",
+        "deeper_bubble_replaces_content_without_stacking",
+        "bubble_right_returns_exactly_one_level",
+        "bubble_back_restores_parent_focus",
+        "long_settings_use_single_narrow_drawer",
         "preview_overview_reaches_perspective",
         "preview_keeps_entire_desktop_left_of_controls",
         "preview_exit_restores_full_desktop",
         "wifi_bubble_is_small_and_top_anchored",
+        "wifi_switch_reports_real_checked_state",
+        "wifi_switch_moves_knob_and_changes_track",
         "wifi_back_returns_directly_to_desktop",
         "material_adds_top_light_and_bottom_shade",
         "material_keeps_corners_transparent",
@@ -205,19 +215,21 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 29 overwrite installation on Xiaomi Android 9. Compact settings, perspective preview entry/exit, Wi-Fi popover bounds and Back behavior exercised on device. Home gesture tests invoke service logic, not a physical remote. No TCL or Huawei device connected.",
+  "validation_scope": "Code 30 overwrite installation on Xiaomi Android 9. Anchored bubbles, background focus isolation, child replacement, unclipped short menus, footer direction-key navigation, Back focus restoration, narrow drawers, perspective preview and real Wi-Fi switch state exercised on device. Home gesture tests invoke service logic, not a physical remote. No other TV connected.",
   "not_verified": [
     "TCL 75T8G Max Android 11 physical Home and task service",
     "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
-    "physical remote on 0.13.1 (user will test later)",
+    "physical remote on 0.13.2 (user will test later)",
     "full reboot and long duration stability on this version",
     "physical iPhone Safari and Android phone browser",
-    "real Wi-Fi network switching on Android 10+"
+    "real Wi-Fi network switching on Android 10+",
+    "actual Wi-Fi toggling and reconnection on this version",
+    "actual Wi-Fi toggling and reconnection on this version"
   ],
   "browser_checks": {
     "browser": "Microsoft Edge via Playwright",
     "reason": "Browser plugin not available",
-    "target": "local showcase corresponding to docs/showcase",
+    "target": "local product showcase and mirror homepage",
     "viewports": [
       [
         1280,
@@ -225,7 +237,7 @@
       ],
       [
         390,
-        844
+        900
       ]
     ],
     "passed": [
@@ -244,11 +256,20 @@
     }
   },
   "upgrade": {
-    "from": "0.13.0",
-    "to": "0.13.1",
-    "version_code": 29,
+    "from": "0.13.1",
+    "to": "0.13.2",
+    "version_code": 30,
     "adb_overwrite_install_succeeded": true,
     "same_signature_accepted_by_package_manager": true
   },
-  "automated_total": 248
+  "automated_total": 258,
+  "candidate_validation": {
+    "earlier_apk_sha256": "45cdbf6b641817b39142e2e80aa20250adb262532fe64cddf8740e0174457494",
+    "suites": [
+      "device",
+      "phone",
+      "task_actions"
+    ],
+    "final_change": "Only the Marco Connect entry icon drawing changed after these suites. Final APK reruns appearance and bridge suites, local checks and eight demo screenshots."
+  }
 }
