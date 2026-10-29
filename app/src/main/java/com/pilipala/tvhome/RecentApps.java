@@ -143,17 +143,10 @@ final class RecentApps {
             .setMessage("双击功能："+(enabled()?"已开启":"未开启")+"。需要默认桌面或 Home 兼容，以及已启动的任务辅助服务。上滑或上键清除所选任务，未保存的页面可能丢失。唤醒恢复请到系统与启动设置。")
             .setItems(new String[]{enabled()?"关闭双击 Home":"开启双击 Home","立即打开最近任务","任务卡片与动画","双击间隔","状态中心"},(d,w)->{
                 switch(w){case 0:host.preferences.edit().putBoolean("recent_enabled",!enabled()).apply();settings();break;
-                    case 1:show();break;case 2:styleSettings();break;case 3:slider("双击间隔","double_ms",200,700,400," 毫秒");break;case 4:host.health.status();break;}
+                    case 1:show();break;case 2:styleSettings();break;case 3:host.navigator.personalization("recent");break;case 4:host.health.status();break;}
             }).setNegativeButton("返回",null).create());
     }
-    void styleSettings(){if(entries.isEmpty())load();host.showDialog(new TvDialog.Builder(host).setPageId("task_style").setTitle("任务卡片与动画")
-        .setOrder("task_style","size","spacing","tilt","radius","dim","duration","limit")
-        .setItems(new String[]{"任务卡片大小","任务卡片间距","任务卡片倾斜","任务卡片圆角","任务背景压暗程度","展开与切换动画时长","显示数量"},(d,w)->{
-            switch(w){case 0:slider("任务卡片大小","size",60,120,100,"%");break;case 1:slider("任务卡片间距","spacing",80,360,210,"");break;
-                case 2:slider("任务卡片倾斜","tilt",0,18,7,"°");break;case 3:slider("任务卡片圆角","radius",8,80,36,"");break;
-                case 4:slider("任务背景压暗程度","dim",0,90,65,"%");break;case 5:slider("展开与切换动画时长","duration",120,700,280," 毫秒");break;
-                case 6:slider("显示数量","limit",3,20,10," 个");break;}
-        }).setNegativeButton("返回",null).create());}
+    void styleSettings(){host.navigator.personalization("recent");}
     private void slider(String title,String key,int min,int max,int fallback,String unit){
         host.navigator.slider(title,"recent_"+key,min,max,fallback,unit);
     }

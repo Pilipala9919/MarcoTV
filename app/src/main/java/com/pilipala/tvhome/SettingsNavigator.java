@@ -17,20 +17,18 @@ import java.util.Collections;
 final class SettingsNavigator {
     private final MainActivity host;
     SettingsNavigator(MainActivity host) { this.host = host; }
+    void personalization(String group){new PersonalizationPanel(host).show(group);}
 
     void settings(){host.showDialog(settingsDialog());}
     TvDialog settingsDialog() {
         return new TvDialog.Builder(host).setPageId("main").setTitle("桌面设置")
-            .setOrder("main_v2",SettingsCatalog.ROOT_IDS).setItems(SettingsCatalog.ROOT_LABELS,(d,w)->host.handler.post(()->{
-                openCategory(w);
+            .setOrder("main_v2",java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_IDS,1,SettingsCatalog.ROOT_IDS.length)).setItems(java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_LABELS,1,SettingsCatalog.ROOT_LABELS.length),(d,w)->host.handler.post(()->{
+                openCategory(w+1);
             })).setNegativeButton("返回桌面",null).create();
     }
     void openCategory(int index){switch(index){case 0:desktopSettings();break;case 1:applicationSettings();break;case 2:host.recents.settings();break;
         case 3:host.playback.settings();break;case 4:deviceSettings();break;case 5:systemPanel();break;case 6:maintenance();break;case 7:host.phone.show();break;}}
-    void desktopSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("appearance").setTitle("桌面与外观")
-        .setOrder("appearance","wallpaper","cards","clock").setItems(new String[]{"壁纸","桌面卡片样式","时钟与屏保"},(d,w)->{
-            if(w==0)wallpaperSettings();else if(w==1)appearanceSettings();else ambientSettings();
-        }).setNegativeButton("返回",null).create());}
+    void desktopSettings(){personalization("cards");}
     void applicationSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("apps").setTitle("应用与分类")
         .setOrder("apps","add","sorting","favorites","pinned","hidden")
         .setItems(new String[]{"添加应用","TV 应用排序","管理收藏卡片","管理置顶卡片","恢复隐藏的桌面卡片"},(d,w)->{
@@ -55,9 +53,8 @@ final class SettingsNavigator {
             +"\n固件版本："+Build.DISPLAY+"\n\n请结合固件逐项验证安装、Home 和开机恢复；不显示设备序列号。")
         .setPositiveButton("返回",null).create());}
     void wallpaperSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper").setTitle("壁纸")
-        .setOrder("wallpaper","builtin","local","dim","reset").setItems(new String[]{"内置壁纸","导入本地壁纸","壁纸压暗程度","恢复默认壁纸"},(d,w)->{
+        .setOrder("wallpaper","builtin","local","reset").setItems(new String[]{"内置壁纸","导入本地壁纸","恢复默认壁纸"},(d,w)->{
             if(w==0)wallpaperGallery();else if(w==1){host.cover.pendingId="__wallpaper__";host.cover.chooseCoverImage();}
-            else if(w==2)slider("壁纸压暗程度","wallpaper_dim",0,90,10,"%");
             else host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_reset").setTitle("恢复默认壁纸？")
                 .setMessage("恢复内置雾蓝海岸和默认压暗程度，不删除原始图片。")
                 .setPositiveButton("恢复",(x,y)->{host.preferences.edit().remove("wallpaper").putInt("wallpaper_builtin",0).remove("wallpaper_dim").apply();host.loadWallpaper();wallpaperSettings();})
@@ -102,27 +99,15 @@ final class SettingsNavigator {
     }
 
     void ambientSettings() {
-        boolean enabled = AmbientIntegration.enabled(host);
-        String[] labels = {"Marco TV 屏保：" + (enabled ? "已开启" : "未开启"), "进入屏保等待", "桌面时间大小", "屏保时间大小", "屏保时间亮度", "屏保背景压暗程度", "渐变时长", "立即预览屏保"};
-        host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("时钟与屏保")
-                .setOrder("clock","enabled","wait","normal_size","ambient_size","brightness","dim","duration","preview")
-                .setMessage("闲置时，右上角时间慢慢放大，背景逐渐暗下。按方向键返回桌面。")
-                .setItems(labels, (d,w) -> host.handler.post(() -> {
-                    switch(w) {
-                        case 0: host.preferences.edit().putBoolean("ambient_enabled", !enabled).apply();
-                            AmbientIntegration.configure(host);
-                            if (!enabled) host.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                            else host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                            host.handler.post(this::ambientSettings); break;
-                        case 1: slider("进入屏保等待", "idle_seconds", 0, 600, 30, " 秒"); break;
-                        case 2: slider("桌面时间大小", "clock_size", 36, 160, 96, ""); break;
-                        case 3: slider("屏保时间大小", "ambient_clock_size", 100, 280, 176, ""); break;
-                        case 4: slider("屏保时间亮度", "ambient_clock_brightness", 40, 100, 100, "%"); break;
-                        case 5: slider("屏保背景压暗程度", "ambient_dim", 0, 100, 72, "%"); break;
-                        case 6: slider("渐变时长", "ambient_transition", 1, 30, 3, " 秒"); break;
-                        case 7: previewAmbient(); break;
-                    }
-                })).setNegativeButton("返回", null).create());
+        boolean enabled=AmbientIntegration.enabled(host);
+        host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("屏保开关")
+            .setMessage("时间大小、亮度与渐变时长在个性化右侧列表调整。")
+            .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保"},(d,w)->{
+                if(w==1){previewAmbient();return;}
+                host.preferences.edit().putBoolean("ambient_enabled",!enabled).apply();AmbientIntegration.configure(host);
+                if(!enabled)host.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                ambientSettings();
+            }).setNegativeButton("返回",null).create());
     }
 
     void previewAmbient(){
@@ -253,16 +238,7 @@ final class SettingsNavigator {
         }).setNegativeButton("返回", null).create());
     }
 
-    void appearanceSettings(){host.showDialog(new TvDialog.Builder(host).setPageId("cards").setTitle("桌面卡片样式")
-        .setOrder("cards","radius","zoom","labels","surface","motion","reset")
-        .setItems(new String[]{"桌面卡片圆角","选中放大幅度","未选中名称亮度","卡片质感强度","界面动效时长","恢复默认卡片样式"},(d,w)->{
-            if(w==0)slider("桌面卡片圆角","card_radius",0,90,32,"");
-            else if(w==1)slider("选中放大幅度","focus_scale",0,30,16,"%");
-            else if(w==2)slider("未选中名称亮度","label_opacity",0,100,0,"%");
-            else if(w==3)slider("卡片质感强度","card_surface",0,100,55,"%");
-            else if(w==4)slider("界面动效时长","motion_duration",120,500,260," ms");
-            else{host.preferences.edit().remove("card_radius").remove("focus_scale").remove("label_opacity").remove("card_surface").remove("motion_duration").apply();host.home.refreshAppearance();host.home.invalidate();}
-        }).setNegativeButton("返回",null).create());}
+    void appearanceSettings(){personalization("cards");}
 
     void systemPanel(){
         final int epoch=host.menuEpoch;

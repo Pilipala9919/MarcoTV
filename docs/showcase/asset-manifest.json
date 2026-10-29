@@ -1,6 +1,6 @@
 {
   "author": "Pilipala",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "captured_on": "2026-10-29",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
@@ -465,6 +465,69 @@
       "version": "0.13.2",
       "captured_on": "2026-10-29",
       "sha256": "5d703fbaff1cbbb5f7cc5a16306ecc9b62d26451018abed48f290a2b971b7c66"
+    },
+    {
+      "file": "assets/62-settings-root.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "820de9c2a8bdc366cf01a41b53d5fdcb446d40e7a73e0cce25d58c46cb7a2be5"
+    },
+    {
+      "file": "assets/63-settings-navigation.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "9a376808a73f9d77c687ce4832b35888541ca4dc586a2e21f3263b0dc4416873"
+    },
+    {
+      "file": "assets/64-settings-deeper.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "a5555988a857a079f43cd913f79f1d107eb3a902857beff7c4fec59bfc56de3f"
+    },
+    {
+      "file": "assets/65-settings-maintenance.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "dd42687ab11d9d1694e1c1fb0eeeb058cdd806b8717fab986f8d0948abeefb7e"
+    },
+    {
+      "file": "assets/66-wifi-switch.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "33f035a1ac91696a94cd875e735267b664cd5152f20e7f6eca6b8ac9a1599c3d"
+    },
+    {
+      "file": "assets/67-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "6694b204b2fcdfbe79ccf91c82c31bfc29d37e42998810457b6c27b3e4f744ed"
+    },
+    {
+      "file": "assets/68-magic-desktop.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "e96301b5eaac9d1697ebe50a72dd9598b71fedf976afb7b97da44c120125c007"
+    },
+    {
+      "file": "assets/69-connect.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "0973f7954c85762304aa6fb0d6afd8ef862b93d74d877dc01a5208bfcfcd0c85"
+    },
+    {
+      "file": "assets/70-clock-preview.png",
+      "kind": "native screenshot with demo fixtures",
+      "version": "0.14.0",
+      "captured_on": "2026-10-29",
+      "sha256": "383c31391d187541c1467f46f332b28fc93cd533157f79943d64d7ea070a5d67"
     }
   ]
 }

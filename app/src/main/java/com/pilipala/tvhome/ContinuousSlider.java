@@ -17,6 +17,8 @@ final class ContinuousSlider extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect=new RectF();
     private boolean compact;
+    private boolean inline;
+    void inline(){inline=true;compact=true;setMinimumHeight(dp(66));requestLayout();}
     void compact(){compact=true;setMinimumHeight(dp(96));requestLayout();}
     ContinuousSlider(Context c,String title,String unit,int min,int max,int value,Listener listener) {
         super(c);this.title=title;this.unit=unit;this.min=min;this.max=max;
@@ -28,8 +30,16 @@ final class ContinuousSlider extends View {
     private void describe(){setContentDescription(title+"，"+label()+"，左右键连续调整");}
     void setValue(int next){update(next);}
     private void update(int next){next=Math.max(min,Math.min(max,next));if(value==next)return;value=next;describe();listener.changed(value);invalidate();}
-    @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(compact?96:146));}
+    @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(inline?66:compact?96:146));}
     @Override protected void onDraw(Canvas c){
+        if(inline){
+            float left=dp(12),right=getWidth()-left,y=dp(48);
+            paint.setColor(isFocused()?0xFF354B5D:0xFF242D38);rect.set(0,0,getWidth(),getHeight());c.drawRoundRect(rect,dp(12),dp(12),paint);
+            paint.setTypeface(Typeface.create("sans-serif-medium",0));paint.setTextSize(dp(13));paint.setColor(Color.WHITE);paint.setTextAlign(Paint.Align.LEFT);c.drawText(title,left,dp(24),paint);
+            paint.setTextAlign(Paint.Align.RIGHT);paint.setColor(0xFFA9DCE2);c.drawText(label(),right,dp(24),paint);
+            paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeWidth(dp(3));paint.setColor(0xFF536373);c.drawLine(left,y,right,y,paint);
+            float knob=left+(right-left)*(value-min)/(float)(max-min);paint.setColor(0xFFA9DCE2);c.drawLine(left,y,knob,y,paint);c.drawCircle(knob,y,dp(isFocused()?6:4),paint);return;
+        }
         float p=dp(20), y=dp(compact?47:77), right=getWidth()-p;
         paint.setColor(isFocused()?0xFF354B5D:0xFF293541);rect.set(0,0,getWidth(),getHeight());c.drawRoundRect(rect,dp(16),dp(16),paint);
         paint.setTypeface(Typeface.create("sans-serif-medium",0));paint.setTextSize(dp(27));paint.setColor(Color.WHITE);paint.setTextAlign(Paint.Align.CENTER);

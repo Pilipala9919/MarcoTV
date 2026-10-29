@@ -37,42 +37,37 @@ final class AppearanceDeviceChecks {
             Thread.sleep(600);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
             Thread.sleep(600);
-            final View[] parentFocus={null};
-            ui(inst,()->{try{host.exitMenus();host.navigator.settings();TvDialog parent=(TvDialog)field(host,"activeDialog");parent.focusItem(0);parent.restoreFocus();parentFocus[0]=parent.getCurrentFocus();host.navigator.desktopSettings();}catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(350);
-            ui(inst,()->{try{android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                float density=host.getResources().getDisplayMetrics().density;
-                check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=641*density);
-                check.accept("short_settings_open_as_anchored_bubble",(Boolean)field(host.panelWindow(),"popoverVisible")&&root.getChildCount()==3&&root.getChildAt(1).getWidth()<=321*density);
-                android.view.ViewGroup body=(android.view.ViewGroup)field((TvDialog)field(host,"activeDialog"),"body");
-                check.accept("short_bubble_shows_all_rows_without_clipping",body.getHeight()<=((View)body.getParent()).getHeight());
-                android.view.ViewGroup shield=(android.view.ViewGroup)root.getChildAt(0);
-                check.accept("dimmed_settings_cannot_take_remote_focus",shield.getDescendantFocusability()==android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS&&!parentFocus[0].requestFocus());
-                PhoneDeviceChecks.find(root.getChildAt(1),"返回").requestFocus();
-            }catch(Exception e){throw new RuntimeException(e);}});
-            // Wait for the shared dialog window to own input after instrumentation launch.
-            final boolean[] inputReady={false};
-            for(int attempt=0;attempt<30;attempt++){ui(inst,()->inputReady[0]=host.panelWindow().getWindow().getDecorView().hasWindowFocus());if(inputReady[0])break;Thread.sleep(100);}
-            if(!inputReady[0])throw new AssertionError("Settings window did not acquire input focus");
-            inst.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);Thread.sleep(200);
+            final View[] parentFocus={null},childFocus={null};final TvDialog[] settingsRoot={null};final int[] rootLeft={0};
+            ui(inst,()->{try{
+                host.exitMenus();host.navigator.settings();settingsRoot[0]=(TvDialog)field(host,"activeDialog");
+                parentFocus[0]=PhoneDeviceChecks.find((View)field(settingsRoot[0],"panel"),"维护与帮助");parentFocus[0].requestFocus();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{rootLeft[0]=((View)field(settingsRoot[0],"panel")).getLeft();parentFocus[0].performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(400);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("bubble_footer_keeps_horizontal_navigation",host.isPage("appearance")&&PhoneDeviceChecks.find(root.getChildAt(1),"调整顺序").isFocused());
-                host.navigator.wallpaperSettings();
-            }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(350);
+                check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=361*host.getResources().getDisplayMetrics().density);
+                check.accept("settings_child_replaces_parent_in_same_position",root.getChildCount()==1&&root.getChildAt(0).getLeft()==rootLeft[0]);
+                check.accept("settings_parent_is_detached",((View)field(settingsRoot[0],"panel")).getParent()==null);
+                childFocus[0]=PhoneDeviceChecks.find(root,"关于 Marco TV");childFocus[0].requestFocus();childFocus[0].performClick();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("deeper_bubble_replaces_content_without_stacking",root.getChildCount()==3&&host.isPage("wallpaper"));
-                host.panelWindow().dispatchKeyEvent(new android.view.KeyEvent(0,22));host.panelWindow().dispatchKeyEvent(new android.view.KeyEvent(1,22));
-                check.accept("bubble_right_returns_exactly_one_level",host.isPage("appearance"));
+                check.accept("deeper_page_does_not_stack_panels",root.getChildCount()==1&&host.isPage("about"));
                 ((TvDialog)field(host,"activeDialog")).onBackPressed();
-                check.accept("bubble_back_restores_parent_focus",host.isPage("main")&&parentFocus[0].isFocused()&&((View)field((TvDialog)field(host,"activeDialog"),"panel")).getAlpha()==1);
-                host.navigator.maintenance();
-            }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(350);
-            ui(inst,()->{try{android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("long_settings_use_single_narrow_drawer",!(Boolean)field(host.panelWindow(),"popoverVisible")&&root.getChildCount()==1&&root.getChildAt(0).getWidth()<=361*host.getResources().getDisplayMetrics().density);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                check.accept("nested_back_restores_clicked_row",host.isPage("maintenance")&&childFocus[0].isFocused());
+                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                check.accept("root_back_restores_clicked_nonfirst_row",host.isPage("main")&&parentFocus[0].isFocused());
+                parentFocus[0].performClick();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                check.accept("repeated_return_keeps_same_focus",parentFocus[0].isFocused());
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(400);
@@ -80,10 +75,14 @@ final class AppearanceDeviceChecks {
                 check.accept("preview_overview_reaches_perspective",(Float)field(host.home,"overview")==1f);
                 android.graphics.Matrix matrix=(android.graphics.Matrix)field(host.home,"overviewMatrix");float[] corners={0,0,host.home.getWidth(),0,host.home.getWidth(),host.home.getHeight(),0,host.home.getHeight()};matrix.mapPoints(corners);
                 check.accept("preview_keeps_entire_desktop_left_of_controls",corners[0]>=0&&corners[2]<host.home.getWidth()*.67f&&corners[1]!=corners[3]);
+                check.accept("preview_right_edge_recedes",corners[3]>corners[1]&&corners[5]<corners[7]);
+                android.graphics.Paint previewPaint=(android.graphics.Paint)field(host.home,"overviewPaint");
+                check.accept("preview_uses_filtered_antialiased_surface",field(host.home,"overviewBitmap")!=null&&previewPaint.isAntiAlias()&&previewPaint.isFilterBitmap());
                 host.exitMenus();
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(350);
             ui(inst,()->{try{
+                check.accept("preview_releases_surface_on_exit",field(host.home,"overviewBitmap")==null);
                 check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
                 host.network.show();
             }catch(Exception e){throw new RuntimeException(e);}});
@@ -137,6 +136,37 @@ final class AppearanceDeviceChecks {
                 host.settings();TvDialog root=(TvDialog)field(host,"activeDialog");root.onBackPressed();
                 check.accept("root_back_closes_shared_window",!host.panelWindow().isShowing());
             }catch(Exception e){throw new RuntimeException(e);}});
+            final int originalRadius=prefs.getInt("card_radius",32);final boolean hadPersonalRadius=prefs.contains("card_radius");
+            final PersonalizationPanel[] editor={null};final TvDialog[] editorPage={null};
+            ui(inst,()->{host.exitMenus();host.navigator.personalization("cards");});Thread.sleep(400);
+            ui(inst,()->{try{
+                editorPage[0]=(TvDialog)field(host,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
+                java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
+                check.accept("personalization_contains_all_twenty_parameters",controls.size()==20);
+                controls.get("card_radius").setValue(originalRadius==70?60:70);
+                check.accept("personalization_edits_stay_in_draft",prefs.getInt("card_radius",32)==originalRadius&&host.appearance().getInt("card_radius",32)!=originalRadius);
+                controls.get("ambient_clock_size").requestFocus();
+                check.accept("personalization_focus_selects_screensaver_preview","ambient_clock_size".equals(editorPage[0].previewKey()));
+                host.navigator.wallpaperSettings();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(250);
+            ui(inst,()->{try{((TvDialog)field(host,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                check.accept("personalization_child_return_keeps_draft",host.isPage("personalization")&&host.localPreview!=null&&host.appearance().getInt("card_radius",32)!=originalRadius);
+                editorPage[0].onBackPressed();
+                check.accept("personalization_back_discards_all_draft",host.localPreview==null&&prefs.getInt("card_radius",32)==originalRadius);
+                host.navigator.personalization("cards");
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{
+                TvDialog current=(TvDialog)field(host,"activeDialog");PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_radius").setValue(originalRadius==70?60:70);
+                PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{
+                check.accept("personalization_save_commits_draft",prefs.getInt("card_radius",32)!=originalRadius&&host.localPreview==null);
+                if(hadPersonalRadius)prefs.edit().putInt("card_radius",originalRadius).commit();else prefs.edit().remove("card_radius").commit();
+                host.navigator.personalization("cards");host.exitMenus();
+                check.accept("personalization_home_discards_draft",host.localPreview==null);
+            });
             final HomeKeyService[] service={null};final android.content.Intent[] launch={null};
             final SharedPreferences gesturePrefs=host.getSharedPreferences("test013_home_gestures",0);
             ui(inst,()->{try{

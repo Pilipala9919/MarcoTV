@@ -91,6 +91,9 @@ final class HomeView extends View {
     private final LinearGradient rimGradient=new LinearGradient(0,0,0,1,0xB0FFFFFF,0x20FFFFFF,Shader.TileMode.CLAMP);
     private final MotionSpring entrance=new MotionSpring(1,15,.001f);
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
+    private final MotionSpring magicFocus=new MotionSpring(0,20,.001f);
+    private final Paint magicPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.DITHER_FLAG);
+    private final LinearGradient magicGradient=new LinearGradient(-11,-7,23,18,0xB078CADC,0x7039587F,Shader.TileMode.CLAMP);
     private boolean edgeOpen;
     private int edgeSelected;
     private final String[] edgeItems={"添加应用","编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
@@ -104,6 +107,10 @@ final class HomeView extends View {
     private ValueAnimator overviewAnimation;
     private final Camera overviewCamera=new Camera();
     private final Matrix overviewMatrix=new Matrix();
+    private Bitmap overviewBitmap;
+    private Canvas overviewCanvas;
+    private BitmapShader overviewShader;
+    private final Paint overviewPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     float wifiAnchorX(){return (getWidth()-1920*Math.min(getWidth()/1920f,getHeight()/1080f))/2+(clockScene.left(host.appearance())-70)*Math.min(getWidth()/1920f,getHeight()/1080f);}
     float wifiAnchorY(){float s=Math.min(getWidth()/1920f,getHeight()/1080f);return (getHeight()-1080*s)/2+110*s;}
     private float previewAmbient;
@@ -156,7 +163,7 @@ final class HomeView extends View {
         if(movingRow!=null)setContentDescription("移动卡片，"+movingRow.tiles.get(movingRow.selected).label+"，左右移动，确定保存，返回取消");
         else if(edgeOpen)setContentDescription("分类操作栏，"+edgeItems[edgeSelected]);
         else if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
-        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":"网络与 Wi-Fi");
+        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":topSelected==2?"Magic Desktop，预览并调整桌面":"网络与 Wi-Fi");
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
             setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
@@ -188,6 +195,7 @@ final class HomeView extends View {
 
     void animateFocus() {
         section.target(Math.max(0, row));
+        magicFocus.target(row==-1&&topSelected==2?1:0);
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             for (int j = 0; j < r.tiles.size(); j++) r.tiles.get(j).emphasis.target(i == row && j == r.selected ? 1 : 0);
@@ -205,7 +213,7 @@ final class HomeView extends View {
         if (!host.foreground || !isAttachedToWindow()) { motionScheduled = false; return; }
         float dt = lastFrameNanos == 0 ? 1f / 60 : Math.min(0.05f, (frameNanos - lastFrameNanos) / 1_000_000_000f);
         lastFrameNanos = frameNanos;dt*=motionSpeed;
-        boolean moving = section.step(dt);moving|=edge.step(dt);moving|=entrance.step(dt);
+        boolean moving = section.step(dt);moving|=edge.step(dt);moving|=entrance.step(dt);moving|=magicFocus.step(dt);
         for (Row r : rows) {
             moving |= r.scroll.step(dt);
             for (Tile t : r.tiles) {moving |= t.emphasis.step(dt);moving |= t.press.step(dt);}
@@ -236,20 +244,31 @@ final class HomeView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if(overview<=0){drawScene(canvas);return;}
+        if(overview<=0){if(overviewBitmap!=null){overviewBitmap.recycle();overviewBitmap=null;overviewCanvas=null;overviewShader=null;}drawScene(canvas);return;}
         canvas.drawColor(0xFF0B121C);
         float density=getResources().getDisplayMetrics().density;
-        float targetScale=Math.max(.35f,Math.min(.70f,(getWidth()-390*density)/getWidth()));
-        float size=1-(1-targetScale)*overview;
         overviewCamera.save();overviewCamera.setLocation(0,0,-Math.max(12,getWidth()/72f));
-        overviewCamera.rotateY(-12*overview);overviewCamera.rotateZ(-1.2f*overview);
+        overviewCamera.rotateY(12*overview);
         overviewCamera.getMatrix(overviewMatrix);overviewCamera.restore();
-        overviewMatrix.preTranslate(-getWidth()/2f,-getHeight()/2f);overviewMatrix.postScale(size,size);
-        overviewMatrix.postTranslate(getWidth()/2f-174*density*overview,getHeight()/2f);
-        int save=canvas.save();canvas.concat(overviewMatrix);canvas.clipRect(0,0,getWidth(),getHeight());
-        drawScene(canvas);
-        paint.setShader(null);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2*density);paint.setColor(0x809BB9CB);
-        canvas.drawRect(0,0,getWidth(),getHeight(),paint);paint.setStyle(Paint.Style.FILL);canvas.restoreToCount(save);
+        overviewMatrix.preTranslate(-getWidth()/2f,-getHeight()/2f);
+        RectF bounds=new RectF(0,0,getWidth(),getHeight());overviewMatrix.mapRect(bounds);
+        float available=Math.max(getWidth()*.25f,getWidth()-350*density);
+        float targetScale=Math.min(available/bounds.width(),getHeight()*.78f/bounds.height());
+        float size=1-(1-targetScale)*overview;overviewMatrix.postScale(size,size);
+        float targetCenter=20*density+available/2;
+        overviewMatrix.postTranslate(getWidth()/2f+(targetCenter-getWidth()/2f)*overview-bounds.centerX()*size,getHeight()/2f-bounds.centerY()*size);
+        if(overviewBitmap==null||overviewBitmap.getWidth()!=getWidth()||overviewBitmap.getHeight()!=getHeight()){
+            if(overviewBitmap!=null)overviewBitmap.recycle();
+            overviewBitmap=Bitmap.createBitmap(getWidth(),getHeight(),Bitmap.Config.ARGB_8888);overviewCanvas=new Canvas(overviewBitmap);
+            overviewShader=new BitmapShader(overviewBitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+        }
+        overviewBitmap.eraseColor(Color.TRANSPARENT);drawScene(overviewCanvas);
+        int save=canvas.save();canvas.concat(overviewMatrix);
+        RectF frame=new RectF(0,0,getWidth(),getHeight());
+        overviewPaint.setShader(overviewShader);overviewPaint.setStyle(Paint.Style.FILL);overviewPaint.setColor(Color.WHITE);
+        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
+        overviewPaint.setShader(null);overviewPaint.setStyle(Paint.Style.STROKE);overviewPaint.setStrokeWidth(density);overviewPaint.setColor(0x609BB9CB);
+        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);canvas.restoreToCount(save);
     }
     private void drawScene(Canvas canvas){
         float ambient=previewKey==null?ambientProgress:previewAmbient;
@@ -276,14 +295,17 @@ final class HomeView extends View {
             text(canvas, "by Pilipala", 178, 145, 14, normal, alphaColor(0x78FFFFFF,contentAlpha), Paint.Align.LEFT);
             connectIcon(canvas,405,110,muted);
             text(canvas,"Marco 互联",440,119,23,normal,muted,Paint.Align.LEFT);
+            magicIcon(canvas,690,110,muted);
+            text(canvas,"Magic Desktop",724,119,23,normal,muted,Paint.Align.LEFT);
             if(host.phone!=null&&host.phone.active()){paint.setColor(0xFF9FE0C4);canvas.drawCircle(420,90,5,paint);}
             icon(canvas, "\ue63e", wifiX, 110, 38, muted);
             if(movingRow!=null)text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
             if(host.playback!=null && host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (row == -1) {
-                float selectedX = topSelected == 0 ? 132 : topSelected==1?405:wifiX;
+                float selectedX = topSelected == 0 ? 132 : topSelected==1?405:topSelected==2?690:wifiX;
                 paint.setColor(alphaColor(0x28FFFFFF, contentAlpha));canvas.drawCircle(selectedX,110,34,paint);
                 if(topSelected==1)connectIcon(canvas,selectedX,110,alphaColor(Color.WHITE,contentAlpha));
+                else if(topSelected==2)magicIcon(canvas,selectedX,110,alphaColor(Color.WHITE,contentAlpha));
                 else icon(canvas,topSelected==0?"\ue8b8":"\ue63e",selectedX,110,40,alphaColor(Color.WHITE,contentAlpha));
             }
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE, contentAlpha), Paint.Align.LEFT);
@@ -345,6 +367,17 @@ final class HomeView extends View {
         canvas.drawText(text, x, y, paint);
     }
 
+    private void magicIcon(Canvas canvas,float x,float y,int color){
+        float spread=2*Math.max(0,Math.min(1,magicFocus.value));
+        canvas.save();canvas.translate(x,y);
+        magicPaint.setShader(null);magicPaint.setColor(color);magicPaint.setStyle(Paint.Style.STROKE);magicPaint.setStrokeWidth(2.2f);
+        rect.set(-20-spread,-15-spread,14-spread,10-spread);canvas.drawRoundRect(rect,5,5,magicPaint);
+        canvas.translate(spread,spread);rect.set(-11,-7,23,18);
+        magicPaint.setStyle(Paint.Style.FILL);magicPaint.setColor(alphaColor(0xFF172A3B,Color.alpha(color)/255f));canvas.drawRoundRect(rect,5,5,magicPaint);
+        magicPaint.setShader(magicGradient);magicPaint.setAlpha(Color.alpha(color));canvas.drawRoundRect(rect,5,5,magicPaint);
+        magicPaint.setShader(null);magicPaint.setStyle(Paint.Style.STROKE);magicPaint.setColor(color);canvas.drawRoundRect(rect,5,5,magicPaint);
+        magicPaint.setStyle(Paint.Style.FILL);canvas.restore();
+    }
     private void connectIcon(Canvas canvas,float x,float y,int color){
         canvas.save();canvas.translate(x,y);
         paint.setColor(color);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2.5f);
@@ -492,7 +525,7 @@ final class HomeView extends View {
         if (row == -1) {
             if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = host.playback.item==null?0:-2;
             else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = Math.max(0,topSelected-1);
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(2,topSelected+1);
+            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(3,topSelected+1);
             ensureVisible(); animateFocus();
         } else {
             Row r = rows.get(row);
@@ -522,7 +555,7 @@ final class HomeView extends View {
             pressSelected(false);
             if (longPressed) { longPressed = false; return true; }
             if (row == -2) host.playback.controls();
-            else if (row == -1) { if (topSelected == 0) host.settings(); else if(topSelected==1)host.phone.show();else host.network.show(); }
+            else if (row == -1) { if (topSelected == 0) host.settings(); else if(topSelected==1)host.phone.show();else if(topSelected==2)host.navigator.personalization("cards");else host.network.show(); }
             else if (!rows.isEmpty()) { Row r = rows.get(row); if (!r.tiles.isEmpty()) host.launch(r.tiles.get(r.selected)); }
             return true;
         }
@@ -542,6 +575,7 @@ final class HomeView extends View {
             else edge(false);return true;
         }
         if(y<175&&x>=365&&x<650){host.phone.show();return true;}
+        if(y<175&&x>=650&&x<940){host.navigator.personalization("cards");return true;}
         if (y < 175 && x < 365) { host.settings(); return true; }
         if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) { host.network.show(); return true; }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){row=-2;describeFocus();host.playback.controls();return true;}

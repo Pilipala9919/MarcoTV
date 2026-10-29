@@ -389,19 +389,6 @@ public final class MainActivity extends Activity {
         if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey().equals("网络与 Wi-Fi")||dialog.pageKey().equals("壁纸图库")))dialogHistory.add(navigator.settingsDialog());
         dialog.returning(false);dialogHistory.add(dialog);presentDialog(dialog);
     }
-    int settingsCategory(){
-        if(dialogHistory.size()<2||!dialogHistory.get(0).pageKey().equals("main"))return -1;
-        String key=dialogHistory.get(1).pageKey();
-        for(int i=0;i<SettingsCatalog.ROOT_IDS.length;i++)if(SettingsCatalog.ROOT_IDS[i].equals(key))return i;
-        return -1;
-    }
-    TvDialog settingsRoot(){return dialogHistory.size()>1&&dialogHistory.get(0).pageKey().equals("main")?dialogHistory.get(0):null;}
-    void switchCategory(int index){
-        if(activeDialog!=null){activeDialog.setOnDismissListener(null);activeDialog.dismiss();}
-        while(dialogHistory.size()>1)dialogHistory.remove(dialogHistory.size()-1).leave();
-        if(!dialogHistory.isEmpty())dialogHistory.get(0).focusItem(index);
-        navigator.openCategory(index);
-    }
     boolean isPage(String id){return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);}
     private void presentDialog(TvDialog dialog){
         activeDialog=dialog;dialogOpen=true;handler.removeCallbacks(idle);

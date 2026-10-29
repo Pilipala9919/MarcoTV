@@ -236,10 +236,10 @@ public final class DeviceRegressionChecks extends Instrumentation {
         network.onActivityResult(NetworkPanel.WIFI_SETTINGS);
         check("obsolete_result_does_not_add_page", ((List<?>) history.get(activity)).size() == size);
         activity.onNewIntent(new Intent(Intent.ACTION_MAIN));
-        activity.navigator.settings();activity.navigator.desktopSettings();activity.navigator.wallpaperSettings();
-        check("new_settings_keep_three_levels",((List<?>)history.get(activity)).size()==3&&activity.isPage("wallpaper"));
+        activity.navigator.settings();activity.navigator.applicationSettings();activity.navigator.sorting();
+        check("new_settings_keep_three_levels",((List<?>)history.get(activity)).size()==3&&activity.isPage("app_sort"));
         java.lang.reflect.Method back=MainActivity.class.getDeclaredMethod("menuBack");back.setAccessible(true);
-        back.invoke(activity);check("back_returns_one_group",activity.isPage("appearance"));
+        back.invoke(activity);check("back_returns_one_group",activity.isPage("apps"));
         back.invoke(activity);check("back_returns_settings_root",activity.isPage("main"));
         back.invoke(activity);check("root_back_returns_desktop",((List<?>)history.get(activity)).isEmpty()&&!field(MainActivity.class,"dialogOpen").getBoolean(activity));
         activity.navigator.settings();activity.navigator.applicationSettings();

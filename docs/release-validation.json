@@ -1,13 +1,13 @@
 {
-  "version": "0.13.2",
-  "version_code": 30,
+  "version": "0.14.0",
+  "version_code": 31,
   "date": "2026-10-29",
   "author": "Pilipala",
   "release_channel": "stable",
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "9cf1f96b66cac0ff073d5c2cb1fc69c0b3866f11a10e1939e476ee271c66d654",
+  "apk_sha256": "a3f097851622a9dfcb42f4c3721a300c2db9a5a964faf7abaa2051d35c406010",
   "automated": {
     "device": {
       "passed": 85,
@@ -125,7 +125,7 @@
       ]
     },
     "appearance": {
-      "passed": 46,
+      "passed": 54,
       "checks": [
         "desktop_entry_has_intermediate_frames",
         "desktop_entry_settles",
@@ -134,16 +134,17 @@
         "settings_reuse_same_native_window",
         "cached_parent_replays_return_animation",
         "settings_detail_uses_compact_width",
-        "short_settings_open_as_anchored_bubble",
-        "short_bubble_shows_all_rows_without_clipping",
-        "dimmed_settings_cannot_take_remote_focus",
-        "bubble_footer_keeps_horizontal_navigation",
-        "deeper_bubble_replaces_content_without_stacking",
-        "bubble_right_returns_exactly_one_level",
-        "bubble_back_restores_parent_focus",
-        "long_settings_use_single_narrow_drawer",
+        "settings_child_replaces_parent_in_same_position",
+        "settings_parent_is_detached",
+        "deeper_page_does_not_stack_panels",
+        "nested_back_restores_clicked_row",
+        "root_back_restores_clicked_nonfirst_row",
+        "repeated_return_keeps_same_focus",
         "preview_overview_reaches_perspective",
         "preview_keeps_entire_desktop_left_of_controls",
+        "preview_right_edge_recedes",
+        "preview_uses_filtered_antialiased_surface",
+        "preview_releases_surface_on_exit",
         "preview_exit_restores_full_desktop",
         "wifi_bubble_is_small_and_top_anchored",
         "wifi_switch_reports_real_checked_state",
@@ -160,6 +161,13 @@
         "second_card_keeps_row_at_origin",
         "later_cards_anchor_to_second_position",
         "root_back_closes_shared_window",
+        "personalization_contains_all_twenty_parameters",
+        "personalization_edits_stay_in_draft",
+        "personalization_focus_selects_screensaver_preview",
+        "personalization_child_return_keeps_draft",
+        "personalization_back_discards_all_draft",
+        "personalization_save_commits_draft",
+        "personalization_home_discards_draft",
         "home_down_waits_for_release",
         "home_release_returns_desktop",
         "home_double_release_opens_recents",
@@ -215,15 +223,14 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Code 30 overwrite installation on Xiaomi Android 9. Anchored bubbles, background focus isolation, child replacement, unclipped short menus, footer direction-key navigation, Back focus restoration, narrow drawers, perspective preview and real Wi-Fi switch state exercised on device. Home gesture tests invoke service logic, not a physical remote. No other TV connected.",
+  "validation_scope": "Final code 31 APK overwrite installation on Xiaomi Android 9. All five device suites ran on the recorded APK. Settings replace content at a fixed position; repeated Back restores the clicked row. Magic Desktop has twenty reversible parameters, child return preserves draft, Save commits and Back/Home cancel. Perspective bounds, tilt direction, antialiased filtered surface and release on exit checked. Home gesture tests invoke service logic, not a physical remote. No other TV connected.",
   "not_verified": [
     "TCL 75T8G Max Android 11 physical Home and task service",
     "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
-    "physical remote on 0.13.2 (user will test later)",
+    "physical remote on 0.14.0 (user will test later)",
     "full reboot and long duration stability on this version",
     "physical iPhone Safari and Android phone browser",
     "real Wi-Fi network switching on Android 10+",
-    "actual Wi-Fi toggling and reconnection on this version",
     "actual Wi-Fi toggling and reconnection on this version"
   ],
   "browser_checks": {
@@ -256,20 +263,11 @@
     }
   },
   "upgrade": {
-    "from": "0.13.1",
-    "to": "0.13.2",
-    "version_code": 30,
+    "from": "0.13.2",
+    "to": "0.14.0",
+    "version_code": 31,
     "adb_overwrite_install_succeeded": true,
     "same_signature_accepted_by_package_manager": true
   },
-  "automated_total": 258,
-  "candidate_validation": {
-    "earlier_apk_sha256": "45cdbf6b641817b39142e2e80aa20250adb262532fe64cddf8740e0174457494",
-    "suites": [
-      "device",
-      "phone",
-      "task_actions"
-    ],
-    "final_change": "Only the Marco Connect entry icon drawing changed after these suites. Final APK reruns appearance and bridge suites, local checks and eight demo screenshots."
-  }
+  "automated_total": 266
 }
