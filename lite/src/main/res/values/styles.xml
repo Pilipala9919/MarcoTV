@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
+<resources><color name="lite_background">#08121D</color><style name="LiteTheme" parent="android:style/Theme.Holo.NoActionBar"><item name="android:windowFullscreen">true</item><item name="android:windowBackground">@color/lite_background</item><item name="android:windowNoTitle">true</item></style></resources>

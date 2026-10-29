@@ -48,6 +48,10 @@ scripts/*
 !scripts/PhoneDeviceChecks.java
 !scripts/PhoneHttpChecks.java
 !scripts/test_phone_http.py
+!scripts/bootstrap_lite.py
+!scripts/build_lite.py
+!scripts/test_lite.py
+!scripts/test_lite_device.py
 
 # Local platform promotion deliverables are distributed separately.
 宣传/

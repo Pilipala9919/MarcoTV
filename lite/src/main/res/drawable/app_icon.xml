@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item><shape><solid android:color="#142C3B"/><corners android:radius="12dp"/></shape></item><item android:left="9dp" android:right="9dp" android:top="12dp" android:bottom="12dp"><shape><solid android:color="#B0E2E7"/><corners android:radius="4dp"/></shape></item><item android:left="14dp" android:right="14dp" android:top="17dp" android:bottom="17dp"><shape><solid android:color="#142C3B"/><corners android:radius="2dp"/></shape></item></layer-list>

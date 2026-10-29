@@ -56,6 +56,8 @@
 
 ## 兼容性
 
+**老电视实验分支：[Marco TV Lite 0.1.0](lite/README.md)**。独立安装，目标最低 Android 4.0；已通过 Android 4.0.2 模拟器基础验证，尚无老电视真机验证。功能与更新渠道独立，不影响下述完整版要求。
+
 **更多机型等待实测反馈，欢迎加入测试！** 请通过 [GitHub Issues](https://github.com/Pilipala9919/MarcoTV/issues) 提交型号、系统版本与具体使用情况。
 
 最低 **Android 6.0 / API 23**，targetSdk 为 28。实际开发和验证设备为 **Xiaomi MiTV-ASTP0、Android 9**。能安装 APK 与 Home 接管、自动恢复全部可用是不同验收项。

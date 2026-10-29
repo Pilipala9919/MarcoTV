@@ -34,6 +34,12 @@ jobs:
         run: python scripts/test_phone_http.py
       - name: Public source checks
         run: python scripts/check_release.py
+      - name: Prepare Android 4.0 Lite toolchain
+        run: python scripts/bootstrap_lite.py
+      - name: Compile isolated Lite against API 14 and verify APK
+        run: python scripts/build_lite.py
+      - name: Lite layout and isolation checks
+        run: python scripts/test_lite.py
       - name: Package source
         run: python scripts/package.py
       - uses: actions/upload-artifact@v4

@@ -12,7 +12,8 @@ SCRIPT_FILES=['bootstrap.py','build.py','setup_system.py','start_task_bridge.py'
 def source_files():
     files=[ROOT/name for name in ROOT_FILES]
     files.extend(ROOT/'scripts'/name for name in SCRIPT_FILES)
-    for folder in ['app','docs','.github','licenses']:
+    files.extend(ROOT/'scripts'/name for name in ['bootstrap_lite.py','build_lite.py','test_lite.py','test_lite_device.py'])
+    for folder in ['app','lite','docs','.github','licenses']:
         files.extend(p for p in (ROOT/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
     files.extend(p for p in (ROOT/'installer').rglob('*') if p.is_file()
                  and p.suffix in {'.cs','.java','.py','.xml','.md','.json'}

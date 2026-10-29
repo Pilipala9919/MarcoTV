@@ -1,0 +1,109 @@
+{
+  "version": "0.1.0",
+  "package": "com.pilipala.tvhome.lite",
+  "compile_api": 14,
+  "min_api": 14,
+  "shared_sources": [
+    "ClockScene.java",
+    "MotionSpring.java",
+    "PreviewPreferences.java"
+  ],
+  "bytes": 4326802,
+  "sha256": "2ce5a7af7fea727102c715e18335e2fecf651e0a3ec566cdf3269227b5b14d24",
+  "physical_android4_tv_verified": false,
+  "author": "Pilipala",
+  "edition": "Lite",
+  "status": "experimental",
+  "date": "2026-10-29",
+  "full_edition_changed": false,
+  "full_edition_latest": "0.14.2",
+  "emulator": {
+    "android": "4.0.2",
+    "api": 14,
+    "architecture": "armeabi-v7a",
+    "ram_mb": 512,
+    "display_configuration": "1280x720",
+    "view_capture": "1280x672",
+    "gpu": "off",
+    "image_url": "https://dl.google.com/android/repository/sys-img/android/sysimg_armv7a-14_r02.zip",
+    "image_archive_sha1": "d8991b0c06b18d7d6ed4169d67460ee1add6661b",
+    "tools_url": "https://dl.google.com/android/repository/tools_r25.2.5-windows.zip",
+    "tools_archive_sha1": "a7f7ebeae1c8d8f62d3a8466e9c81baee7cc31ca"
+  },
+  "local_checks": {
+    "layout_checks": 8,
+    "apk_checks": {
+      "separate_package": true,
+      "api14_manifest": true,
+      "no_privileged_or_network_permissions": true,
+      "no_background_services_or_receivers": true,
+      "old_dalvik_dex_035": true,
+      "no_full_edition_system_classes": true,
+      "font_licenses_bundled": true,
+      "four_static_fonts_bundled": true,
+      "apk_crc": true,
+      "no_native_arch_dependency": true
+    }
+  },
+  "local_check_count": 18,
+  "runtime_passed": [
+    "actual_android_api_is_14",
+    "lite_has_separate_package",
+    "launcher_apps_discovered",
+    "apps_unique_and_icon_cache_bounded",
+    "wallpaper_decoded_under_memory_budget",
+    "dpad_moves_to_second_card",
+    "dpad_returns_to_first_card",
+    "up_focuses_header",
+    "header_opens_magic_desktop",
+    "position_preview_is_reversible_draft",
+    "back_discards_draft",
+    "save_commits_height",
+    "home_intent_discards_unsaved_draft",
+    "defaults_require_save",
+    "local_backup_restores_parameters",
+    "invalid_backup_keeps_settings",
+    "four_static_clock_fonts_render_on_api14",
+    "wake_confirm_does_not_open_menu",
+    "settings_back_returns_to_desktop",
+    "status_back_returns_one_level",
+    "paused_view_stops_frame_and_timer_loop",
+    "resume_restarts_desktop",
+    "application_launch_leaves_lite"
+  ],
+  "runtime_check_count": 23,
+  "all_executed_checks_passed": true,
+  "dex_version": "035",
+  "signature_verified_min_api": 14,
+  "zipalign_verified": true,
+  "not_verified": [
+    "physical Android 4 television",
+    "OEM Home button interception and default HOME selection",
+    "physical remote key mapping and long press",
+    "power off/wake and OEM screensaver",
+    "long-duration performance and memory pressure",
+    "Android 4.0.3/4.0.4, 4.1-5.x",
+    "other processor architectures and display resolutions"
+  ],
+  "screen_capture_kind": "Runtime View.draw(Canvas) on Android 4.0.2 emulator, not physical television capture",
+  "source_tests": [
+    "lite/tests/LiteDeviceChecks.java",
+    "lite/tests/LiteSettingsChecks.java",
+    "scripts/test_lite.py",
+    "scripts/test_lite_device.py"
+  ],
+  "screenshots": [
+    {
+      "path": "docs/assets/lite-clock-api14.png",
+      "sha256": "d3cafb73542687f942477eb5b79627475e2cd22de74d7c924c46b74e4ead2c97"
+    },
+    {
+      "path": "docs/assets/lite-home-api14.png",
+      "sha256": "bf688a2e323d78451bb056a8cfefb8b93c62ea7b20cc0e627820cdfd4ccbc039"
+    },
+    {
+      "path": "docs/assets/lite-magic-api14.png",
+      "sha256": "4feb62beaf924e3f1cf2db01bbf0b1f77e013c047674207425da96b8f96bd762"
+    }
+  ]
+}
