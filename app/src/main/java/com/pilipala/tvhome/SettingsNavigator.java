@@ -101,7 +101,7 @@ final class SettingsNavigator {
     void ambientSettings() {
         boolean enabled=AmbientIntegration.enabled(host);
         host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("屏保开关")
-            .setMessage("时间大小、亮度与渐变时长在个性化右侧列表调整。")
+            .setMessage("时间大小、亮度与渐变时长在 Magic Desktop 右侧列表调整。")
             .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保"},(d,w)->{
                 if(w==1){previewAmbient();return;}
                 host.preferences.edit().putBoolean("ambient_enabled",!enabled).apply();AmbientIntegration.configure(host);

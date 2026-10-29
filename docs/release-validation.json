@@ -7,7 +7,7 @@
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "a3f097851622a9dfcb42f4c3721a300c2db9a5a964faf7abaa2051d35c406010",
+  "apk_sha256": "0bd3e454f9ba1bef2077bd8945c56679317fe6c01b6fa6520653329a28225e4e",
   "automated": {
     "device": {
       "passed": 85,
@@ -223,7 +223,7 @@
     "v2",
     "v3"
   ],
-  "validation_scope": "Final code 31 APK overwrite installation on Xiaomi Android 9. All five device suites ran on the recorded APK. Settings replace content at a fixed position; repeated Back restores the clicked row. Magic Desktop has twenty reversible parameters, child return preserves draft, Save commits and Back/Home cancel. Perspective bounds, tilt direction, antialiased filtered surface and release on exit checked. Home gesture tests invoke service logic, not a physical remote. No other TV connected.",
+  "validation_scope": "Final code 31 APK overwrite installation on Xiaomi Android 9. All five device suites passed before a final text-only rename. Appearance and bridge suites reran on the final recorded APK. Settings replace content at a fixed position; repeated Back restores the clicked row. Magic Desktop has twenty reversible parameters, child return preserves draft, Save commits and Back/Home cancel. Perspective bounds, tilt direction, antialiased filtered surface and release on exit checked. Home gesture tests invoke service logic, not a physical remote. No other TV connected.",
   "not_verified": [
     "TCL 75T8G Max Android 11 physical Home and task service",
     "Huawei HD65DESA HarmonyOS 4.2.0.128 installation and system APIs",
@@ -269,5 +269,14 @@
     "adb_overwrite_install_succeeded": true,
     "same_signature_accepted_by_package_manager": true
   },
-  "automated_total": 266
+  "automated_total": 266,
+  "candidate_validation": {
+    "earlier_apk_sha256": "a3f097851622a9dfcb42f4c3721a300c2db9a5a964faf7abaa2051d35c406010",
+    "suites": [
+      "device",
+      "phone",
+      "task_actions"
+    ],
+    "final_change": "Only the screensaver help text changed from the old personalization name to Magic Desktop. Appearance and bridge suites passed again on the final APK."
+  }
 }
