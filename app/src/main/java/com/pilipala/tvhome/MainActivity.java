@@ -56,7 +56,8 @@ public final class MainActivity extends Activity {
     }
     int menuEpoch;
     final ArrayList<Tile> allTiles = new ArrayList<>();
-    private int loadGeneration, wallpaperGeneration;
+    private int loadGeneration;
+    private final WallpaperLoader wallpapers = new WallpaperLoader(this);
     private boolean ambientRequested;
     final Handler handler = new Handler(Looper.getMainLooper());
     final ExecutorService loader = Executors.newSingleThreadExecutor();
@@ -262,18 +263,7 @@ public final class MainActivity extends Activity {
     }
 
     void loadWallpaper() {
-        final int generation = ++wallpaperGeneration;
-        loader.execute(() -> {
-            Bitmap ready = WallpaperSource.load(this);
-            handler.post(() -> {
-                if (!isDestroyed() && generation == wallpaperGeneration) {
-                    Bitmap previous = home.wallpaper;
-                    home.wallpaper = ready;
-                    if (previous != null && previous != ready && previous != home.wallpaper) previous.recycle();
-                    home.invalidate();
-                }
-            });
-        });
+        wallpapers.load();
     }
 
     private Tile applicationTile(ResolveInfo resolve) {
