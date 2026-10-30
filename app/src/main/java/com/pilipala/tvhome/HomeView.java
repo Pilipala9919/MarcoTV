@@ -193,6 +193,7 @@ final class HomeView extends View {
     void setIdle(boolean value) {
         if (value == idleMode && ((fade != null && fade.isRunning()) || ambientProgress == (value ? 1 : 0))) { if (!value) host.armIdle(); return; }
         idleMode = value;
+        host.idleChanged(value);
         if (fade != null) fade.cancel();
         fade = ValueAnimator.ofFloat(ambientProgress, value ? 1 : 0);
         fade.setDuration(value ? host.appearance().getInt("ambient_transition",3) * 1000L : 400);
@@ -314,7 +315,8 @@ final class HomeView extends View {
         canvas.save(); canvas.translate((getWidth() - 1920 * scale) / 2, offsetY); canvas.scale(scale, scale);
         if(host.recents.visible||(previewKey!=null&&previewKey.startsWith("recent_"))){host.recents.draw(canvas,previewKey!=null);canvas.restore();return;}
         paint.setColor(Color.argb(ClockScene.dim(host.appearance(),ambient),0,0,0)); canvas.drawRect(0,0,1920,1080,paint);
-        clockScene.draw(canvas,host.appearance(),ambient);
+        // Only the real idle screen drifts; previews and phone previews stay put.
+        clockScene.draw(canvas,host.appearance(),ambient,previewKey==null&&(host.phone==null||!host.phone.ambientPreview()));
         if (contentAlpha > 0.005f) {
             float wifiX = clockScene.left(host.appearance()) - 70;
             int muted = alphaColor(0xC0FFFFFF, contentAlpha);

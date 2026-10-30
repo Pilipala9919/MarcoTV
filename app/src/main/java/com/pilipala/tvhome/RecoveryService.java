@@ -14,7 +14,14 @@ public final class RecoveryService extends Service {
     static volatile boolean running;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private int retries;
-    private final Runnable recover = () -> SystemIntegration.recover(this);
+    private boolean accessibilityChanged;
+    private final Runnable recover = () -> {
+        boolean userTurnedOff = accessibilityChanged && SystemIntegration.respectExternalHomeServiceOff(this, true);
+        accessibilityChanged = false;
+        if (userTurnedOff) android.widget.Toast.makeText(this, "已按系统设置关闭 Marco TV Home 键兼容", android.widget.Toast.LENGTH_LONG).show();
+        SystemIntegration.recover(this);
+        if (!SystemIntegration.needsRecovery(this)) stopSelf();
+    };
     private final Runnable startupCheck = new Runnable() {
         @Override public void run() {
             if (!SystemIntegration.needsRecovery(RecoveryService.this)) { stopSelf(); return; }
@@ -23,7 +30,9 @@ public final class RecoveryService extends Service {
         }
     };
     private final ContentObserver observer = new ContentObserver(handler) {
-        @Override public void onChange(boolean selfChange) {
+        @Override public void onChange(boolean selfChange) { onChange(selfChange, null); }
+        @Override public void onChange(boolean selfChange, android.net.Uri uri) {
+            if (uri == null || !uri.equals(Settings.Global.getUriFor(Settings.Global.ADB_ENABLED))) accessibilityChanged = true;
             handler.removeCallbacks(recover);
             handler.postDelayed(recover, 250);
         }

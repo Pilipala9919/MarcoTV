@@ -19,12 +19,13 @@ final class StatusSnapshot {
             +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务"+(HomeKeyService.connected?"已连接":"未连接")
             +"\nHome 原厂按键："+(p.getBoolean("home_native_keys",false)?"放行":"Marco 处理")+" / 长按："+p.getString("home_long_action","system")
             +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启（待开机实测）":"未开启")
-            +"\nADB 自动恢复："+(p.getBoolean("adb_restore",false)?"已开启":"未开启")+" / 调试开关"+(adb?"已打开":"已关闭")
+            +"\nADB 自动恢复："+SystemIntegration.adbRestoreLabel(c)+" / 调试开关"+(adb?"已打开":"已关闭")
             +"\n恢复服务："+(RecoveryService.running?"运行中":"未运行")
             +"\n最近恢复检查："+HealthPanel.date(p.getLong("last_check",0))
             +"\n最近恢复 ADB："+HealthPanel.date(p.getLong("last_adb_restore",0))
             +"\n最近开机记录："+HealthPanel.date(p.getLong("last_boot_time",0))
             +"\n恢复结果："+(p.contains("last_error")?"需要处理，请查看系统与启动":"未记录错误")
+            +(p.contains("last_notice")?"\n提示："+p.getString("last_notice",""):"")
             +"\n唤醒恢复偏好："+(c.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启（还需 Home 兼容与任务服务）":"未开启");
     }
     static String extended(){

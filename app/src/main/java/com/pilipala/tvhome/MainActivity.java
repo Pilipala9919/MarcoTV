@@ -19,7 +19,6 @@ import java.util.concurrent.*;
 
 /** A small, offline Android TV launcher. All application artwork comes from installed packages. */
 public final class MainActivity extends Activity {
-    private static final int PICK_WALLPAPER = 100;
     CardStore cards;
     NetworkPanel network;
     SettingsNavigator navigator;
@@ -58,6 +57,20 @@ public final class MainActivity extends Activity {
     private boolean dialogOpen;
     private boolean receiverRegistered;
     private final Runnable idle = () -> { if (foreground && !dialogOpen && !home.isMoving() && !recents.visible && (phone==null||!phone.active())) home.setIdle(true); };
+    static final int DEFAULT_SLEEP_MINUTES = 30;
+    /** After this long on the idle clock, let the TV follow its own sleep timer again. */
+    private final Runnable releaseScreen = () -> {
+        if (!foreground) return;
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Diagnostics.event("IDLE_SCREEN_RELEASED");
+    };
+    void idleChanged(boolean idle) {
+        handler.removeCallbacks(releaseScreen);
+        if (!foreground || !AmbientIntegration.enabled(this)) return;
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        int minutes = preferences.getInt("ambient_sleep_minutes", DEFAULT_SLEEP_MINUTES);
+        if (idle && minutes > 0) handler.postDelayed(releaseScreen, minutes * 60000L);
+    }
     private final Runnable clock = new Runnable() {
         @Override public void run() {
             if (foreground) { home.invalidate(); handler.postDelayed(this, 1000); }
@@ -144,7 +157,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         if(phone!=null)phone.clearPreview();
         if(updates!=null)updates.pause();
-        foreground = false; Diagnostics.foreground(false); if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock);
+        foreground = false; Diagnostics.foreground(false); if(playback!=null)playback.stop(); handler.removeCallbacks(idle); handler.removeCallbacks(clock); handler.removeCallbacks(releaseScreen);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if(recents!=null)recents.stop();
         if (home != null) { home.stopMotion(); if (home.fade != null) home.fade.cancel(); if(home.previewFade!=null)home.previewFade.cancel(); }
@@ -434,12 +447,6 @@ public final class MainActivity extends Activity {
         if(updates!=null&&updates.result(request))return;
         if (files.result(request,result,data)) return;
         if (network.onActivityResult(request)) return;
-        if (cover.onActivityResult(request, result, data)) return;
-        if (request == PICK_WALLPAPER && result == RESULT_OK && data != null && data.getData() != null) {
-            Uri uri = data.getData();
-            try { getContentResolver().takePersistableUriPermission(uri, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION); }
-            catch (Exception ignored) { }
-            preferences.edit().putString("wallpaper", uri.toString()).apply(); loadWallpaper();
-        }
+        cover.onActivityResult(request, result, data);
     }
 }

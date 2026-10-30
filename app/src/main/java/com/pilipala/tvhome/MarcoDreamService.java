@@ -34,7 +34,7 @@ public final class MarcoDreamService extends DreamService {
         @Override protected void onDraw(Canvas c){
             c.drawColor(Color.BLACK);float scale=Math.min(getWidth()/1920f,getHeight()/1080f);
             if(wallpaper!=null){float k=Math.max(getWidth()/(float)wallpaper.getWidth(),getHeight()/(float)wallpaper.getHeight());float w=k*wallpaper.getWidth(),h=k*wallpaper.getHeight();rect.set((getWidth()-w)/2,(getHeight()-h)/2,(getWidth()+w)/2,(getHeight()+h)/2);paint.setColor(Color.WHITE);c.drawBitmap(wallpaper,null,rect,paint);}
-            c.drawColor(Color.argb(ClockScene.dim(prefs,ambient),0,0,0));c.save();c.translate((getWidth()-1920*scale)/2,(getHeight()-1080*scale)/2);c.scale(scale,scale);clock.draw(c,prefs,ambient);c.restore();
+            c.drawColor(Color.argb(ClockScene.dim(prefs,ambient),0,0,0));c.save();c.translate((getWidth()-1920*scale)/2,(getHeight()-1080*scale)/2);c.scale(scale,scale);clock.draw(c,prefs,ambient,true);c.restore();
         }
     }
 }

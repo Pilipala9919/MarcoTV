@@ -135,7 +135,7 @@ public final class LiteActivity extends Activity {
         void scene(Canvas c,float idle){
             c.save();c.clipRect(0,0,1920,1080);
             SharedPreferences a=appearance();if(wallpaper!=null){rect.set(0,0,1920,1080);p.setAlpha(255);c.drawBitmap(wallpaper,null,rect,p);}else c.drawColor(0xFF122B40);
-            p.setColor(Color.argb(ClockScene.dim(a,idle),0,0,0));c.drawRect(0,0,1920,1080,p);clock.draw(c,a,idle);if(idle>.8f){c.restore();return;}
+            p.setColor(Color.argb(ClockScene.dim(a,idle),0,0,0));c.drawRect(0,0,1920,1080,p);clock.draw(c,a,idle,true);if(idle>.8f){c.restore();return;}
             text(c,"Marco TV Lite",112,115,32,0xFFDCECF1,true);text(c,"by Pilipala · 老电视兼容实验版",112,150,20,0xFF9AB3C1,false);
             if(topFocus&&top==0)box(c,410,70,560,145,16,0xFF36576B);text(c,"设置",442,119,28,0xFFE6F1F6,false);
             if(topFocus&&top==1)box(c,590,70,875,145,16,0xFF36576B);text(c,"Magic Desktop",617,119,28,0xFFE6F1F6,false);

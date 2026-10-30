@@ -50,7 +50,23 @@ final class ClockScene {
         return layout;
     }
     float left(SharedPreferences prefs){return 1798-layout(prefs).width*size(prefs,0)/280;}
-    void draw(Canvas c,SharedPreferences prefs,float ambient){
+    void draw(Canvas c,SharedPreferences prefs,float ambient){draw(c,prefs,ambient,false);}
+    /** Slow anti burn-in drift for long idle displays, in 1920x1080 design pixels.
+     * Two unrelated periods trace a Lissajous path, so no pixel stays lit at one spot. */
+    static float driftX(long now){return (float)(DRIFT_X*Math.sin(now*2*Math.PI/DRIFT_PERIOD_X));}
+    static float driftY(long now){return (float)(DRIFT_Y*Math.sin(now*2*Math.PI/DRIFT_PERIOD_Y));}
+    static final float DRIFT_X=36,DRIFT_Y=22;
+    static final long DRIFT_PERIOD_X=7*60*1000L,DRIFT_PERIOD_Y=11*60*1000L;
+    /** drift=true only for the real screensaver, never for settings previews. */
+    void draw(Canvas c,SharedPreferences prefs,float ambient,boolean drift){
+        if(drift&&ambient>0){
+            long now=System.currentTimeMillis();int saved=c.save();
+            c.translate(-Math.abs(driftX(now))*ambient,(driftY(now)+DRIFT_Y)*ambient);
+            drawClock(c,prefs,ambient);c.restoreToCount(saved);return;
+        }
+        drawClock(c,prefs,ambient);
+    }
+    private void drawClock(Canvas c,SharedPreferences prefs,float ambient){
         TimeZone currentZone=TimeZone.getDefault();if(!time.getTimeZone().equals(currentZone)){time.setTimeZone(currentZone);date.setTimeZone(currentZone);cachedTime="";}
         Date current=new Date(System.currentTimeMillis());String shown=time.format(current);
         Layout glyphs=layout(prefs);int style=style(prefs),tilt=tilt(prefs,style);

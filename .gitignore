@@ -61,3 +61,6 @@ scripts/*
 
 !scripts/MotionDeviceChecks.java
 !scripts/test_ui_motion.py
+
+# Local assistant notes reference private paths.
+CLAUDE.md

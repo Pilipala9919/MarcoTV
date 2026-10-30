@@ -81,6 +81,7 @@ def build():
     keystore = Path(os.environ.get('MARCOTV_KEYSTORE', str(keys / 'development.p12')))
     alias = os.environ.get('MARCOTV_KEY_ALIAS','tvhome')
     env.setdefault('MARCOTV_STORE_PASSWORD','android')
+    if env['MARCOTV_STORE_PASSWORD']=='android':print('WARNING: signing with the default development password. Back up the keystore offline and set MARCOTV_STORE_PASSWORD; see the signing section of the build docs.')
     if not keystore.exists():
         if os.environ.get('MARCOTV_KEYSTORE'):
             raise RuntimeError('Configured signing key does not exist')

@@ -32,6 +32,7 @@ def build():
  apk=ROOT/f'dist/MarcoTV-Lite-{version}.apk';key=Path(os.environ.get('MARCOTV_KEYSTORE',str(ROOT/'private/development.p12')))
  if not key.exists():raise RuntimeError('Run regular build once to initialize local development signing key, or configure MARCOTV_KEYSTORE.')
  env.setdefault('MARCOTV_STORE_PASSWORD','android')
+ if env['MARCOTV_STORE_PASSWORD']=='android':print('WARNING: signing with the default development password. Back up the keystore offline and set MARCOTV_STORE_PASSWORD; see the signing section of the build docs.')
  run(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','sign','--min-sdk-version','14','--ks',key,'--ks-key-alias',os.environ.get('MARCOTV_KEY_ALIAS','tvhome'),'--ks-pass','env:MARCOTV_STORE_PASSWORD','--out',apk,BUILD/'aligned.apk')
  run(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','verify','--min-sdk-version','14','--verbose',apk)
  run(executable(TOOLS,'zipalign'),'-c','4',apk)
