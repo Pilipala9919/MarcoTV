@@ -7,7 +7,7 @@ public final class DrawerHomeChecks extends Instrumentation {
  Object field(Object o,String n){try{Field f=o.getClass().getDeclaredField(n);f.setAccessible(true);return f.get(o);}catch(Exception e){throw new RuntimeException(e);}}
  void check(String n,boolean ok){if(!ok)throw new AssertionError(n);passed++;Bundle b=new Bundle();b.putString("stream","PASS "+n+"\n");sendStatus(0,b);}
  void ui(Runnable r){final Throwable[] e={null};runOnMainSync(()->{try{r.run();}catch(Throwable t){e[0]=t;}});if(e[0]!=null)throw new AssertionError(e[0]);}
- TvDialog page(){return (TvDialog)field(host,"activeDialog");}
+ TvDialog page(){return (TvDialog)field(host.dialogs,"activeDialog");}
  GridLayout grid(){if(page()==null)return null;Object spec=field(page(),"spec");Object view=field(spec,"view");return view instanceof GridLayout?(GridLayout)view:null;}
  public void onCreate(Bundle b){super.onCreate(b);start();}
  public void onStart(){Bundle result=new Bundle();try{

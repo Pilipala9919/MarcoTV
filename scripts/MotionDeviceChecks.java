@@ -7,7 +7,7 @@ public final class MotionDeviceChecks extends Instrumentation {
  Object field(Object o,String key){try{Field f=o.getClass().getDeclaredField(key);f.setAccessible(true);return f.get(o);}catch(Exception e){throw new RuntimeException(e);}}
  void ui(Runnable action){final Throwable[] error={null};runOnMainSync(()->{try{action.run();}catch(Throwable e){error[0]=e;}});if(error[0]!=null)throw new AssertionError(error[0]);}
  void check(String label,boolean ok){if(!ok)throw new AssertionError(label);passed++;Bundle b=new Bundle();b.putString("stream","PASS "+label+"\n");sendStatus(0,b);}
- TvDialog page(){return (TvDialog)field(host,"activeDialog");}
+ TvDialog page(){return (TvDialog)field(host.dialogs,"activeDialog");}
  ViewGroup root(){return (ViewGroup)field(host.panelWindow(),"root");}
  void waitMotion()throws Exception{Thread.sleep(1600);}
  void capture(String name)throws Exception{Bitmap b=getUiAutomation().takeScreenshot();if(b!=null){java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(host.getExternalFilesDir(null),name+".png"));b.compress(Bitmap.CompressFormat.PNG,100,out);out.close();b.recycle();}}

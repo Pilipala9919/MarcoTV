@@ -46,7 +46,7 @@ final class PhoneDeviceChecks {
             request("/pair",pair,"http://untrusted.invalid","");check.accept("cross_origin_pair_is_denied",status==403);
             JSONObject pending=new JSONObject(request("/pair",pair,origin,""));check.accept("pair_requires_tv_confirmation",pending.getString("status").equals("pending"));
             request("/state",null,"","");check.accept("pending_pair_cannot_read_state",status==401);
-            inst.runOnMainSync(()->{try{TvDialog d=(TvDialog)field(host,"activeDialog");View button=find(d.getWindow().getDecorView(),"允许连接");if(button==null)throw new AssertionError("approval button");button.performClick();}catch(Exception e){throw new RuntimeException(e);}});
+            inst.runOnMainSync(()->{try{TvDialog d=(TvDialog)field(host.dialogs,"activeDialog");View button=find(d.getWindow().getDecorView(),"允许连接");if(button==null)throw new AssertionError("approval button");button.performClick();}catch(Exception e){throw new RuntimeException(e);}});
             JSONObject paired=new JSONObject(request("/pair",pair,origin,""));csrf=paired.getString("csrf");check.accept("tv_confirmation_establishes_session",paired.getString("status").equals("connected")&&!cookie.isEmpty());
             JSONObject current=state();check.accept("paired_state_lists_rows",status==200&&current.has("rows"));
             JSONObject values=new JSONObject().put("card_radius",saved==50?40:50);

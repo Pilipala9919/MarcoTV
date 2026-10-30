@@ -37,7 +37,7 @@ public final class MainActivity extends Activity {
         return localPreview!=null?localPreview:previewPreferences==null?preferences:previewPreferences;
     }
     boolean canShowUpdateNotice(){
-        return foreground&&!dialogOpen&&(recents==null||!recents.visible);
+        return foreground&&!dialogs.open()&&(recents==null||!recents.visible);
     }
     RecentApps recents;
     private final HomePressTracker homePressTracker=new HomePressTracker();
@@ -48,13 +48,12 @@ public final class MainActivity extends Activity {
             if(playback!=null)playback.refresh();
         }
     };
-    private TvDialog activeDialog;
+    final DialogStack dialogs = new DialogStack(this);
     private PanelWindow panels;
     PanelWindow panelWindow(){
         if(panels==null)panels=new PanelWindow(this);
         return panels;
     }
-    private final ArrayList<TvDialog> dialogHistory = new ArrayList<>();
     int menuEpoch;
     final ArrayList<Tile> allTiles = new ArrayList<>();
     private int loadGeneration, wallpaperGeneration;
@@ -64,10 +63,9 @@ public final class MainActivity extends Activity {
     SharedPreferences preferences;
     HomeView home;
     boolean foreground;
-    private boolean dialogOpen;
     private boolean receiverRegistered;
     private final Runnable idle = () -> {
-        if (foreground && !dialogOpen && !home.isMoving() && !recents.visible && (phone==null||!phone.active())) home.setIdle(true);
+        if (foreground && !dialogs.open() && !home.isMoving() && !recents.visible && (phone==null||!phone.active())) home.setIdle(true);
     };
     static final int DEFAULT_SLEEP_MINUTES = 30;
     /** After this long on the idle clock, let the TV follow its own sleep timer again. */
@@ -188,7 +186,7 @@ public final class MainActivity extends Activity {
             home.requestFocus();
         }
         if (home != null) {
-            if(activeDialog==null&&!ambientRequested)home.enter();
+            if(dialogs.active()==null&&!ambientRequested)home.enter();
             else home.animateFocus();
         }
         handler.removeCallbacks(clock);
@@ -199,7 +197,7 @@ public final class MainActivity extends Activity {
             handler.removeCallbacks(idle);
             home.setIdle(true);
         }
-        if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
+        dialogs.resume();
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
         if(updates!=null)updates.resume();
@@ -274,7 +272,7 @@ public final class MainActivity extends Activity {
     void armIdle() {
         handler.removeCallbacks(idle);
         int seconds = preferences.getInt("idle_seconds", 30);
-        if (foreground && !dialogOpen && (phone==null||!phone.active()) && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle,
+        if (foreground && !dialogs.open() && (phone==null||!phone.active()) && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle,
                 seconds * 1000L);
     }
 
@@ -552,71 +550,19 @@ public final class MainActivity extends Activity {
     }
 
     void showDialog(TvDialog dialog) {
-        if(isDestroyed()||isFinishing())return;
-        if(activeDialog!=null){
-            activeDialog.setOnDismissListener(null);
-            activeDialog.dismiss();
-        }
-        // Explicit callbacks which refresh an existing page replace it rather than
-        // adding a duplicate ancestor. Keep parent views so focus/scroll survive Back.
-        for(int i=0;i<dialogHistory.size();i++)if(dialogHistory.get(i).pageKey().equals(dialog.pageKey())){
-            while(dialogHistory.size()>i)dialogHistory.remove(dialogHistory.size()-1).leave();
-            break;
-        }
-        if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey()
-                .equals("网络与 Wi-Fi")||dialog.pageKey().equals("壁纸图库")))dialogHistory.add(navigator.settingsDialog());
-        dialog.returning(false);
-        dialogHistory.add(dialog);
-        presentDialog(dialog);
+        dialogs.show(dialog);
     }
     boolean isPage(String id){
-        return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);
+        return dialogs.isPage(id);
     }
-    private void presentDialog(TvDialog dialog){
-        activeDialog=dialog;
-        dialogOpen=true;
+    void cancelIdle(){
         handler.removeCallbacks(idle);
-        home.preview(dialog.previewKey());
-        dialog.setBackAction(this::menuBack);
-        dialog.setOnDismissListener(d->handler.postDelayed(()->{
-            // Item callbacks may open a child, refresh a page, or launch a picker.
-            if(activeDialog==dialog&&!dialog.isShowing()&&foreground&&!isFinishing()){
-                if(dialog.isForwardDismiss())presentDialog(dialog);
-                else menuBack();
-            }
-        },100));
-        dialog.show();
     }
-    private void menuBack(){
-        if(dialogHistory.isEmpty())return;
-        if(dialogHistory.size()==1){
-            closeMenus();
-            home.requestFocus();
-            armIdle();
-            return;
-        }
-        if(activeDialog!=null){
-            activeDialog.setOnDismissListener(null);
-            activeDialog.dismiss();
-        }
-        dialogHistory.remove(dialogHistory.size()-1).leave();
-        TvDialog parent=dialogHistory.get(dialogHistory.size()-1);
-        parent.returning(true);
-        presentDialog(parent);
-    }
-    private void closeMenus(){
+    void closeMenus(){
         if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
         menuEpoch++;
-        TvDialog previous=activeDialog;
-        activeDialog=null;
-        for(TvDialog page:dialogHistory)page.leave();
-        dialogHistory.clear();
-        dialogOpen=false;
-        if(previous!=null){
-            previous.setOnDismissListener(null);
-            previous.dismiss();
-        }
+        dialogs.close();
         if(panels!=null)panels.close();
         if(home!=null)home.preview(null);
     }

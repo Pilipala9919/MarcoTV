@@ -34,12 +34,12 @@ final class AppearanceDeviceChecks {
             ui(inst,()->check.accept("panel_entry_has_intermediate_frames",panel.getAlpha()==1&&panel.getTranslationX()>0));
             Thread.sleep(1800);ui(inst,()->check.accept("panel_entry_settles alpha="+panel.getAlpha()+" x="+panel.getTranslationX()+" attached="+panel.isAttachedToWindow(),panel.getAlpha()==1&&panel.getTranslationX()==0));
             ui(inst,()->{host.showDialog(new TvDialog.Builder(host).setPageId("appearance_child").setTitle("Child").create());});
-            Thread.sleep(1800);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(1800);ui(inst,()->{try{TvDialog child=(TvDialog)field(host.dialogs,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
             Thread.sleep(1800);
             final View[] parentFocus={null},childFocus={null};final TvDialog[] settingsRoot={null};final int[] rootLeft={0};
             ui(inst,()->{try{
-                host.exitMenus();host.navigator.settings();settingsRoot[0]=(TvDialog)field(host,"activeDialog");
+                host.exitMenus();host.navigator.settings();settingsRoot[0]=(TvDialog)field(host.dialogs,"activeDialog");
                 parentFocus[0]=PhoneDeviceChecks.find((View)field(settingsRoot[0],"panel"),"维护与帮助");parentFocus[0].requestFocus();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{rootLeft[0]=((View)field(settingsRoot[0],"panel")).getLeft();parentFocus[0].performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
@@ -53,18 +53,18 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
                 check.accept("deeper_page_does_not_stack_panels",root.getChildCount()==1&&host.isPage("about"));
-                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("nested_back_restores_clicked_row",host.isPage("maintenance")&&childFocus[0].isFocused());
-                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("root_back_restores_clicked_nonfirst_row",host.isPage("main")&&parentFocus[0].isFocused());
                 parentFocus[0].performClick();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
-                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("repeated_return_keeps_same_focus",parentFocus[0].isFocused());
@@ -103,13 +103,13 @@ final class AppearanceDeviceChecks {
                 check.accept("wifi_bubble_is_small_and_top_anchored",bubble.getWidth()<=301*density&&bubble.getHeight()<=351*density&&bubble.getTop()<host.home.getHeight()/3);
                 android.widget.TextView wifi=(android.widget.TextView)PhoneDeviceChecks.find(bubble,"Wi-Fi");
                 // Find the switch row, not the identical title.
-                java.util.List<?> rows=(java.util.List<?>)field((TvDialog)field(host,"activeDialog"),"itemViews");wifi=(android.widget.TextView)rows.get(0);
+                java.util.List<?> rows=(java.util.List<?>)field((TvDialog)field(host.dialogs,"activeDialog"),"itemViews");wifi=(android.widget.TextView)rows.get(0);
                 android.view.accessibility.AccessibilityNodeInfo info=wifi.createAccessibilityNodeInfo();
                 check.accept("wifi_switch_reports_real_checked_state",info.isCheckable()&&info.isChecked()==((android.net.wifi.WifiManager)host.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE)).isWifiEnabled()&&wifi.getCompoundDrawables()[2] instanceof ToggleDrawable);info.recycle();
                 Bitmap on=Bitmap.createBitmap(52,32,Bitmap.Config.ARGB_8888),off=Bitmap.createBitmap(52,32,Bitmap.Config.ARGB_8888);
                 ToggleDrawable onToggle=new ToggleDrawable(true),offToggle=new ToggleDrawable(false);onToggle.setBounds(0,0,52,32);offToggle.setBounds(0,0,52,32);onToggle.draw(new Canvas(on));offToggle.draw(new Canvas(off));
                 check.accept("wifi_switch_moves_knob_and_changes_track",on.getPixel(36,16)==Color.WHITE&&off.getPixel(16,16)==Color.WHITE&&Color.green(on.getPixel(10,16))>Color.green(off.getPixel(42,16)));on.recycle();off.recycle();
-                ((TvDialog)field(host,"activeDialog")).onBackPressed();
+                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
                 check.accept("wifi_back_returns_directly_to_desktop",!host.panelWindow().isShowing());
             }catch(Exception e){throw new RuntimeException(e);}});
             ui(inst,()->{try{
@@ -129,13 +129,13 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{try{
                 host.exitMenus();int before=prefs.getInt("card_radius",32);boolean hadRadius=prefs.contains("card_radius");
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
-                TvDialog preview=(TvDialog)field(host,"activeDialog");Object spec=field(preview,"spec");
+                TvDialog preview=(TvDialog)field(host.dialogs,"activeDialog");Object spec=field(preview,"spec");
                 ContinuousSlider slider=(ContinuousSlider)field(spec,"view");slider.setValue(before==70?60:70);
                 check.accept("preview_does_not_write_saved_preferences",prefs.getInt("card_radius",32)==before&&host.appearance().getInt("card_radius",32)!=before);
                 preview.onBackPressed();check.accept("back_discards_local_preview",host.localPreview==null&&host.appearance().getInt("card_radius",32)==before);
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");host.exitMenus();
                 check.accept("home_discards_local_preview",host.localPreview==null);
-                host.navigator.slider("卡片圆角","card_radius",0,80,32,"");TvDialog savePage=(TvDialog)field(host,"activeDialog");
+                host.navigator.slider("卡片圆角","card_radius",0,80,32,"");TvDialog savePage=(TvDialog)field(host.dialogs,"activeDialog");
                 ContinuousSlider saveSlider=(ContinuousSlider)field(field(savePage,"spec"),"view");saveSlider.setValue(before==70?60:70);
                 PhoneDeviceChecks.find((View)field(savePage,"panel"),"保存").performClick();host.exitMenus();
                 check.accept("preview_save_commits_value",prefs.getInt("card_radius",32)!=(before));
@@ -144,14 +144,14 @@ final class AppearanceDeviceChecks {
                 row.selected=1;host.home.ensureVisible();check.accept("second_card_keeps_row_at_origin",row.scroll.target==0);
                 row.selected=3;host.home.ensureVisible();check.accept("later_cards_anchor_to_second_position",row.scroll.target==700);
                 row.selected=was;host.home.ensureVisible();
-                host.settings();TvDialog root=(TvDialog)field(host,"activeDialog");root.onBackPressed();
+                host.settings();TvDialog root=(TvDialog)field(host.dialogs,"activeDialog");root.onBackPressed();
                 check.accept("root_back_closes_shared_window",!host.panelWindow().isShowing());
             }catch(Exception e){throw new RuntimeException(e);}});
             final int originalRadius=prefs.getInt("card_radius",32);final boolean hadPersonalRadius=prefs.contains("card_radius");
             final PersonalizationPanel[] editor={null};final TvDialog[] editorPage={null};
             ui(inst,()->{host.exitMenus();host.navigator.personalization("cards");});Thread.sleep(1800);
             ui(inst,()->{try{
-                editorPage[0]=(TvDialog)field(host,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
+                editorPage[0]=(TvDialog)field(host.dialogs,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
                 ChoiceMenu fontMenu=(ChoiceMenu)field(editor[0],"clockStyle");
                 check.accept("personalization_contains_twenty_four_controls",controls.size()==23&&fontMenu!=null&&!controls.containsKey("clock_style"));
@@ -203,7 +203,7 @@ final class AppearanceDeviceChecks {
                 check.accept("personalization_focus_selects_screensaver_preview","ambient_clock_size".equals(editorPage[0].previewKey()));
                 host.navigator.wallpaperSettings();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(250);
-            ui(inst,()->{try{((TvDialog)field(host,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
+            ui(inst,()->{try{((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("personalization_child_return_keeps_draft",host.isPage("personalization")&&host.localPreview!=null&&host.appearance().getInt("card_radius",32)!=originalRadius);
                 editorPage[0].onBackPressed();
@@ -211,7 +211,7 @@ final class AppearanceDeviceChecks {
                 host.navigator.personalization("cards");
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
-                TvDialog current=(TvDialog)field(host,"activeDialog");PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                TvDialog current=(TvDialog)field(host.dialogs,"activeDialog");PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_radius").setValue(originalRadius==70?60:70);
                 PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
@@ -226,7 +226,7 @@ final class AppearanceDeviceChecks {
                 try{
                     prefs.edit().remove("card_row_position").remove("card_height").commit();
                     check.accept("row_position_upgrade_keeps_original_center",Math.abs(host.home.shelfCenterY()-660)<.01f);
-                    host.navigator.personalization("cards");TvDialog current=(TvDialog)field(host,"activeDialog");
+                    host.navigator.personalization("cards");TvDialog current=(TvDialog)field(host.dialogs,"activeDialog");
                     PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                     java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");
                     controls.get("card_row_position").setValue(0);
@@ -236,20 +236,20 @@ final class AppearanceDeviceChecks {
                     check.accept("row_position_extremes_keep_heading_and_label_in_safe_area",495-172-24>285&&host.home.shelfCenterY()+188<925);
                     check.accept("row_position_lower_touch_band_follows",host.home.inShelfTouchBand(850)&&!host.home.inShelfTouchBand(370));
                     current.onBackPressed();check.accept("row_position_back_restores_saved_layout",host.localPreview==null&&Math.abs(host.home.shelfCenterY()-660)<.01f);
-                    host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                    host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                     controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_row_position").setValue(25);
                     PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();host.exitMenus();
                     check.accept("row_position_save_commits_layout",prefs.getInt("card_row_position",75)==25&&host.home.shelfCenterY()==550);
                     check.accept("row_position_backup_contains_saved_value",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_row_position").getInt("value")==25&&java.util.Arrays.equals(BackupStore.range("card_row_position"),new int[]{0,100}));
                     prefs.edit().putInt("card_row_position",-100).commit();boolean top=host.home.shelfCenterY()==495;prefs.edit().putInt("card_row_position",500).commit();
                     check.accept("row_position_clamps_invalid_imported_values",top&&host.home.shelfCenterY()==715);
-                    prefs.edit().putInt("card_row_position",75).remove("card_height").commit();host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
+                    prefs.edit().putInt("card_row_position",75).remove("card_height").commit();host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                     controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
                     check.accept("card_height_preview_keeps_saved_value",Math.abs(host.home.cardHeight()-234)<.01f&&!prefs.contains("card_height"));
                     boolean safe=true;for(int height:new int[]{70,100,130})for(int position:new int[]{0,75,100}){controls.get("card_height").setValue(height);controls.get("card_row_position").setValue(position);float h=host.home.cardHeight(),y=host.home.shelfCenterY();safe&=y-h/2-106>285&&y+h/2+98<925;}
                     check.accept("combined_height_and_position_extremes_fit_content",safe);
                     controls.get("card_height").setValue(70);current.onBackPressed();check.accept("card_height_back_discards_draft",Math.abs(host.home.cardHeight()-180)<.01f);
-                    host.navigator.personalization("cards");current=(TvDialog)field(host,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
+                    host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
                     Tile sample=new Tile();sample.label="Fixture";sample.banner=true;sample.artwork=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);sample.artwork.eraseColor(Color.WHITE);Bitmap target=Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888);
                     Method draw=HomeView.class.getDeclaredMethod("drawTile",Canvas.class,Tile.class,float.class,float.class,float.class);draw.setAccessible(true);draw.invoke(host.home,new Canvas(target),sample,400f,300f,1f);
                     float[] matrix=new float[9];((Matrix)field(host.home,"artworkMatrix")).getValues(matrix);check.accept("tall_banner_preserves_image_aspect_ratio",Math.abs(matrix[0]-matrix[4])<.001f);
