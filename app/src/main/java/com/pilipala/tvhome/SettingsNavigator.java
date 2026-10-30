@@ -213,13 +213,13 @@ final class SettingsNavigator {
         host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("屏保开关")
                 .setMessage("时间大小、亮度与渐变时长在 Magic Desktop 右侧列表调整。\n屏保期间时间会缓慢移动，减少长时间静止显示造成的残影；到达设定时长后交还电视自身的休眠设置。")
                 .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保","屏保后允许电视休眠："+sleepLabel(host.preferences.getInt("ambient_sleep_minutes",
-                MainActivity.DEFAULT_SLEEP_MINUTES))},(d,w)->{
+                IdleController.DEFAULT_SLEEP_MINUTES))},(d,w)->{
             if(w==1){
                 previewAmbient();
                 return;
             }
             if(w==2){
-                int current=host.preferences.getInt("ambient_sleep_minutes",MainActivity.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
+                int current=host.preferences.getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
                 for(int i=0;i<SLEEP_CHOICES.length;i++)if(SLEEP_CHOICES[i]==current)next=SLEEP_CHOICES[(i+1)%SLEEP_CHOICES.length];
                 host.preferences.edit().putInt("ambient_sleep_minutes",next).apply();
                 ambientSettings();

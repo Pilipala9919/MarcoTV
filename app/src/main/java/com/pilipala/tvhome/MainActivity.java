@@ -64,22 +64,9 @@ public final class MainActivity extends Activity {
     HomeView home;
     boolean foreground;
     private boolean receiverRegistered;
-    private final Runnable idle = () -> {
-        if (foreground && !dialogs.open() && !home.isMoving() && !recents.visible && (phone==null||!phone.active())) home.setIdle(true);
-    };
-    static final int DEFAULT_SLEEP_MINUTES = 30;
-    /** After this long on the idle clock, let the TV follow its own sleep timer again. */
-    private final Runnable releaseScreen = () -> {
-        if (!foreground) return;
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        Diagnostics.event("IDLE_SCREEN_RELEASED");
-    };
+    final IdleController screensaver = new IdleController(this);
     void idleChanged(boolean idle) {
-        handler.removeCallbacks(releaseScreen);
-        if (!foreground || !AmbientIntegration.enabled(this)) return;
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        int minutes = preferences.getInt("ambient_sleep_minutes", DEFAULT_SLEEP_MINUTES);
-        if (idle && minutes > 0) handler.postDelayed(releaseScreen, minutes * 60000L);
+        screensaver.changed(idle);
     }
     private final Runnable clock = new Runnable() {
         @Override public void run() {
@@ -179,8 +166,7 @@ public final class MainActivity extends Activity {
             getIntent().removeExtra("wake_recovery");
             Diagnostics.event("WAKE_HOME_RESTORED");
         }
-        if (AmbientIntegration.enabled(this)) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        screensaver.resume();
         if (home != null) {
             home.setIdle(false);
             home.requestFocus();
@@ -194,7 +180,7 @@ public final class MainActivity extends Activity {
         armIdle();
         if (ambientRequested) {
             ambientRequested = false;
-            handler.removeCallbacks(idle);
+            screensaver.cancel();
             home.setIdle(true);
         }
         dialogs.resume();
@@ -210,10 +196,8 @@ public final class MainActivity extends Activity {
         foreground = false;
         Diagnostics.foreground(false);
         if(playback!=null)playback.stop();
-        handler.removeCallbacks(idle);
         handler.removeCallbacks(clock);
-        handler.removeCallbacks(releaseScreen);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        screensaver.pause();
         if(recents!=null)recents.stop();
         if (home != null) {
             home.stopMotion();
@@ -270,10 +254,7 @@ public final class MainActivity extends Activity {
     }
 
     void armIdle() {
-        handler.removeCallbacks(idle);
-        int seconds = preferences.getInt("idle_seconds", 30);
-        if (foreground && !dialogs.open() && (phone==null||!phone.active()) && (recents==null||!recents.visible) && seconds > 0 && AmbientIntegration.enabled(this)) handler.postDelayed(idle,
-                seconds * 1000L);
+        screensaver.arm();
     }
 
     void toast(String text) {
@@ -554,9 +535,6 @@ public final class MainActivity extends Activity {
     }
     boolean isPage(String id){
         return dialogs.isPage(id);
-    }
-    void cancelIdle(){
-        handler.removeCallbacks(idle);
     }
     void closeMenus(){
         if(backups!=null)backups.cancel();

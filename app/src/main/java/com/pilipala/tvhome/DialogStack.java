@@ -54,7 +54,7 @@ final class DialogStack {
     private void presentDialog(TvDialog dialog){
         activeDialog=dialog;
         dialogOpen=true;
-        host.cancelIdle();
+        host.screensaver.cancel();
         host.home.preview(dialog.previewKey());
         dialog.setBackAction(this::menuBack);
         dialog.setOnDismissListener(d->host.handler.postDelayed(()->{
