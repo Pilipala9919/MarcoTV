@@ -59,7 +59,7 @@ final class SystemIntegration {
     static void startRecovery(Context context) {
         TaskBridgeClient.sync(context);
         Intent intent = new Intent(context, RecoveryService.class);
-        if (!needsRecovery(context)) {
+        if (!needsRecovery(context) || !authorized(context)) {
             context.stopService(intent);
             return;
         }
@@ -160,7 +160,8 @@ final class SystemIntegration {
             return;
         }
         expireAdbRestore(context);
-        respectExternalHomeServiceOff(context, false);
+        boolean unlocked = HomeSetup.unlocked(context);
+        if (unlocked) respectExternalHomeServiceOff(context, false);
         try {
             if (p.getBoolean("adb_restore", false) && Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 1) {
                 boolean written = Settings.Global.putInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 1);
@@ -169,9 +170,8 @@ final class SystemIntegration {
                 Diagnostics.event("ADB_SWITCH_RESTORED");
                 Log.i(TAG, "Restored adb_enabled=1");
             }
-            if (p.getBoolean("managed_home", false) || p.getBoolean("home_compat", false)) {
+            if (unlocked && !HomeSetup.paused(context) && p.getBoolean("home_compat", false)) {
                 Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
-                for (String service : new ArrayList<>(wanted)) if (competing(service)) wanted.remove(service);
                 if (p.getBoolean("home_compat", false)) {
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
                     wanted.add(OWN_SERVICE);
@@ -186,29 +186,24 @@ final class SystemIntegration {
         }
     }
     /**
-     * Called when accessibility settings change while Marco TV is running. If someone other than
-     * Marco TV switched off our Home service (normally the user, in system settings), respect it:
-     * turn Home compatibility off instead of silently re-adding the service.
+     * External changes cannot identify the actor. Pause rather than guess user versus OEM.
+     * Only our own in-process rebind or an explicit in-progress consent may restore a service.
      */
     static boolean respectExternalHomeServiceOff(Context context, boolean observedChange) {
         SharedPreferences p = prefs(context);
-        if (!p.getBoolean("home_compat", false)) return false;
-        // Without an observed change and without our own earlier write in this process (e.g. right
-        // after boot), a missing service may be a firmware reset: keep restoring it as before.
-        if (!observedChange && writtenServices == null) return false;
+        if (!HomeSetup.unlocked(context) || !p.getBoolean("home_compat", false) || HomeSetup.paused(context)
+                || p.getBoolean("setup_accessibility_pending", false)) return false;
         String services = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         int enabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
         String normalized = services == null ? "" : services;
         boolean ours = writtenServices != null && writtenServices.equals(normalized) && writtenEnabled == enabled;
-        if (ours) return false;
         boolean present = false;
         for (String s : services(services)) if (own(s)) present = true;
-        if (present && enabled == 1) return false;
-        p.edit().putBoolean("home_compat", false)
-                .putString("last_notice", "检测到在系统设置中关闭了 Marco TV Home 键兼容，已同步关闭该功能；需要时可在「系统与启动」重新开启。")
-                .commit();
-        Diagnostics.event("HOME_SERVICE_OFF_BY_USER");
-        Log.i(TAG, "Home key service disabled outside Marco TV; home_compat turned off");
+        if (!HomeSetupPolicy.pauseForExternalChange(true, true, ours, present && enabled == 1)) return false;
+        HomeSetup.pause(context, "Home 服务已被关闭，来源无法确定。自动恢复已暂停，请在桌面启用向导确认后继续。");
+        p.edit().putString("last_notice", "Home 服务状态发生变化，已暂停恢复，等待你确认。").apply();
+        Diagnostics.event("HOME_SERVICE_CHANGE_NEEDS_CONFIRMATION");
+        Log.i(TAG, "Home service unavailable; recovery paused pending consent");
         return true;
     }
     static void enableHome(Context context, boolean enabled) {
@@ -295,27 +290,13 @@ final class SystemIntegration {
                     break;
                 case 4:
                     if (p.getBoolean("home_compat", false)) {
-                    p.edit().putBoolean("home_compat", false).commit();
+                    HomeSetup.pause(activity, "你已关闭 Home 兼容；重新开启前不会恢复。");
                     Set<String> wanted = services(Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
                     if (authorized(activity)) writeServices(activity, wanted);
                     startRecovery(activity);
                     show(activity,host);
-                    } else if (!authorized(activity)) {
-                    permissionHelp(activity, host);
-                    } else if (!p.contains("original_home")) {
-                    host.show(new TvDialog.Builder(activity).setTitle("未找到原桌面").setMessage("请先在系统中选择原桌面，再打开 Marco TV 设置兼容模式。")
-                            .setPositiveButton("知道了", null).create());
-                    } else host.show(new TvDialog.Builder(activity).setTitle("开启 Home 键兼容模式")
-                            .setMessage("优先直接响应遥控器 Home 键；系统未提供按键时，使用桌面窗口检测恢复 Marco TV。不读取屏幕内容。将暂停其他桌面辅助应用的恢复，保留其他无障碍服务。")
-                            .setPositiveButton("开启", (dialog, button) -> {
-                    prepareHome(activity);
-                    p.edit().putBoolean("home_compat", true).remove("last_notice").commit();
-                    recover(activity);
-                    startRecovery(activity);
-                    show(activity,host);
-                    })
-                            .setNegativeButton("返回", null).create());
+                    } else ((MainActivity)activity).defaultHome.compatibility();
                     break;
                 case 5:
                     host.show(new TvDialog.Builder(activity).setTitle("恢复原桌面")
@@ -365,6 +346,7 @@ final class SystemIntegration {
         }).setNegativeButton("返回",null).create());
     }
     private static void restoreHome(Activity activity) {
+        HomeSetup.pause(activity, "你已选择恢复原桌面。");
         SharedPreferences p = prefs(activity);
         p.edit().putBoolean("managed_home", false).putBoolean("home_compat", false).putBoolean("boot_home", false)
                 .commit();

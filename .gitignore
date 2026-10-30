@@ -64,3 +64,9 @@ scripts/*
 
 # Local assistant notes reference private paths.
 CLAUDE.md
+
+!scripts/HomeSetupChecks.java
+!scripts/LocalAdbWireChecks.java
+!scripts/HomeSetupDeviceChecks.java
+!scripts/test_home_setup.py
+!scripts/test_home_setup_device.py

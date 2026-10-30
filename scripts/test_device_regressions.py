@@ -77,6 +77,8 @@ def main():
     try:
         if not args.bridge_only and 'mWakefulness=Awake' not in adb('shell','dumpsys','power'):
             raise RuntimeError('TV is not awake. UI tests were not run; no wake command is sent automatically.')
+        if 'mFinished=false' in adb('shell','dumpsys','activity'):
+            raise RuntimeError('Another instrumentation is running. Shared TV left untouched; retry later.')
         if 'Success' not in adb('install', '-r', folder / 'checks.apk'): raise RuntimeError('Test APK install failed')
         installed = True
         output = adb('shell', 'am', 'instrument', '-w', '-e', 'phone_only', str(args.phone_only).lower(), '-e', 'appearance_only', str(args.appearance_only).lower(), '-e', 'wrong_signer', args.wrong_signer or 'unused', '-e', 'updates_only', str(args.updates_only).lower(), '-e', 'candidate', args.candidate or 'unused', '-e', 'bridge_only', str(args.bridge_only).lower(), '-e', 'task_actions', str(args.task_actions).lower(),
@@ -99,6 +101,18 @@ def main():
                 if 'DEAD com.pilipala.tvhome/' in bindings:
                     remaining=':'.join(item for item in current.split(':') if item not in own)
                     try:
+                        # Instrumentation has ended. Stop our observer before this
+                        # test-only rebind so its intentional gap is not mistaken
+                        # for an external opt-out. MainActivity restarts recovery.
+                        # The production service is not exported. Same-signed test
+                        # instrumentation performs this internal cleanup instead.
+                        adb('install','-r',folder / 'checks.apk')
+                        try:
+                            cleanup=adb('shell','am','instrument','-w','-e','cleanup_only','true',
+                                        'com.pilipala.tvhome.regression/com.pilipala.tvhome.DeviceRegressionChecks')
+                            if 'OK recovery observer stopped for test cleanup' not in cleanup:
+                                raise RuntimeError('Recovery observer cleanup failed')
+                        finally:adb('uninstall','com.pilipala.tvhome.regression')
                         adb('shell','settings','put','secure','enabled_accessibility_services',shlex.quote(remaining));time.sleep(1)
                     finally:
                         adb('shell','settings','put','secure','enabled_accessibility_services',shlex.quote(current))

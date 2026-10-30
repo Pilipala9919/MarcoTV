@@ -16,14 +16,15 @@ public final class BootReceiver extends BroadcastReceiver {
         SystemIntegration.prefs(context).edit().putString("last_boot_action", action)
                 .putLong("last_boot_time", System.currentTimeMillis()).apply();
         Diagnostics.event("BOOT_RECOVERY_REQUESTED");
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) HomeSetup.reconcile(context);
         SystemIntegration.startRecovery(context);
         // Home preferences are credential-protected; ADB recovery can run before unlock.
         if (!Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) AmbientIntegration.configure(context);
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) SystemIntegration.refreshHomeService(context);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
-                && SystemIntegration.prefs(context).getBoolean("boot_home", false)) {
+                && HomeSetup.shouldOpenAfterBoot(context, true)) {
             try {
-                context.startActivity(SystemIntegration.homeIntent(context));
+                context.startActivity(SystemIntegration.homeIntent(context).putExtra("setup_boot_return", true));
             }
             catch (RuntimeException e) {
                 Log.w("MarcoTVSystem", "Boot activity unavailable", e);

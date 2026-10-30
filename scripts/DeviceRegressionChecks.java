@@ -27,6 +27,7 @@ import android.os.Looper;
 public final class DeviceRegressionChecks extends Instrumentation {
     private int passed;
     private boolean bridgeOnly,taskActions;
+    private boolean cleanupOnly;
     private boolean phoneOnly;private boolean appearanceOnly;private boolean updatesOnly;private String candidate,wrongSigner;
     private void check(String name, boolean ok) {
         if (!ok) throw new AssertionError(name);
@@ -36,10 +37,11 @@ public final class DeviceRegressionChecks extends Instrumentation {
     private static Field field(Class<?> type, String name) throws Exception {
         Field field = type.getDeclaredField(name); field.setAccessible(true); return field;
     }
-    @Override public void onCreate(Bundle args) { super.onCreate(args);phoneOnly=args!=null&&"true".equals(args.getString("phone_only"));appearanceOnly=args!=null&&"true".equals(args.getString("appearance_only"));updatesOnly=args!=null&&"true".equals(args.getString("updates_only"));candidate=args==null?null:args.getString("candidate");wrongSigner=args==null?null:args.getString("wrong_signer");bridgeOnly=args!=null&&"true".equals(args.getString("bridge_only"));taskActions=args!=null&&"true".equals(args.getString("task_actions"));start(); }
+    @Override public void onCreate(Bundle args) { super.onCreate(args);cleanupOnly=args!=null&&"true".equals(args.getString("cleanup_only"));phoneOnly=args!=null&&"true".equals(args.getString("phone_only"));appearanceOnly=args!=null&&"true".equals(args.getString("appearance_only"));updatesOnly=args!=null&&"true".equals(args.getString("updates_only"));candidate=args==null?null:args.getString("candidate");wrongSigner=args==null?null:args.getString("wrong_signer");bridgeOnly=args!=null&&"true".equals(args.getString("bridge_only"));taskActions=args!=null&&"true".equals(args.getString("task_actions"));start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            if(cleanupOnly){getTargetContext().stopService(new Intent(getTargetContext(),RecoveryService.class));result.putString("stream","OK recovery observer stopped for test cleanup\n");finish(-1,result);return;}
             if(updatesOnly){UpdateDeviceChecks.run(getTargetContext(),candidate,wrongSigner,this::check);result.putString("stream","OK "+passed+" update device checks\n");finish(-1,result);return;}
             if(taskActions){taskActionChecks();result.putString("stream","OK "+passed+" task action checks\n");finish(-1,result);return;}
             if(bridgeOnly){bridgeChecks();result.putString("stream","OK "+passed+" bridge checks\n");finish(-1,result);return;}

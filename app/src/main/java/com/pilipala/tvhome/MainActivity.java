@@ -86,6 +86,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        HomeSetup.finishCompatibilityConsent(this);
+        HomeSetup.observeHomeIntent(this, getIntent());
         Diagnostics.init(this);
         try {
             BackupStore.recoverInterrupted(this);
@@ -160,6 +162,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         foreground = true;
+        HomeSetup.reconcile(this);
         Diagnostics.foreground(true);
         fullscreen();
         TaskBridgeClient.sync(this);
@@ -220,6 +223,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(defaultHome!=null)defaultHome.destroy();
         if(phone!=null)phone.destroy();
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
@@ -236,6 +240,7 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        HomeSetup.observeHomeIntent(this, intent);
         boolean recent=intent.getBooleanExtra("recent_apps",false);
         if(!intent.getBooleanExtra("home_press_handled",false)&&intent.hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())recent=homePressTracker.press(SystemClock.elapsedRealtime(),
                 preferences.getInt("recent_double_ms",400));

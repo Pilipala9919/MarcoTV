@@ -18,7 +18,7 @@ public final class RecoveryService extends Service {
     private final Runnable recover = () -> {
         boolean userTurnedOff = accessibilityChanged && SystemIntegration.respectExternalHomeServiceOff(this, true);
         accessibilityChanged = false;
-        if (userTurnedOff) android.widget.Toast.makeText(this, "已按系统设置关闭 Marco TV Home 键兼容", android.widget.Toast.LENGTH_LONG)
+        if (userTurnedOff) android.widget.Toast.makeText(this, "Home 服务状态变化，自动恢复已暂停，请确认后继续", android.widget.Toast.LENGTH_LONG)
                 .show();
         SystemIntegration.recover(this);
         if (!SystemIntegration.needsRecovery(this)) stopSelf();

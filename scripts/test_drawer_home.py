@@ -15,6 +15,8 @@ def main():
   if args[0]=='install':args.insert(1,'--no-streaming')
   return subprocess.check_output(adb+args,timeout=180).decode('utf8',errors='replace')
  if int(call('shell','getprop','ro.build.version.sdk').strip())<23:raise RuntimeError('Requires API 23+')
+ if 'mWakefulness=Awake' not in call('shell','dumpsys','power'):raise RuntimeError('TV is not awake; no UI test started.')
+ if 'mFinished=false' in call('shell','dumpsys','activity'):raise RuntimeError('Another instrumentation is running; shared TV left untouched.')
  f=ROOT/'build/drawer-home-tests'
  for folder in ['classes','dex']:(f/folder).mkdir(parents=True,exist_ok=True)
  (f/'manifest.xml').write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.drawer.tests"><uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28"/><application/><instrumentation android:name="com.pilipala.tvhome.DrawerHomeChecks" android:targetPackage="com.pilipala.tvhome"/></manifest>',encoding='utf8')

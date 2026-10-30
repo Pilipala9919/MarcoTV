@@ -146,6 +146,7 @@ public final class HomeKeyService extends AccessibilityService {
             return false;
         }
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) return false;
+        if(HomeSetup.paused(this)){resetPress();return false;}
         if(!canRedirect()||nativeHome()){
             resetPress();
             return false;
@@ -185,6 +186,7 @@ public final class HomeKeyService extends AccessibilityService {
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getPackageName() == null) return;
+        if(HomeSetup.paused(this))return;
         String shown = event.getPackageName().toString();
         if(!canRedirect()){
             handler.removeCallbacks(fallback);
