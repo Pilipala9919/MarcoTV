@@ -73,10 +73,10 @@ final class AppearanceDeviceChecks {
             Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("preview_overview_reaches_perspective",(Float)field(host.home,"overview")==1f);
-                android.graphics.Matrix matrix=(android.graphics.Matrix)field(host.home,"overviewMatrix");float[] corners={0,0,host.home.getWidth(),0,host.home.getWidth(),host.home.getHeight(),0,host.home.getHeight()};matrix.mapPoints(corners);
+                android.graphics.Matrix matrix=(android.graphics.Matrix)field(host.home.overviewRenderer,"overviewMatrix");float[] corners={0,0,host.home.getWidth(),0,host.home.getWidth(),host.home.getHeight(),0,host.home.getHeight()};matrix.mapPoints(corners);
                 check.accept("preview_keeps_entire_desktop_left_of_controls "+java.util.Arrays.toString(corners),corners[0]>=0&&corners[2]<host.home.getWidth()*.67f&&corners[1]!=corners[3]);
                 check.accept("preview_right_edge_recedes",corners[3]>corners[1]&&corners[5]<corners[7]);
-                android.graphics.Paint previewPaint=(android.graphics.Paint)field(host.home,"overviewPaint");
+                android.graphics.Paint previewPaint=(android.graphics.Paint)field(host.home.overviewRenderer,"overviewPaint");
                 check.accept("preview_uses_filtered_antialiased_surface",previewPaint.isAntiAlias()&&previewPaint.isFilterBitmap());
                 PreviewBackdrop backdrop=new PreviewBackdrop();Bitmap source=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);
                 Canvas pattern=new Canvas(source);pattern.drawColor(0xFFFF6000);Paint stripe=new Paint();stripe.setColor(0xFF2060FF);pattern.drawRect(160,0,320,180,stripe);
@@ -92,8 +92,8 @@ final class AppearanceDeviceChecks {
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(1800);
             ui(inst,()->{try{
-                check.accept("preview_releases_surface_on_exit",field(host.home,"overviewBitmap")==null);
-                check.accept("preview_exit_releases_wallpaper_blur",field(field(host.home,"overviewBackdrop"),"blurred")==null);
+                check.accept("preview_releases_surface_on_exit",field(host.home.overviewRenderer,"overviewBitmap")==null);
+                check.accept("preview_exit_releases_wallpaper_blur",field(field(host.home.overviewRenderer,"overviewBackdrop"),"blurred")==null);
                 check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
                 host.network.show();
             }catch(Exception e){throw new RuntimeException(e);}});

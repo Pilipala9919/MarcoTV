@@ -137,7 +137,7 @@ final class HomeView extends View {
     private String previewKey;
     private float overview;
     private UiMotion overviewAnimation;
-    private boolean previewDirty=true;
+    boolean previewDirty=true;
     private final MotionSpring headerLeft=new MotionSpring(100,26,.05f),headerRight=new MotionSpring(310,26,.05f),headerAlpha=new MotionSpring(0,
             26,.001f);
     private final float[] headerX={132,370,635,950};
@@ -156,14 +156,7 @@ final class HomeView extends View {
         previewDirty=true;
         super.invalidate();
     }
-    private final Camera overviewCamera=new Camera();
-    private final Matrix overviewMatrix=new Matrix();
-    private Bitmap overviewBitmap;
-    private Canvas overviewCanvas;
-    private BitmapShader overviewShader;
-    private final Paint overviewPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
-    private final PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
-    private final Path previewCutout=new Path();
+    final OverviewRenderer overviewRenderer=new OverviewRenderer(this);
     float wifiAnchorX(){
         return (getWidth()-1920*Math.min(getWidth()/1920f,getHeight()/1080f))/2+(clockScene.left(host.appearance())-70)*Math.min(getWidth()/1920f,
                 getHeight()/1080f);
@@ -356,7 +349,7 @@ final class HomeView extends View {
 
     @Override protected void onDetachedFromWindow() {
         stopMotion();
-        overviewBackdrop.clear();
+        overviewRenderer.detach();
         super.onDetachedFromWindow();
     }
 
@@ -373,87 +366,9 @@ final class HomeView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if(overview<=0){
-            overviewBackdrop.clear();
-            if(overviewBitmap!=null){
-                overviewBitmap.recycle();
-                overviewBitmap=null;
-                overviewCanvas=null;
-                overviewShader=null;
-            }
-            drawScene(canvas);
-            return;
-        }
-        overviewBackdrop.draw(canvas,wallpaper,getWidth(),getHeight());
-        float density=getResources().getDisplayMetrics().density;
-        overviewCamera.save();
-        overviewCamera.setLocation(0,0,-Math.max(12,getWidth()/72f));
-        overviewCamera.rotateY(12*overview);
-        overviewCamera.getMatrix(overviewMatrix);
-        overviewCamera.restore();
-        overviewMatrix.preTranslate(-getWidth()/2f,-getHeight()/2f);
-        RectF bounds=new RectF(0,0,getWidth(),getHeight());
-        overviewMatrix.mapRect(bounds);
-        float available=Math.max(getWidth()*.25f,getWidth()-350*density);
-        float targetScale=Math.min(available/bounds.width(),getHeight()*.78f/bounds.height());
-        float size=1-(1-targetScale)*overview;
-        overviewMatrix.postScale(size,size);
-        float targetCenter=20*density+available/2;
-        overviewMatrix.postTranslate(getWidth()/2f+(targetCenter-getWidth()/2f)*overview-bounds.centerX()*size,getHeight()/2f-bounds.centerY()*size);
-        if(canvas.isHardwareAccelerated()){
-            // Live previews stay on the GPU; the antialiased border softens the
-            // projected outline without a full-screen intermediate render target.
-            int transformed=canvas.save();
-            canvas.concat(overviewMatrix);
-            RectF frame=new RectF(0,0,getWidth(),getHeight());
-            previewCutout.reset();
-            previewCutout.addRoundRect(frame,8*density,8*density,Path.Direction.CW);
-            int clipped=canvas.save();
-            canvas.clipPath(previewCutout);
-            drawScene(canvas);
-            canvas.restoreToCount(clipped);
-            overviewPaint.setShader(null);
-            overviewPaint.setStyle(Paint.Style.STROKE);
-            overviewPaint.setStrokeWidth(density);
-            overviewPaint.setColor(0x609BB9CB);
-            canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
-            canvas.restoreToCount(transformed);
-            return;
-        }
-        int bufferWidth=Math.min(1280,getWidth()),bufferHeight=Math.max(1,Math.round(getHeight()*bufferWidth/(float)getWidth()));
-        if(overviewBitmap==null||overviewBitmap.getWidth()!=bufferWidth||overviewBitmap.getHeight()!=bufferHeight){
-            if(overviewBitmap!=null)overviewBitmap.recycle();
-            overviewBitmap=Bitmap.createBitmap(bufferWidth,bufferHeight,Bitmap.Config.ARGB_8888);
-            previewDirty=true;
-            overviewCanvas=new Canvas(overviewBitmap);
-            overviewShader=new BitmapShader(overviewBitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
-        }
-        if(previewDirty){
-            overviewBitmap.eraseColor(Color.TRANSPARENT);
-            int bufferSave=overviewCanvas.save();
-            overviewCanvas.scale(bufferWidth/(float)getWidth(),bufferHeight/(float)getHeight());
-            drawScene(overviewCanvas);
-            overviewCanvas.restoreToCount(bufferSave);
-            previewDirty=false;
-        }
-        Matrix bufferMatrix=new Matrix();
-        bufferMatrix.setScale(getWidth()/(float)bufferWidth,getHeight()/(float)bufferHeight);
-        overviewShader.setLocalMatrix(bufferMatrix);
-        int save=canvas.save();
-        canvas.concat(overviewMatrix);
-        RectF frame=new RectF(0,0,getWidth(),getHeight());
-        overviewPaint.setShader(overviewShader);
-        overviewPaint.setStyle(Paint.Style.FILL);
-        overviewPaint.setColor(Color.WHITE);
-        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
-        overviewPaint.setShader(null);
-        overviewPaint.setStyle(Paint.Style.STROKE);
-        overviewPaint.setStrokeWidth(density);
-        overviewPaint.setColor(0x609BB9CB);
-        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
-        canvas.restoreToCount(save);
+        overviewRenderer.draw(canvas,overview);
     }
-    private void drawScene(Canvas canvas){
+    void drawScene(Canvas canvas){
         float ambient=previewKey==null?ambientProgress:previewAmbient;
         float contentAlpha=previewKey==null?uiAlpha:1-Math.min(1,ambient*4);
         if(previewKey==null&&host.phone!=null&&host.phone.ambientPreview()){
