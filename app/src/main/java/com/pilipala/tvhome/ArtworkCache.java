@@ -17,7 +17,9 @@ final class ArtworkCache {
     private static boolean evaluated;
     private static boolean retain = true;
     private static final LruCache<String, Bitmap> ENTRIES = new LruCache<String, Bitmap>(RICH_BUDGET_MB * 1024 * 1024) {
-        @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
+        @Override protected int sizeOf(String key, Bitmap value) {
+            return value.getByteCount();
+        }
     };
 
     private ArtworkCache() { }
@@ -28,7 +30,9 @@ final class ArtworkCache {
         evaluated = true;
     }
 
-    static Bitmap get(String key) { return key == null ? null : ENTRIES.get(key); }
+    static Bitmap get(String key) {
+        return key == null ? null : ENTRIES.get(key);
+    }
 
     static void put(String key, Bitmap value) {
         if (key == null || value == null || value.isRecycled()) return;
@@ -36,9 +40,13 @@ final class ArtworkCache {
         ENTRIES.put(key, value);
     }
 
-    static void clear() { ENTRIES.evictAll(); }
+    static void clear() {
+        ENTRIES.evictAll();
+    }
 
-    static void remove(String key) { if (key != null) ENTRIES.remove(key); }
+    static void remove(String key) {
+        if (key != null) ENTRIES.remove(key);
+    }
 
     static void invalidatePackage(String packageName) {
         if (packageName == null) return;

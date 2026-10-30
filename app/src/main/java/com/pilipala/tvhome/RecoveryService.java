@@ -18,19 +18,25 @@ public final class RecoveryService extends Service {
     private final Runnable recover = () -> {
         boolean userTurnedOff = accessibilityChanged && SystemIntegration.respectExternalHomeServiceOff(this, true);
         accessibilityChanged = false;
-        if (userTurnedOff) android.widget.Toast.makeText(this, "已按系统设置关闭 Marco TV Home 键兼容", android.widget.Toast.LENGTH_LONG).show();
+        if (userTurnedOff) android.widget.Toast.makeText(this, "已按系统设置关闭 Marco TV Home 键兼容", android.widget.Toast.LENGTH_LONG)
+                .show();
         SystemIntegration.recover(this);
         if (!SystemIntegration.needsRecovery(this)) stopSelf();
     };
     private final Runnable startupCheck = new Runnable() {
         @Override public void run() {
-            if (!SystemIntegration.needsRecovery(RecoveryService.this)) { stopSelf(); return; }
+            if (!SystemIntegration.needsRecovery(RecoveryService.this)) {
+                stopSelf();
+                return;
+            }
             SystemIntegration.recover(RecoveryService.this);
             if (++retries < 12) handler.postDelayed(this, 10000);
         }
     };
     private final ContentObserver observer = new ContentObserver(handler) {
-        @Override public void onChange(boolean selfChange) { onChange(selfChange, null); }
+        @Override public void onChange(boolean selfChange) {
+            onChange(selfChange, null);
+        }
         @Override public void onChange(boolean selfChange, android.net.Uri uri) {
             if (uri == null || !uri.equals(Settings.Global.getUriFor(Settings.Global.ADB_ENABLED))) accessibilityChanged = true;
             handler.removeCallbacks(recover);
@@ -38,7 +44,9 @@ public final class RecoveryService extends Service {
         }
     };
     @Override public void onCreate() {
-        super.onCreate();running=true;Diagnostics.event("RECOVERY_SERVICE_STARTED");
+        super.onCreate();
+        running=true;
+        Diagnostics.event("RECOVERY_SERVICE_STARTED");
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(new NotificationChannel(
                 "system_recovery", "开机恢复", NotificationManager.IMPORTANCE_LOW));
@@ -55,15 +63,23 @@ public final class RecoveryService extends Service {
         getContentResolver().registerContentObserver(Settings.Secure.getUriFor(Settings.Secure.ACCESSIBILITY_ENABLED), false, observer);
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (!SystemIntegration.needsRecovery(this)) { stopSelf(); return START_NOT_STICKY; }
-        handler.removeCallbacks(startupCheck); retries = 0; handler.post(startupCheck);
+        if (!SystemIntegration.needsRecovery(this)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        handler.removeCallbacks(startupCheck);
+        retries = 0;
+        handler.post(startupCheck);
         Log.i("MarcoTVSystem", "Recovery service started");
         return START_STICKY;
     }
     @Override public void onDestroy() {
-        running=false;handler.removeCallbacksAndMessages(null);
+        running=false;
+        handler.removeCallbacksAndMessages(null);
         getContentResolver().unregisterContentObserver(observer);
         super.onDestroy();
     }
-    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override public IBinder onBind(Intent intent) {
+        return null;
+    }
 }

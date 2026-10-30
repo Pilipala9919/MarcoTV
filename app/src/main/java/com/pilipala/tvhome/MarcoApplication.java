@@ -3,5 +3,8 @@
 package com.pilipala.tvhome;
 
 public final class MarcoApplication extends android.app.Application {
-    @Override public void onCreate(){super.onCreate();Diagnostics.init(this);}
+    @Override public void onCreate(){
+        super.onCreate();
+        Diagnostics.init(this);
+    }
 }

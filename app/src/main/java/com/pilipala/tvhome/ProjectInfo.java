@@ -22,13 +22,17 @@ final class ProjectInfo {
                 +"\n\n—— GNU GPL v3 ——\n"+read(context,"licenses/GPL-3.0-only.txt")
                 +"\n\n—— Apache License 2.0 ——\n"+read(context,"licenses/Material-Icons-Apache-2.0.txt")
                 +"\n\n—— QR Code generator (MIT) ——\n"+read(context,"licenses/QR-Code-generator-MIT.txt")
-                +"\n\n—— 时钟字体 (SIL OFL 1.1) ——\n"+read(context,"licenses/robotoflex-OFL.txt")+"\n\n"+read(context,"licenses/barlowcondensed-OFL.txt")+"\n\n"+read(context,"licenses/nunito-OFL.txt")+"\n\n"+read(context,"licenses/bodonimoda-OFL.txt");
+                +"\n\n—— 时钟字体 (SIL OFL 1.1) ——\n"+read(context,"licenses/robotoflex-OFL.txt")+"\n\n"+read(context,"licenses/barlowcondensed-OFL.txt")+"\n\n"+read(context,
+                "licenses/nunito-OFL.txt")+"\n\n"+read(context,"licenses/bodonimoda-OFL.txt");
     }
     private static String read(Context context,String name){
         try(InputStream in=context.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()){
-            byte[] block=new byte[4096];int size;
+            byte[] block=new byte[4096];
+            int size;
             while((size=in.read(block))!=-1)out.write(block,0,size);
             return out.toString("UTF-8");
-        }catch(IOException e){return "许可全文也可在项目仓库查看："+REPOSITORY;}
+        }catch(IOException e){
+            return "许可全文也可在项目仓库查看："+REPOSITORY;
+        }
     }
 }

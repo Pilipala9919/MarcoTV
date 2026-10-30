@@ -13,9 +13,14 @@ final class MotionSpring {
         this.tolerance = tolerance;
     }
 
-    void target(float next) { target = next; }
+    void target(float next) {
+        target = next;
+    }
 
-    void snap(float next) { value = target = next; velocity = 0; }
+    void snap(float next) {
+        value = target = next;
+        velocity = 0;
+    }
 
     boolean step(float seconds) {
         if (seconds <= 0) return moving();
@@ -24,7 +29,10 @@ final class MotionSpring {
         double decay = Math.exp(-frequency * seconds);
         value = (float) (target + (offset + coupling * seconds) * decay);
         velocity = (float) ((velocity - frequency * coupling * seconds) * decay);
-        if (!moving()) { snap(target); return false; }
+        if (!moving()) {
+            snap(target);
+            return false;
+        }
         return true;
     }
 

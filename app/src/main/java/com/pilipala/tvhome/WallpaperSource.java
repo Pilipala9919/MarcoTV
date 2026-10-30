@@ -19,19 +19,34 @@ final class WallpaperSource {
         Bitmap.Config leanConfig=ArtworkCache.lean(context)?Bitmap.Config.RGB_565:Bitmap.Config.ARGB_8888;
         String uri=p.getString("wallpaper","");
         if(!uri.isEmpty())try {
-            BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;
-            try(InputStream in=context.getContentResolver().openInputStream(Uri.parse(uri))){BitmapFactory.decodeStream(in,null,o);}
-            o.inSampleSize=1;while(o.outWidth/o.inSampleSize>maxWidth||o.outHeight/o.inSampleSize>maxHeight)o.inSampleSize*=2;
-            o.inJustDecodeBounds=false;o.inPreferredConfig=leanConfig;
-            try(InputStream in=context.getContentResolver().openInputStream(Uri.parse(uri))){Bitmap b=BitmapFactory.decodeStream(in,null,o);if(b!=null)return b;}
+            BitmapFactory.Options o=new BitmapFactory.Options();
+            o.inJustDecodeBounds=true;
+            try(InputStream in=context.getContentResolver().openInputStream(Uri.parse(uri))){
+                BitmapFactory.decodeStream(in,null,o);
+            }
+            o.inSampleSize=1;
+            while(o.outWidth/o.inSampleSize>maxWidth||o.outHeight/o.inSampleSize>maxHeight)o.inSampleSize*=2;
+            o.inJustDecodeBounds=false;
+            o.inPreferredConfig=leanConfig;
+            try(InputStream in=context.getContentResolver().openInputStream(Uri.parse(uri))){
+                Bitmap b=BitmapFactory.decodeStream(in,null,o);
+                if(b!=null)return b;
+            }
         }catch(Exception ignored){}
         int index=Math.max(0,Math.min(ASSETS.length-1,p.getInt("wallpaper_builtin",0)));
         try {
-            BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;
-            try(InputStream in=context.getAssets().open(ASSETS[index])){BitmapFactory.decodeStream(in,null,o);}
-            o.inSampleSize=1;while(o.outWidth/o.inSampleSize>maxWidth||o.outHeight/o.inSampleSize>maxHeight)o.inSampleSize*=2;
-            o.inJustDecodeBounds=false;o.inPreferredConfig=leanConfig;
-            try(InputStream in=context.getAssets().open(ASSETS[index])){return BitmapFactory.decodeStream(in,null,o);}
+            BitmapFactory.Options o=new BitmapFactory.Options();
+            o.inJustDecodeBounds=true;
+            try(InputStream in=context.getAssets().open(ASSETS[index])){
+                BitmapFactory.decodeStream(in,null,o);
+            }
+            o.inSampleSize=1;
+            while(o.outWidth/o.inSampleSize>maxWidth||o.outHeight/o.inSampleSize>maxHeight)o.inSampleSize*=2;
+            o.inJustDecodeBounds=false;
+            o.inPreferredConfig=leanConfig;
+            try(InputStream in=context.getAssets().open(ASSETS[index])){
+                return BitmapFactory.decodeStream(in,null,o);
+            }
         }catch(IOException ignored){}
         return null;
     }

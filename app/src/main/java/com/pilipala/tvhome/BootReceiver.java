@@ -22,8 +22,12 @@ public final class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) SystemIntegration.refreshHomeService(context);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && SystemIntegration.prefs(context).getBoolean("boot_home", false)) {
-            try { context.startActivity(SystemIntegration.homeIntent(context)); }
-            catch (RuntimeException e) { Log.w("MarcoTVSystem", "Boot activity unavailable", e); }
+            try {
+                context.startActivity(SystemIntegration.homeIntent(context));
+            }
+            catch (RuntimeException e) {
+                Log.w("MarcoTVSystem", "Boot activity unavailable", e);
+            }
         }
     }
 }

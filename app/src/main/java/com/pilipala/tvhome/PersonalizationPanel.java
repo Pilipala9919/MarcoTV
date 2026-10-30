@@ -24,11 +24,19 @@ final class PersonalizationPanel extends LinearLayout {
     private String scene="personalization";
     private boolean recentPreviewLoaded;
     PersonalizationPanel(MainActivity host){
-        super(host);this.host=host;draft=new PreviewPreferences(host.preferences);setOrientation(VERTICAL);
+        super(host);
+        this.host=host;
+        draft=new PreviewPreferences(host.preferences);
+        setOrientation(VERTICAL);
         setDescendantFocusability(FOCUS_AFTER_DESCENDANTS);
         section("cards","桌面卡片与动效");
         slider("卡片行上下位置","card_row_position",0,100,75,"%");
-        TextView rowHint=new TextView(host);rowHint.setText("0% 靠上 · 100% 靠下；默认 75%");rowHint.setTextColor(0xFF9AB2C0);rowHint.setTextSize(11);rowHint.setPadding(dp(8),0,dp(8),dp(8));addView(rowHint);
+        TextView rowHint=new TextView(host);
+        rowHint.setText("0% 靠上 · 100% 靠下；默认 75%");
+        rowHint.setTextColor(0xFF9AB2C0);
+        rowHint.setTextSize(11);
+        rowHint.setPadding(dp(8),0,dp(8),dp(8));
+        addView(rowHint);
         slider("卡片高度","card_height",70,130,100,"%");
         slider("卡片圆角","card_radius",0,90,32,"");
         slider("选中放大","focus_scale",0,30,16,"%");
@@ -37,11 +45,22 @@ final class PersonalizationPanel extends LinearLayout {
         slider("界面动效时长","motion_duration",120,500,260," ms");
         section("clock","时间与屏保");
         clockStyle=new ChoiceMenu(host,"时钟字体",ClockScene.STYLES,host.preferences.getInt("clock_style",0),value->{
-            draft.values.put("clock_style",value);updateClockControls();host.home.refreshAppearance();host.home.invalidate();
+            draft.values.put("clock_style",value);
+            updateClockControls();
+            host.home.refreshAppearance();
+            host.home.invalidate();
         },()->selectScene("clock_style"));
-        LinearLayout.LayoutParams fontParams=new LinearLayout.LayoutParams(-1,-2);fontParams.bottomMargin=dp(6);addView(clockStyle,fontParams);
+        LinearLayout.LayoutParams fontParams=new LinearLayout.LayoutParams(-1,-2);
+        fontParams.bottomMargin=dp(6);
+        addView(clockStyle,fontParams);
         slider("圆体倾斜幅度","clock_tilt",0,14,10,"°");
-        tiltHint=new TextView(host);TextView tip=tiltHint;tip.setText("倾斜幅度仅用于「柔圆错倾」字体");tip.setTextColor(0xFF9AB2C0);tip.setTextSize(11);tip.setPadding(dp(8),0,dp(8),dp(8));addView(tip);
+        tiltHint=new TextView(host);
+        TextView tip=tiltHint;
+        tip.setText("倾斜幅度仅用于「柔圆错倾」字体");
+        tip.setTextColor(0xFF9AB2C0);
+        tip.setTextSize(11);
+        tip.setPadding(dp(8),0,dp(8),dp(8));
+        addView(tip);
         slider("桌面时间大小","clock_size",36,160,96,"");
         slider("进入屏保等待","idle_seconds",0,600,30," 秒");
         slider("屏保时间大小","ambient_clock_size",100,280,176,"");
@@ -64,38 +83,102 @@ final class PersonalizationPanel extends LinearLayout {
         updateClockControls();
     }
     private void updateClockControls(){
-        View tilt=controls.get("clock_tilt");int visibility=draft.getInt("clock_style",0)==2?VISIBLE:GONE;
-        if(tilt!=null)tilt.setVisibility(visibility);if(tiltHint!=null)tiltHint.setVisibility(visibility);
+        View tilt=controls.get("clock_tilt");
+        int visibility=draft.getInt("clock_style",0)==2?VISIBLE:GONE;
+        if(tilt!=null)tilt.setVisibility(visibility);
+        if(tiltHint!=null)tiltHint.setVisibility(visibility);
     }
-    private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
+    private int dp(float n){
+        return Math.round(n*getResources().getDisplayMetrics().density);
+    }
     private void section(String id,String title){
-        TextView label=new TextView(host);label.setText(title);label.setTextColor(0xFFB7CDD9);label.setTextSize(13);label.setTypeface(Typeface.DEFAULT,Typeface.BOLD);label.setPadding(dp(4),dp(15),0,dp(8));addView(label);groups.put(id,label);
+        TextView label=new TextView(host);
+        label.setText(title);
+        label.setTextColor(0xFFB7CDD9);
+        label.setTextSize(13);
+        label.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        label.setPadding(dp(4),dp(15),0,dp(8));
+        addView(label);
+        groups.put(id,label);
     }
     private void slider(String title,String key,int min,int max,int fallback,String unit){
         ContinuousSlider control=new ContinuousSlider(host,title,unit,min,max,host.preferences.getInt(key,fallback),value->{
-            draft.values.put(key,value);if(key.equals("clock_style"))updateClockControls();host.home.refreshAppearance();host.home.invalidate();
+            draft.values.put(key,value);
+            if(key.equals("clock_style"))updateClockControls();
+            host.home.refreshAppearance();
+            host.home.invalidate();
             if(key.equals("ambient_transition"))host.home.replayPreview();
-        });control.inline();controls.put(key,control);defaults.put(key,fallback);
-        control.setOnFocusChangeListener((v,focused)->{control.invalidate();if(focused)selectScene(key);});
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(66));params.bottomMargin=dp(6);addView(control,params);
+        });
+        control.inline();
+        controls.put(key,control);
+        defaults.put(key,fallback);
+        control.setOnFocusChangeListener((v,focused)->{
+            control.invalidate();
+            if(focused)selectScene(key);
+        });
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(66));
+        params.bottomMargin=dp(6);
+        addView(control,params);
     }
     private void selectScene(String key){
-        scene=key;page.setPreviewScene(key);
-        if(key.startsWith("recent_")&&!recentPreviewLoaded){recentPreviewLoaded=true;host.recents.load();}
+        scene=key;
+        page.setPreviewScene(key);
+        if(key.startsWith("recent_")&&!recentPreviewLoaded){
+            recentPreviewLoaded=true;
+            host.recents.load();
+        }
     }
     private void action(String label,Runnable action,String key){
-        TextView row=new TextView(host);row.setText(label);row.setTextColor(Color.WHITE);row.setTextSize(14);row.setPadding(dp(12),dp(14),dp(12),dp(14));row.setBackground(TvDialog.background(0xFF293541,dp(12)));row.setFocusable(true);row.setFocusableInTouchMode(true);
-        row.setOnFocusChangeListener((v,focused)->{row.setBackground(TvDialog.background(focused?0xFF354B5D:0xFF293541,dp(12)));if(focused)selectScene(key);});row.setOnClickListener(v->action.run());addView(row);
+        TextView row=new TextView(host);
+        row.setText(label);
+        row.setTextColor(Color.WHITE);
+        row.setTextSize(14);
+        row.setPadding(dp(12),dp(14),dp(12),dp(14));
+        row.setBackground(TvDialog.background(0xFF293541,dp(12)));
+        row.setFocusable(true);
+        row.setFocusableInTouchMode(true);
+        row.setOnFocusChangeListener((v,focused)->{
+            row.setBackground(TvDialog.background(focused?0xFF354B5D:0xFF293541,dp(12)));
+            if(focused)selectScene(key);
+        });
+        row.setOnClickListener(v->action.run());
+        addView(row);
     }
     void show(String group){
         if(host.phone!=null)host.phone.clearPreview();
         if(host.recents.visible)host.recents.close();
-        page=new TvDialog.Builder(host).setPageId("personalization").setTitle("Magic Desktop").setPreview(scene).setView(this)
-            .setPositiveButton("保存",(d,w)->save()).setNegativeButton("取消",null)
-            .setInlineButton("默认值",(d,w)->{clockStyle.setValue(0);clockStyle.closeMenu();for(Map.Entry<String,ContinuousSlider> entry:controls.entrySet())entry.getValue().setValue(defaults.get(entry.getKey()));}).create();
-        page.onLeave(()->{if(host.localPreview==draft){host.localPreview=null;host.home.refreshAppearance();host.home.invalidate();}});
-        host.localPreview=draft;host.showDialog(page);
-        post(()->{if("clock".equals(group)){clockStyle.focusHeading();return;}View heading=groups.get(group);int at=heading==null?0:indexOfChild(heading)+1;if(at<getChildCount())getChildAt(at).requestFocus();});
+        page=new TvDialog.Builder(host).setPageId("personalization").setTitle("Magic Desktop").setPreview(scene)
+                .setView(this)
+                .setPositiveButton("保存",(d,w)->save()).setNegativeButton("取消",null)
+                .setInlineButton("默认值",(d,w)->{
+            clockStyle.setValue(0);
+            clockStyle.closeMenu();
+            for(Map.Entry<String,ContinuousSlider> entry:controls.entrySet())entry.getValue().setValue(defaults.get(entry.getKey()));
+        }).create();
+        page.onLeave(()->{
+            if(host.localPreview==draft){
+                host.localPreview=null;
+                host.home.refreshAppearance();
+                host.home.invalidate();
+            }
+        });
+        host.localPreview=draft;
+        host.showDialog(page);
+        post(()->{
+            if("clock".equals(group)){
+                clockStyle.focusHeading();
+                return;
+            }
+            View heading=groups.get(group);
+            int at=heading==null?0:indexOfChild(heading)+1;
+            if(at<getChildCount())getChildAt(at).requestFocus();
+        });
     }
-    private void save(){SharedPreferences.Editor editor=host.preferences.edit();for(Map.Entry<String,Integer> value:draft.values.entrySet())editor.putInt(value.getKey(),value.getValue());editor.apply();host.home.refreshAppearance();host.home.invalidate();}
+    private void save(){
+        SharedPreferences.Editor editor=host.preferences.edit();
+        for(Map.Entry<String,Integer> value:draft.values.entrySet())editor.putInt(value.getKey(),value.getValue());
+        editor.apply();
+        host.home.refreshAppearance();
+        host.home.invalidate();
+    }
 }
