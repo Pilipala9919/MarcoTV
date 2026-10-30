@@ -1,7 +1,7 @@
 {
   "author": "Pilipala",
-  "version": "0.14.3",
-  "captured_on": "2026-10-29",
+  "version": "0.14.4",
+  "captured_on": "2026-10-30",
   "privacy": "Mixed-version native screenshots. Legacy private pixels are replaced by opaque synthetic mosaics. New captures use temporary demo cards, built-in wallpaper, fixture network names and an invalid pairing QR. No private originals or valid connection codes are published.",
   "assets": [
     {
@@ -657,6 +657,33 @@
       "sha256": "1571d937c17cb9f9697bd7d757eb159393cb09bf315a7ab127919937913345f1",
       "version": "0.14.3",
       "captured_on": "2026-10-29"
+    },
+    {
+      "file": "assets/89-desktop-motion.png",
+      "kind": "native screenshot with temporary demo cards",
+      "redacted_regions": 0,
+      "sha256": "1b674e9d086df3c9c213abd5796ba735da6fe7223195cd8b43b6a39fd5498136",
+      "version": "0.14.4",
+      "captured_on": "2026-10-30",
+      "privacy": "Demo cards and bundled wallpaper. No real application list, Wi-Fi names or pairing secrets."
+    },
+    {
+      "file": "assets/90-magic-motion.png",
+      "kind": "native screenshot with temporary demo cards",
+      "redacted_regions": 0,
+      "sha256": "d143205cd93ce8dc5a2891f4cb5e8726fa6667eded5afc4607173f2ccb313ba6",
+      "version": "0.14.4",
+      "captured_on": "2026-10-30",
+      "privacy": "Demo cards and bundled wallpaper. No real application list, Wi-Fi names or pairing secrets."
+    },
+    {
+      "file": "assets/91-settings-motion.png",
+      "kind": "native screenshot with temporary demo cards",
+      "redacted_regions": 0,
+      "sha256": "1e85fd595237bb7c5e5bdfee0dea1cdcb954bc6d7bc0b87aba9610d8612bbe88",
+      "version": "0.14.4",
+      "captured_on": "2026-10-30",
+      "privacy": "Demo cards and bundled wallpaper. No real application list, Wi-Fi names or pairing secrets."
     }
   ]
 }

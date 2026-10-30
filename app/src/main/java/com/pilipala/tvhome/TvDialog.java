@@ -69,9 +69,8 @@ final class TvDialog extends Dialog {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state); requestWindowFeature(Window.FEATURE_NO_TITLE);
         panel = new LinearLayout(getContext()); panel.setOrientation(LinearLayout.VERTICAL);
-        // Static panels use a software-backed surface on older Mali TV GPUs;
-        // this avoids partially missing text after nested window transitions.
-        panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        // Let the window renderer update scrolling rows without a panel-sized software cache.
+        panel.setLayerType(View.LAYER_TYPE_NONE, null);
         boolean preview=spec.preview!=null;
         panel.setPadding(dp(spec.network?14:preview?16:24), dp(spec.network?14:preview?14:22), dp(spec.network?14:preview?16:24), dp(spec.network?10:preview?14:18));
         panel.setClickable(true);
@@ -81,7 +80,7 @@ final class TvDialog extends Dialog {
         TextView title = text(spec.title, preview||spec.network?19:25, Color.WHITE); title.setTypeface(Typeface.create("sans-serif-medium", 0));
         title.setMaxLines(2); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:8), 0, dp(preview||spec.network?8:14)); panel.addView(title);
-        ScrollView scroll = new ScrollView(getContext()); scroll.setFillViewport(false); scroll.setClipToPadding(false);
+        ScrollView scroll = new MotionScrollView(getContext()); scroll.setFillViewport(false); scroll.setClipToPadding(true);
         scroll.setVerticalScrollBarEnabled(false);
         body = new LinearLayout(getContext()); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(dp(3), dp(3), dp(3), dp(3));
         scroll.addView(body);
@@ -136,6 +135,7 @@ final class TvDialog extends Dialog {
                 });
             }
             item.setOnClickListener(v -> {
+                if(!isShowing())return;
                 savedFocus=item;
                 // Close before invoking a callback so nested panels retain their focus/lifecycle.
                 forwardDismiss=true;dismiss(); if (spec.itemClick != null) spec.itemClick.onClick(this, index);
@@ -152,7 +152,7 @@ final class TvDialog extends Dialog {
             TextView button = row(action.text, false); button.setGravity(Gravity.CENTER); button.setTextSize(15);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(preview?34:44), 1); p.setMargins(dp(3), 0, dp(3), 0);
             buttons.addView(button, p); choices.add(button);
-            button.setOnClickListener(v -> { forwardDismiss=false;if(!action.stayOpen)dismiss(); if (action.callback != null) action.callback.onClick(this, action.which); });
+            button.setOnClickListener(v -> { if(!isShowing())return;forwardDismiss=false;if(!action.stayOpen)dismiss(); if (action.callback != null) action.callback.onClick(this, action.which); });
         }
         if(spec.orderKey!=null){
             TextView sort=row("调整顺序",false);sort.setTextSize(15);sort.setGravity(Gravity.CENTER);
@@ -180,14 +180,10 @@ final class TvDialog extends Dialog {
     private int motionDuration(){return Math.max(120,Math.min(500,getContext().getSharedPreferences("home",0).getInt("motion_duration",260)));}
     @Override protected void onStart(){
         super.onStart();
-        // Back reuses the existing dialog, so animate every show, not only onCreate.
-        panel.animate().cancel();panel.setAlpha(1);
-        panel.setTranslationX(spec.network?0:dp(returning?-20:32));
-        panel.setTranslationY(spec.network?-dp(8):0);
-        panel.animate().alpha(1).translationX(0).translationY(0).setDuration(motionDuration())
-            .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f)).start();
+        // PanelWindow owns both sides of the transition.
     }
-    @Override protected void onStop(){panel.animate().cancel();super.onStop();}
+    @Override protected void onStop(){super.onStop();}
+    boolean isReturning(){return returning;}
     private void beginMove(int index,boolean fromHold){
         moving=index;swallowMoveRelease=fromHold;
         hint.setText("上下移动  ·  确定放下  ·  返回结束排序");
@@ -247,19 +243,14 @@ final class TvDialog extends Dialog {
             return true;
         });
         final GradientDrawable fill=background(checked?0xFF344258:0xFF292E38,dp(12));t.setBackground(fill);
-        final android.animation.ValueAnimator[] animator={null};
-        final float[] progress={0};
-        t.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){}
-            public void onViewDetachedFromWindow(View v){if(animator[0]!=null)animator[0].cancel();}});
+        UiMotion focusMotion=new UiMotion(t,0,30,progress->{
+            fill.setColor((Integer)COLORS.evaluate(progress,checked?0xFF344258:0xFF292E38,0xFF3A586C));
+            fill.setStroke(dp(1),(Integer)COLORS.evaluate(progress,0x00ABD6DF,0xFFABD6DF));
+            t.setTextColor((Integer)COLORS.evaluate(progress,0xFFDCE1E9,Color.WHITE));
+        });
         t.setOnFocusChangeListener((v, focus) -> {
             if(focus&&v.getTag() instanceof Integer)lastItem=(Integer)v.getTag();
-            if(animator[0]!=null)animator[0].cancel();
-            animator[0]=android.animation.ValueAnimator.ofFloat(progress[0],focus?1:0);
-            animator[0].setDuration(Math.min(180,motionDuration()));
-            animator[0].addUpdateListener(a->{progress[0]=(float)a.getAnimatedValue();
-                fill.setColor((Integer)COLORS.evaluate(progress[0],checked?0xFF344258:0xFF292E38,0xFF3A586C));});
-            animator[0].start();
-            fill.setStroke(dp(1),focus?0xFFABD6DF:0x00000000);t.setTextColor(focus ? Color.WHITE : 0xFFDCE1E9);
+            focusMotion.to(focus?1:0);
         });
         return t;
     }

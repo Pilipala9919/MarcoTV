@@ -58,3 +58,6 @@ scripts/*
 
 # Local platform promotion deliverables are distributed separately.
 宣传/
+
+!scripts/MotionDeviceChecks.java
+!scripts/test_ui_motion.py

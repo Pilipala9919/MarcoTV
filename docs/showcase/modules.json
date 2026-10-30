@@ -1,7 +1,7 @@
 {
   "author": "Pilipala",
-  "version": "0.14.3",
-  "updated": "2026-10-29",
+  "version": "0.14.4",
+  "updated": "2026-10-30",
   "modules": [
     {
       "id": "desktop",
@@ -16,6 +16,10 @@
       ],
       "limit": "卡片来自已安装应用；不附带视频会员、频道源或付费影视。图中卡片为临时演示内容。",
       "shots": [
+        {
+          "file": "assets/89-desktop-motion.png",
+          "caption": "0.14.4 · 顶部入口间距与连续焦点；示例卡片"
+        },
         {
           "file": "assets/85-desktop.png",
           "caption": "0.14.2 · 默认桌面布局保持原样，示例卡片"
@@ -161,6 +165,10 @@
       "limit": "高度变化时横幅等比填充，边缘可能裁切；位置范围保留标题、名称与顶部入口的安全空间。手机外观页暂未提供两个新控件。",
       "shots": [
         {
+          "file": "assets/90-magic-motion.png",
+          "caption": "0.14.4 · Magic Desktop 预览与设置面板；示例卡片"
+        },
+        {
           "file": "assets/82-magic-layout.png",
           "caption": "0.14.2 · Magic Desktop · 行位置与卡片高度"
         },
@@ -268,6 +276,10 @@
       ],
       "limit": "支持排序的固定设置列表可长按调整；Magic Desktop 滑块按功能分区，暂不支持重新排序。系统授权、输入法与文件选择器仍由系统提供。",
       "shots": [
+        {
+          "file": "assets/91-settings-motion.png",
+          "caption": "0.14.4 · 设置菜单与圆角焦点"
+        },
         {
           "file": "assets/62-settings-root.png",
           "caption": "0.14.0 · 一级设置"

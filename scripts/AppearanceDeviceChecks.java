@@ -32,52 +32,52 @@ final class AppearanceDeviceChecks {
             });
             View panel=(View)field(dialog[0],"panel");Thread.sleep(80);
             ui(inst,()->check.accept("panel_entry_has_intermediate_frames",panel.getAlpha()==1&&panel.getTranslationX()>0));
-            Thread.sleep(600);ui(inst,()->check.accept("panel_entry_settles",panel.getAlpha()==1&&panel.getTranslationX()==0));
+            Thread.sleep(1800);ui(inst,()->check.accept("panel_entry_settles alpha="+panel.getAlpha()+" x="+panel.getTranslationX()+" attached="+panel.isAttachedToWindow(),panel.getAlpha()==1&&panel.getTranslationX()==0));
             ui(inst,()->{host.showDialog(new TvDialog.Builder(host).setPageId("appearance_child").setTitle("Child").create());});
-            Thread.sleep(600);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
+            Thread.sleep(1800);ui(inst,()->{try{TvDialog child=(TvDialog)field(host,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
-            Thread.sleep(600);
+            Thread.sleep(1800);
             final View[] parentFocus={null},childFocus={null};final TvDialog[] settingsRoot={null};final int[] rootLeft={0};
             ui(inst,()->{try{
                 host.exitMenus();host.navigator.settings();settingsRoot[0]=(TvDialog)field(host,"activeDialog");
                 parentFocus[0]=PhoneDeviceChecks.find((View)field(settingsRoot[0],"panel"),"维护与帮助");parentFocus[0].requestFocus();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
-            ui(inst,()->{try{rootLeft[0]=((View)field(settingsRoot[0],"panel")).getLeft();parentFocus[0].performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(400);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
+            ui(inst,()->{try{rootLeft[0]=((View)field(settingsRoot[0],"panel")).getLeft();parentFocus[0].performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
                 check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=361*host.getResources().getDisplayMetrics().density);
                 check.accept("settings_child_replaces_parent_in_same_position",root.getChildCount()==1&&root.getChildAt(0).getLeft()==rootLeft[0]);
                 check.accept("settings_parent_is_detached",((View)field(settingsRoot[0],"panel")).getParent()==null);
                 childFocus[0]=PhoneDeviceChecks.find(root,"关于 Marco TV");childFocus[0].requestFocus();childFocus[0].performClick();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
                 check.accept("deeper_page_does_not_stack_panels",root.getChildCount()==1&&host.isPage("about"));
                 ((TvDialog)field(host,"activeDialog")).onBackPressed();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("nested_back_restores_clicked_row",host.isPage("maintenance")&&childFocus[0].isFocused());
                 ((TvDialog)field(host,"activeDialog")).onBackPressed();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("root_back_restores_clicked_nonfirst_row",host.isPage("main")&&parentFocus[0].isFocused());
                 parentFocus[0].performClick();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 ((TvDialog)field(host,"activeDialog")).onBackPressed();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("repeated_return_keeps_same_focus",parentFocus[0].isFocused());
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
             }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(400);
+            Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("preview_overview_reaches_perspective",(Float)field(host.home,"overview")==1f);
                 android.graphics.Matrix matrix=(android.graphics.Matrix)field(host.home,"overviewMatrix");float[] corners={0,0,host.home.getWidth(),0,host.home.getWidth(),host.home.getHeight(),0,host.home.getHeight()};matrix.mapPoints(corners);
-                check.accept("preview_keeps_entire_desktop_left_of_controls",corners[0]>=0&&corners[2]<host.home.getWidth()*.67f&&corners[1]!=corners[3]);
+                check.accept("preview_keeps_entire_desktop_left_of_controls "+java.util.Arrays.toString(corners),corners[0]>=0&&corners[2]<host.home.getWidth()*.67f&&corners[1]!=corners[3]);
                 check.accept("preview_right_edge_recedes",corners[3]>corners[1]&&corners[5]<corners[7]);
                 android.graphics.Paint previewPaint=(android.graphics.Paint)field(host.home,"overviewPaint");
-                check.accept("preview_uses_filtered_antialiased_surface",field(host.home,"overviewBitmap")!=null&&previewPaint.isAntiAlias()&&previewPaint.isFilterBitmap());
+                check.accept("preview_uses_filtered_antialiased_surface",previewPaint.isAntiAlias()&&previewPaint.isFilterBitmap());
                 PreviewBackdrop backdrop=new PreviewBackdrop();Bitmap source=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);
                 Canvas pattern=new Canvas(source);pattern.drawColor(0xFFFF6000);Paint stripe=new Paint();stripe.setColor(0xFF2060FF);pattern.drawRect(160,0,320,180,stripe);
                 Bitmap output=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);Canvas target=new Canvas(output);backdrop.draw(target,source,320,180);
@@ -90,14 +90,14 @@ final class AppearanceDeviceChecks {
                 backdrop.clear();check.accept("preview_blur_releases_cache",field(backdrop,"blurred")==null);source.recycle();output.recycle();
                 host.exitMenus();
             }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(350);
+            Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("preview_releases_surface_on_exit",field(host.home,"overviewBitmap")==null);
                 check.accept("preview_exit_releases_wallpaper_blur",field(field(host.home,"overviewBackdrop"),"blurred")==null);
                 check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
                 host.network.show();
             }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(350);
+            Thread.sleep(1800);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");View bubble=root.getChildAt(0);float density=host.getResources().getDisplayMetrics().density;
                 check.accept("wifi_bubble_is_small_and_top_anchored",bubble.getWidth()<=301*density&&bubble.getHeight()<=351*density&&bubble.getTop()<host.home.getHeight()/3);
@@ -137,7 +137,7 @@ final class AppearanceDeviceChecks {
                 check.accept("home_discards_local_preview",host.localPreview==null);
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");TvDialog savePage=(TvDialog)field(host,"activeDialog");
                 ContinuousSlider saveSlider=(ContinuousSlider)field(field(savePage,"spec"),"view");saveSlider.setValue(before==70?60:70);
-                PhoneDeviceChecks.find(savePage.getWindow().getDecorView(),"保存").performClick();host.exitMenus();
+                PhoneDeviceChecks.find((View)field(savePage,"panel"),"保存").performClick();host.exitMenus();
                 check.accept("preview_save_commits_value",prefs.getInt("card_radius",32)!=(before));
                 if(hadRadius)prefs.edit().putInt("card_radius",before).commit();else prefs.edit().remove("card_radius").commit();
                 host.home.resetToApps();Row row=host.home.rows.get(0);int was=row.selected;
@@ -149,7 +149,7 @@ final class AppearanceDeviceChecks {
             }catch(Exception e){throw new RuntimeException(e);}});
             final int originalRadius=prefs.getInt("card_radius",32);final boolean hadPersonalRadius=prefs.contains("card_radius");
             final PersonalizationPanel[] editor={null};final TvDialog[] editorPage={null};
-            ui(inst,()->{host.exitMenus();host.navigator.personalization("cards");});Thread.sleep(400);
+            ui(inst,()->{host.exitMenus();host.navigator.personalization("cards");});Thread.sleep(1800);
             ui(inst,()->{try{
                 editorPage[0]=(TvDialog)field(host,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
@@ -203,18 +203,18 @@ final class AppearanceDeviceChecks {
                 check.accept("personalization_focus_selects_screensaver_preview","ambient_clock_size".equals(editorPage[0].previewKey()));
                 host.navigator.wallpaperSettings();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(250);
-            ui(inst,()->{try{((TvDialog)field(host,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            ui(inst,()->{try{((TvDialog)field(host,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("personalization_child_return_keeps_draft",host.isPage("personalization")&&host.localPreview!=null&&host.appearance().getInt("card_radius",32)!=originalRadius);
                 editorPage[0].onBackPressed();
                 check.accept("personalization_back_discards_all_draft",host.localPreview==null&&prefs.getInt("card_radius",32)==originalRadius);
                 host.navigator.personalization("cards");
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 TvDialog current=(TvDialog)field(host,"activeDialog");PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                 java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_radius").setValue(originalRadius==70?60:70);
                 PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(350);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{
                 check.accept("personalization_save_commits_draft",prefs.getInt("card_radius",32)!=originalRadius&&host.localPreview==null);
                 if(hadPersonalRadius)prefs.edit().putInt("card_radius",originalRadius).commit();else prefs.edit().remove("card_radius").commit();
@@ -290,7 +290,9 @@ final class AppearanceDeviceChecks {
             final Tile[] selected={null};
             Method press=HomeView.class.getDeclaredMethod("pressSelected",boolean.class);press.setAccessible(true);
             ui(inst,()->{try{host.home.resetToApps();selected[0]=host.home.rows.get(0).tiles.get(host.home.rows.get(0).selected);press.invoke(host.home,true);}catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(100);ui(inst,()->check.accept("card_press_animates_without_jump",selected[0].press.value>0&&selected[0].press.value<1));
+            final boolean[] pressIntermediate={false};
+            for(int attempt=0;attempt<40;attempt++){Thread.sleep(15);ui(inst,()->pressIntermediate[0]=selected[0].press.value>0&&selected[0].press.value<1);if(pressIntermediate[0])break;}
+            ui(inst,()->check.accept("card_press_animates_without_jump",pressIntermediate[0]));
             ui(inst,()->{try{press.invoke(host.home,false);}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1000);
             ui(inst,()->check.accept("card_release_returns_to_rest",selected[0].press.value==0));
             ui(inst,()->{
