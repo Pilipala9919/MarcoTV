@@ -11,27 +11,46 @@ final class DefaultHomePanel {
     final MainActivity host;
     boolean pending;
     boolean compatibilityPending;
+    private boolean returnToHelp;
     private int pendingEpoch;
     private LocalHomeAuthorizer authorizer;
     DefaultHomePanel(MainActivity h){
         host=h;
     }
     void show(){
-        boolean own=SystemIntegration.homeIsOurs(host);
-        host.showDialog(new TvDialog.Builder(host).setPageId("default_home").setTitle(own?"已设为默认桌面":"让 Home 键回到 Marco TV")
+        HomeSetupPolicy.Route route=HomeSetup.route(host);
+        boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
+        host.showDialog(new TvDialog.Builder(host).setPageId("default_home").setTitle("桌面启用")
                 .setMessage(HomeSetup.summary(host))
-                .setItems(new String[]{own?"重新选择默认桌面":"设为默认桌面","测试 Home 返回","电视没有这个选项怎么办？",
-                        "启用 Home 兼容","电视本机增强设置（试验）","确认重启后自动进入","暂停自动恢复"},(d,w)->{
-            if(w==0)request();
-            else if(w==1){HomeSetup.armHomeTest(host);host.exitMenus();host.toast("请打开其他应用，再按 Home 返回；90 秒内记录结果。");}
-            else if(w==2)help();
-            else if(w==3)compatibility();
-            else if(w==4)localAuthorization();
-            else if(w==5){HomeSetup.confirmBoot(host);show();}
-            else {HomeSetup.pause(host,"你已暂停自动恢复。");SystemIntegration.startRecovery(host);show();}
-        }).setNegativeButton("返回",null).create());
+                .setItems(new String[]{route==HomeSetupPolicy.Route.PAUSED?"继续设置":ready?"检查使用效果":"开始设置","更多设置方式"},(d,w)->{
+            if(w==0)start();else help();
+        }).setNegativeButton("稍后",null).create());
+    }
+    void start(){
+        if(HomeSetup.paused(host))HomeSetup.begin(host);
+        switch(HomeSetup.route(host)){
+            case NATIVE_READY:
+                if(!HomeSetup.prefs(host).getBoolean("setup_requested",false))HomeSetup.begin(host);
+                HomeSetup.acceptNative(host);verification();break;
+            case COMPAT_READY:
+                if(!HomeSetup.prefs(host).getBoolean("setup_requested",false))HomeSetup.begin(host);
+                verification();break;
+            case SYSTEM_PICKER:request();break;
+            case ACCESSIBILITY:compatibility();break;
+            default:help();break;
+        }
+    }
+    void verification(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_verification").setTitle("检查使用效果")
+                .setMessage(HomeSetup.summary(host)+"\n\n先检查 Home，再在方便时重启电视。开关屏幕不算重启。")
+                .setItems(new String[]{"检查 Home 返回","我已重启，确认开机效果","刷新当前状态"},(d,w)->{
+                    if(w==0){HomeSetup.armHomeTest(host);host.exitMenus();host.toast("请打开另一个应用，再按一次 Home；90 秒内返回可记录结果。");}
+                    else if(w==1){HomeSetup.confirmBoot(host);if(!HomeSetup.prefs(host).contains("setup_boot_confirmed"))host.toast("还没有记录到实际重启返回；方便时重启电视后再来确认。");verification();}
+                    else verification();
+                }).setNegativeButton("返回",null).create());
     }
     void request(){
+        returnToHelp=false;
         pendingEpoch=host.menuEpoch;
         HomeSetup.begin(host);
         if(Build.VERSION.SDK_INT>=29)try{
@@ -67,7 +86,7 @@ final class DefaultHomePanel {
             if(compatibilityPending){HomeSetup.finishCompatibilityConsent(host);compatibilityPending=false;}
             HomeSetup.reconcile(host);
             host.handler.post(()->{
-                if(host.foreground&&host.menuEpoch==pendingEpoch)show();
+                if(host.foreground&&host.menuEpoch==pendingEpoch){if(returnToHelp)help();else show();}
             });
         }
     }
@@ -82,7 +101,7 @@ final class DefaultHomePanel {
                         SystemIntegration.startRecovery(host);
                         show();
                     }else try{
-                        compatibilityPending=true;pending=true;pendingEpoch=host.menuEpoch;
+                        compatibilityPending=true;pending=true;returnToHelp=false;pendingEpoch=host.menuEpoch;
                         host.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
                     }catch(RuntimeException e){
                         compatibilityPending=false;pending=false;
@@ -112,20 +131,50 @@ final class DefaultHomePanel {
     }
     void destroy(){if(authorizer!=null){authorizer.cancel();authorizer=null;}}
     void help(){
-        host.showDialog(new TvDialog.Builder(host).setPageId("default_home_help").setTitle("系统没有开放桌面选择")
-                .setMessage("有些电视把 Home 固定到原厂桌面，普通应用无法自行改掉。\n\n先在电视设置中找「默认应用／桌面」。如果没有，可使用安装助手完成系统授权，或查看 Home 兼容设置。无需输入激活码，也不需要付费。")
-                .setItems(new String[]{"打开电视设置","安装助手说明","启用 Home 兼容","电视本机增强设置（试验）"},(d,w)->{
+        host.showDialog(new TvDialog.Builder(host).setPageId("default_home_help").setTitle("更多设置方式")
+                .setMessage("优先选择系统默认桌面；电视没有提供这个选项时，可以尝试 Home 兼容。\n不确定如何操作？打开手机向导，按步骤查看。")
+                .setItems(new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","电视本机增强设置（试验）","暂停自动恢复"},(d,w)->{
             if(w==0)try{
-                pending=true;pendingEpoch=host.menuEpoch;
+                pending=true;returnToHelp=true;pendingEpoch=host.menuEpoch;
                 host.startActivity(new Intent(Settings.ACTION_SETTINGS));
             }catch(RuntimeException ex){
                 pending=false;
                 host.toast("电视未提供该入口");
-            }else if(w==1)host.showDialog(new TvDialog.Builder(host).setPageId("home_assistant").setTitle("跟着安装向导操作")
-                    .setMessage("用手机或电脑浏览器打开：\nmarcotv.wlj9919.top/install/\n\n按页面选择设备和安装路线。系统授权需电视允许调试；具体支持范围以向导说明为准。")
-                    .setNegativeButton("返回",null).create());
+            }else if(w==1)assistant();
             else if(w==2)compatibility();
-            else localAuthorization();
+            else if(w==3)localAuthorization();
+            else pause();
         }).setNegativeButton("返回",null).create());
+    }
+    void assistant(){
+        android.widget.LinearLayout box=new android.widget.LinearLayout(host);
+        box.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int gap=Math.round(20*host.getResources().getDisplayMetrics().density);
+        box.setPadding(0,gap/2,0,gap/2);
+        final io.nayuki.qrcodegen.QrCode qr=io.nayuki.qrcodegen.QrCode.encodeText("https://marcotv.wlj9919.top/install/#home",io.nayuki.qrcodegen.QrCode.Ecc.MEDIUM);
+        android.view.View code=new android.view.View(host){
+            protected void onDraw(android.graphics.Canvas canvas){
+                android.graphics.Paint p=new android.graphics.Paint();
+                float side=Math.min(getWidth(),getHeight()),unit=side/(qr.size+8),left=(getWidth()-side)/2,top=(getHeight()-side)/2;
+                p.setColor(android.graphics.Color.WHITE);canvas.drawRect(left,top,left+side,top+side,p);
+                p.setColor(android.graphics.Color.BLACK);
+                for(int y=0;y<qr.size;y++)for(int x=0;x<qr.size;x++)if(qr.getModule(x,y))canvas.drawRect(left+(x+4)*unit,top+(y+4)*unit,left+(x+5)*unit,top+(y+5)*unit,p);
+            }
+        };
+        code.setContentDescription("手机扫描打开桌面设置向导");
+        box.addView(code,new android.widget.LinearLayout.LayoutParams(gap*8,gap*8));
+        android.widget.TextView guide=new android.widget.TextView(host);
+        guide.setTextColor(android.graphics.Color.WHITE);guide.setTextSize(16);guide.setPadding(gap,0,0,0);
+        guide.setText("手机相机扫一扫\n选择「已经安装，设置默认桌面」\n\n也可在浏览器输入\nmarcotv.wlj9919.top/install/#home\n\n网页提供步骤，系统确认需在电视上完成。");
+        box.addView(guide,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_assistant").setTitle("用手机查看设置向导")
+                .setView(box)
+                .setNegativeButton("返回",null).create());
+    }
+    void pause(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_pause_consent").setTitle("暂停自动恢复？")
+                .setMessage("将暂停 Home 兼容与开机恢复。系统已经选择的默认桌面仍会保留；若想换回原桌面，请在系统设置中另行选择。")
+                .setPositiveButton("暂停恢复",(d,w)->{HomeSetup.pause(host,"你已暂停自动恢复。");SystemIntegration.startRecovery(host);show();})
+                .setNegativeButton("返回",null).create());
     }
 }

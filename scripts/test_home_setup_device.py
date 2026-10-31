@@ -6,7 +6,8 @@ from pathlib import Path
 from build import ROOT,JDK,TOOLS,env,executable,run
 from build import ANDROID as SDK14
 def main():
- p=argparse.ArgumentParser();p.add_argument('--adb',required=True);p.add_argument('--serial',required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--adb',default='adb');p.add_argument('--serial');p.add_argument('--compile-only',action='store_true');a=p.parse_args()
+ if not a.compile_only and not a.serial:p.error('--serial is required for device checks')
 
  adb=[a.adb,'-s',a.serial]
  def call(*args):
@@ -14,11 +15,12 @@ def main():
   if args[0]=='shell':args.insert(1,'-x')
   if args[0]=='install':args.insert(1,'--no-streaming')
   return subprocess.check_output(adb+args,timeout=180).decode('utf8',errors='replace')
- if int(call('shell','getprop','ro.build.version.sdk').strip())<23:raise RuntimeError('Requires API 23+')
- if 'mWakefulness=Awake' not in call('shell','dumpsys','power'):
-  raise RuntimeError('TV is not awake. No UI checks, wake command or test installation performed.')
- if 'mFinished=false' in call('shell','dumpsys','activity'):
-  raise RuntimeError('Another instrumentation is running. Leave the shared TV untouched and retry later.')
+ if not a.compile_only:
+  if int(call('shell','getprop','ro.build.version.sdk').strip())<23:raise RuntimeError('Requires API 23+')
+  if 'mWakefulness=Awake' not in call('shell','dumpsys','power'):
+   raise RuntimeError('TV is not awake. No UI checks, wake command or test installation performed.')
+  if 'mFinished=false' in call('shell','dumpsys','activity'):
+   raise RuntimeError('Another instrumentation is running. Leave the shared TV untouched and retry later.')
  f=ROOT/'build/home-setup-tests'
  for folder in ['classes','dex']:(f/folder).mkdir(parents=True,exist_ok=True)
  (f/'manifest.xml').write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.setup.tests"><uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28"/><application/><instrumentation android:name="com.pilipala.tvhome.HomeSetupDeviceChecks" android:targetPackage="com.pilipala.tvhome"/></manifest>',encoding='utf8')
@@ -32,9 +34,11 @@ def main():
   out.write(f/'dex/classes.dex','classes.dex')
  run(executable(TOOLS,'zipalign'),'-f','4',f/'unsigned.apk',f/'aligned.apk');env.setdefault('MARCOTV_STORE_PASSWORD','android')
  run(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','sign','--min-sdk-version','23','--ks',os.environ.get('MARCOTV_KEYSTORE',str(ROOT/'private/development.p12')),'--ks-key-alias',os.environ.get('MARCOTV_KEY_ALIAS','tvhome'),'--ks-pass','env:MARCOTV_STORE_PASSWORD','--out',f/'tests.apk',f/'aligned.apk')
+ if a.compile_only:
+  print('Home setup UI test APK compiled; no device connected or changed.');return
  print(call('install','-r',str(f/'tests.apk')),flush=True)
  try:
   result=call('shell','am','instrument','-w','com.pilipala.tvhome.setup.tests/com.pilipala.tvhome.HomeSetupDeviceChecks');(f/'result.txt').write_text(result,encoding='utf8');print(result)
-  if 'OK 23 home setup device checks' not in result or 'FAIL' in result:raise RuntimeError('Home setup device checks failed')
+  if 'OK 28 home setup device checks' not in result or 'FAIL' in result:raise RuntimeError('Home setup device checks failed')
  finally:print(call('uninstall','com.pilipala.tvhome.setup.tests'))
 if __name__=='__main__':main()

@@ -27,6 +27,19 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
                 check("opening_setup_is_read_only",before.equals(HomeSetup.prefs(host).getAll()));
                 HomeSetup.route(host);HomeSetup.summary(host);
                 check("capability_and_status_queries_are_read_only",before.equals(HomeSetup.prefs(host).getAll()));
+                try {
+                    TvDialog root=(TvDialog)field(host.dialogs,"activeDialog");
+                    check("setup_root_has_two_choices",((String[])field(field(root,"spec"),"items")).length==2);
+                    host.defaultHome.help();
+                    TvDialog more=(TvDialog)field(host.dialogs,"activeDialog");
+                    check("advanced_choices_live_in_more_page",((String[])field(field(more,"spec"),"items")).length==5);
+                    host.defaultHome.assistant();
+                    TvDialog assistant=(TvDialog)field(host.dialogs,"activeDialog");
+                    Object content=field(field(assistant,"spec"),"view");
+                    check("phone_guide_has_qr_and_instructions",content instanceof android.widget.LinearLayout&&((android.widget.LinearLayout)content).getChildCount()==2);
+                    host.panelWindow().onBackPressed();check("assistant_back_returns_to_more",host.isPage("default_home_help"));
+                    host.panelWindow().onBackPressed();check("more_back_returns_to_setup",host.isPage("default_home"));
+                } catch(Exception e){throw new RuntimeException(e);}
                 SharedPreferences p=HomeSetup.prefs(host);
                 p.edit().putBoolean("setup_accessibility_pending",true).commit();
                 HomeSetup.finishCompatibilityConsent(host);

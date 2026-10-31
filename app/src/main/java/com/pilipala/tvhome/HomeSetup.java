@@ -138,8 +138,9 @@ final class HomeSetup {
         if (p.contains("setup_boot_observed")) boot = "记录到重启后返回，等待你确认";
         if (p.contains("setup_boot_confirmed")) boot = "已确认一次重启返回；系统升级后仍需复核";
         if (paused(c)) boot = "已暂停自动恢复";
-        return "桌面方式：" + mode + "\nHome 测试：" + (p.contains("setup_home_seen") ? "已记录 Home 返回" : "尚未验证")
-                + "\n开机恢复：" + boot + "\n系统设置授权：" + (SystemIntegration.authorized(c) ? "已获得" : "未获得；标准设置无需此权限")
+        return "桌面方式  ·  " + mode + "\nHome 返回  ·  " + (p.contains("setup_home_seen") ? "已记录返回" : "等待检查")
+                + "\n开机恢复  ·  " + boot
+                + (p.getBoolean("home_compat", false) ? "\nHome 服务  ·  " + (HomeKeyService.connected ? "已连接" : "等待连接；请先检查 Home 返回") : "")
                 + (paused(c) ? "\n已暂停恢复：" + p.getString("setup_pause_reason", "请重新确认") : "");
     }
 }

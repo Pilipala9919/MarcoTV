@@ -226,9 +226,11 @@ final class SystemIntegration {
         startRecovery(context);
     }
     private static void permissionHelp(Activity activity, DialogHost host) {
-        host.show(new TvDialog.Builder(activity).setTitle("首次需要电脑授权")
-                .setMessage("连接电视 ADB 后，在电脑执行一次下列命令。授权通常会保留到卸载应用或恢复出厂设置。\n\nadb shell pm grant com.pilipala.tvhome android.permission.WRITE_SECURE_SETTINGS\n\n然后返回此页开启功能。部分厂商仍会限制后台运行。")
-                .setPositiveButton("知道了", null).create());
+        host.show(new TvDialog.Builder(activity).setTitle("此功能需要系统允许")
+                .setMessage("ADB 自动恢复属于高级功能，需要一次系统授权。\n\n如果只想让 Home 回到 Marco TV，先使用「桌面启用」，标准桌面选择无需这项权限。\n\n需要高级功能时，可在更多设置方式中尝试本机增强设置，或用手机查看授权说明。")
+                .setPositiveButton("打开桌面启用", (d,w)->((MainActivity)activity).defaultHome.show())
+                .setNeutralButton("手机查看向导", (d,w)->((MainActivity)activity).defaultHome.assistant())
+                .setNegativeButton("稍后", null).create());
     }
     static void show(Activity activity, DialogHost host) {
         SharedPreferences p = prefs(activity);
@@ -236,7 +238,7 @@ final class SystemIntegration {
         boolean ownHome = homeIsOurs(activity);
         String[] items = {
                 "ADB 自动恢复：" + adbRestoreLabel(activity),
-                "状态中心", "设为默认桌面",
+                "状态中心", "桌面启用与检查",
                 "开机打开 Marco TV：" + (p.getBoolean("boot_home", false) ? "已开启" : "未开启"),
                 "Home 键兼容模式：" + (p.getBoolean("home_compat", false) ? "已开启" : "未开启"),
                 "恢复原桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明",
