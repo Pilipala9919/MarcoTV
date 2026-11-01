@@ -12,7 +12,7 @@ final class ProjectInfo {
     static final String REPOSITORY="https://github.com/Pilipala9919/MarcoTV";
     static final String FREE_NOTICE="本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。";
     static String about(){
-        return "版本 "+VERSION+"\n作者 "+AUTHOR+"\nCopyright © 2026 Pilipala\n\n免费开源软件 · GPL-3.0-only\n"+FREE_NOTICE
+        return "版本 "+VERSION+(BuildEdition.RESTRICTED?" · 受限系统兼容版（待实测）":"")+"\n作者 "+AUTHOR+"\nCopyright © 2026 Pilipala\n\n免费开源软件 · GPL-3.0-only\n"+FREE_NOTICE
                 +"\n\n开源地址\n"+REPOSITORY+"\n\n使用说明、安装说明和各品牌设置入口见项目文档。";
     }
     static String licenses(Context context){

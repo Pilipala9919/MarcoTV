@@ -11,16 +11,18 @@ final class UpdatePolicy {
     static final String MIRROR="https://marcotv.wlj9919.top/";
     static String[] feeds(String channel){
         if(!"stable".equals(channel)&&!"preview".equals(channel))throw new IllegalArgumentException("channel");
-        return new String[]{MIRROR+"updates/"+channel+".json",FEED+channel+".json"};
+        String name=(BuildEdition.RESTRICTED?"restricted-":"")+channel;
+        return new String[]{MIRROR+"updates/"+name+".json",FEED+name+".json"};
     }
     static String[] downloads(String version){
         if(version==null||!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?")||version.length()>48)throw new IllegalArgumentException("version");
-        String file="MarcoTV-"+version+".apk";
+        String file="MarcoTV-"+version+(BuildEdition.RESTRICTED?"-Restricted":"")+".apk";
         return new String[]{MIRROR+file,"https://github.com/Pilipala9919/MarcoTV/releases/download/v"+version+"/"+file};
     }
     static boolean apkUrl(String value){
         try{
             URI u=new URI(value);
+            if(!editionUrl(u.getPath()))return false;
             return "https".equals(u.getScheme())
                     &&u.getUserInfo()==null&&u.getPort()==-1&&u.getQuery()==null&&u.getFragment()==null
                     &&(("github.com".equals(u.getHost())&&u.getPath().startsWith("/Pilipala9919/MarcoTV/releases/download/")&&u.getPath()
@@ -30,6 +32,12 @@ final class UpdatePolicy {
         }catch(Exception e){
             return false;
         }
+    }
+    static boolean editionUrl(String path){
+        return path!=null&&path.endsWith("-Restricted.apk")==BuildEdition.RESTRICTED;
+    }
+    static boolean editionMatches(String edition){
+        return BuildEdition.RESTRICTED ? "restricted".equals(edition) : edition==null||"standard".equals(edition);
     }
     static boolean transferUrl(String value){
         try{

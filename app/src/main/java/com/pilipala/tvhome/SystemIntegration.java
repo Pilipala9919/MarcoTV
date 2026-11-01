@@ -80,6 +80,7 @@ final class SystemIntegration {
                 .flattenToString();
     }
     static boolean homeIsOurs(Context context) {
+        if(BuildEdition.RESTRICTED)return false;
         // MIUI answers resolveActivity with its own launcher even when we hold the HOME
         // preference, so read the preference table directly instead.
         if (currentHome(context).startsWith(context.getPackageName() + "/")) return true;
@@ -207,6 +208,7 @@ final class SystemIntegration {
         return true;
     }
     static void enableHome(Context context, boolean enabled) {
+        if(BuildEdition.RESTRICTED)return;
         context.getPackageManager().setComponentEnabledSetting(new ComponentName(context, "com.pilipala.tvhome.HomeActivity"),
                 enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP);

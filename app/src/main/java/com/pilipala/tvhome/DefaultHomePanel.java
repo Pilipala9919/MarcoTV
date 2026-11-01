@@ -50,6 +50,7 @@ final class DefaultHomePanel {
                 }).setNegativeButton("返回",null).create());
     }
     void request(){
+        if(BuildEdition.RESTRICTED){compatibility();return;}
         returnToHelp=false;
         pendingEpoch=host.menuEpoch;
         HomeSetup.begin(host);
@@ -111,7 +112,7 @@ final class DefaultHomePanel {
     }
     void localAuthorization(){
         host.showDialog(new TvDialog.Builder(host).setPageId("home_local_consent").setTitle("电视本机增强设置（试验）")
-                .setMessage("先在电视系统中开启普通网络调试，再点击继续并确认系统授权弹窗。\n仅连接这台电视自身，尝试授权系统设置并选择 Marco TV，不安装或卸载其他应用，不启用持续 ADB 恢复。\n配对码无线调试和非标准端口暂不支持；失败可使用安卓手机或电脑助手。")
+                .setMessage("先在电视系统中开启普通网络调试，再点击继续并确认系统授权弹窗。\n仅连接这台电视自身，尝试授权系统设置"+(BuildEdition.RESTRICTED?"，随后需启用 Home 兼容。本版不申请系统默认桌面身份。":"并选择 Marco TV。")+"\n不安装或卸载其他应用，不启用持续 ADB 恢复。配对码无线调试和非标准端口暂不支持。")
                 .setPositiveButton("继续并授权",(d,w)->{
                     HomeSetup.begin(host);
                     TvDialog progress=new TvDialog.Builder(host).setPageId("home_local_authorize").setTitle("等待本机授权")
@@ -132,7 +133,7 @@ final class DefaultHomePanel {
     void destroy(){if(authorizer!=null){authorizer.cancel();authorizer=null;}}
     void help(){
         host.showDialog(new TvDialog.Builder(host).setPageId("default_home_help").setTitle("更多设置方式")
-                .setMessage("优先选择系统默认桌面；电视没有提供这个选项时，可以尝试 Home 兼容。\n不确定如何操作？打开手机向导，按步骤查看。")
+                .setMessage(BuildEdition.RESTRICTED?"本版为受限固件移除了系统桌面声明。请尝试 Home 兼容；开机和唤醒效果仍需在电视上检查。":"优先选择系统默认桌面；电视没有提供这个选项时，可以尝试 Home 兼容。\n不确定如何操作？打开手机向导，按步骤查看。")
                 .setItems(new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","电视本机增强设置（试验）","暂停自动恢复"},(d,w)->{
             if(w==0)try{
                 pending=true;returnToHelp=true;pendingEpoch=host.menuEpoch;

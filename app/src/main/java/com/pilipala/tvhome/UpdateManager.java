@@ -21,6 +21,7 @@ final class UpdateManager {
         final boolean preview;
         Release(JSONObject o,String channel)throws Exception{
             if(o.getInt("schema")!=1)throw new IOException("Unsupported feed");
+            if(!UpdatePolicy.editionMatches(o.has("edition")?o.getString("edition"):null))throw new IOException("Wrong edition feed");
             code=o.getInt("versionCode");
             minSdk=o.getInt("minSdk");
             size=o.getLong("size");
@@ -174,7 +175,7 @@ final class UpdateManager {
                 message=cancel?"已取消，当前版本不受影响":"网络连接超时；若已有下载进度，再次下载可继续";
             }
             catch(Exception e){
-                message="检查或下载失败，请检查网络后重试；现有版本仍可使用";
+                message=BuildEdition.RESTRICTED?"兼容版更新暂不可用：可能尚未发布对应版本或网络不可达。请仅安装受限系统兼容包，当前版本仍可使用。":"检查或下载失败，请检查网络后重试；现有版本仍可使用";
                 Diagnostics.event("UPDATE_CHECK_FAILED");
             }
             finally{
@@ -308,11 +309,13 @@ final class UpdateManager {
     static void verifyApk(Context c,File file,Release r)throws Exception{
         if(file.length()!=r.size||!sha(file).equals(r.sha))throw new IOException("digest");
         PackageManager pm=c.getPackageManager();
-        PackageInfo next=pm.getPackageArchiveInfo(file.getAbsolutePath(),PackageManager.GET_SIGNATURES);
+        PackageInfo next=pm.getPackageArchiveInfo(file.getAbsolutePath(),PackageManager.GET_SIGNATURES|PackageManager.GET_META_DATA);
         PackageInfo current=pm.getPackageInfo(c.getPackageName(),PackageManager.GET_SIGNATURES);
         if(next==null||!c.getPackageName().equals(next.packageName)||next.versionCode!=r.code||next.versionCode<=current.versionCode
                 ||!r.version.equals(next.versionName)||next.applicationInfo==null||next.applicationInfo.minSdkVersion>Build.VERSION.SDK_INT)throw new IOException("package identity or compatibility");
         Set<String> a=signatures(current.signatures),b=signatures(next.signatures);
+        String edition=next.applicationInfo.metaData==null?null:next.applicationInfo.metaData.getString("com.pilipala.tvhome.EDITION");
+        if(!UpdatePolicy.editionMatches(edition))throw new IOException("Wrong APK edition");
         if(a.isEmpty()||!a.equals(b))throw new IOException("signer");
     }
     private static Set<String> signatures(android.content.pm.Signature[] signatures){

@@ -11,7 +11,7 @@ jdk=Path(json.loads(config.read_text())['jdk'] if config.exists() else os.enviro
 suffix='.exe' if os.name=='nt' else ''
 output=root/'build/update-checks'
 output.mkdir(parents=True,exist_ok=True)
-subprocess.run([str(jdk/('bin/javac'+suffix)),'-encoding','UTF-8','-d',str(output),str(root/'app/src/main/java/com/pilipala/tvhome/UpdatePolicy.java'),str(root/'scripts/UpdatePolicyChecks.java')],check=True)
+subprocess.run([str(jdk/('bin/javac'+suffix)),'-encoding','UTF-8','-d',str(output),str(root/'app/src/main/java/com/pilipala/tvhome/BuildEdition.java'),str(root/'app/src/main/java/com/pilipala/tvhome/UpdatePolicy.java'),str(root/'scripts/UpdatePolicyChecks.java')],check=True)
 result=subprocess.run([str(jdk/('bin/java'+suffix)),'-cp',str(output),'com.pilipala.tvhome.UpdatePolicyChecks'],check=True,capture_output=True,text=True)
 print(result.stdout)
 (root/'verification').mkdir(exist_ok=True)

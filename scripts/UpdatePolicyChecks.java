@@ -9,6 +9,23 @@ public final class UpdatePolicyChecks {
     static void invalid(String name,int code,String version,int sdk,long size,String hash,String url,boolean preview,String channel){boolean failed=false;
         try{UpdatePolicy.validate(code,version,sdk,size,hash,url,preview,channel);}catch(IllegalArgumentException e){failed=true;}check(name,failed);}
     public static void main(String[] args)throws Exception{String hash=new String(new char[64]).replace('\0','a');
+        String restricted=good.replace(".apk","-Restricted.apk");
+        check("normal_url_matches_build",UpdatePolicy.apkUrl(good)!=BuildEdition.RESTRICTED);
+        check("restricted_url_matches_build",UpdatePolicy.apkUrl(restricted)==BuildEdition.RESTRICTED);
+        check("normal_metadata_matches_build",UpdatePolicy.editionMatches(null)!=BuildEdition.RESTRICTED);
+        check("restricted_metadata_matches_build",UpdatePolicy.editionMatches("restricted")==BuildEdition.RESTRICTED);
+        check("unknown_metadata_rejected",!UpdatePolicy.editionMatches("other"));
+        if(BuildEdition.RESTRICTED){
+            UpdatePolicy.validate(21,"0.12.0",23,123,hash,restricted,false,"stable");
+            invalid("normal_feed_rejected_by_restricted",21,"0.12.0",23,123,hash,good,false,"stable");
+            check("restricted_feed_isolated",UpdatePolicy.feeds("stable")[0].endsWith("/restricted-stable.json"));
+            check("restricted_preview_isolated",UpdatePolicy.feeds("preview")[1].endsWith("/restricted-preview.json"));
+            check("restricted_mirror_download",UpdatePolicy.downloads("0.12.0")[0].endsWith("/MarcoTV-0.12.0-Restricted.apk"));
+            check("restricted_github_download",UpdatePolicy.downloads("0.12.0")[1].equals(restricted));
+            check("restricted_mirror_url",UpdatePolicy.apkUrl(UpdatePolicy.downloads("0.12.0")[0]));
+            check("restricted_untrusted_host_rejected",!UpdatePolicy.apkUrl(restricted.replace("github.com","evil.test")));
+            System.out.println("OK "+passed+" restricted update policy checks");return;
+        }
         UpdatePolicy.validate(21,"0.12.0",23,123,hash,good,false,"stable");check("official_release_allowed",UpdatePolicy.apkUrl(good));
         check("higher_code_is_update",UpdatePolicy.newer(21,20));check("same_code_not_reinstalled",!UpdatePolicy.newer(20,20));check("downgrade_rejected",!UpdatePolicy.newer(19,20));
         invalid("preview_not_sent_to_stable",21,"0.12.0-rc.2",23,123,hash,good,true,"stable");

@@ -42,13 +42,13 @@ final class LocalHomeAuthorizer {
                 if (cancelled) return;
                 // WRITE_SECURE_SETTINGS alone does not select the default HOME. Use the
                 // explicitly authorized shell session for that separate action.
-                String selected = wire.shell("cmd package set-home-activity --user " + user + " " + HomeSetup.OWN);
+                if(!BuildEdition.RESTRICTED)wire.shell("cmd package set-home-activity --user " + user + " " + HomeSetup.OWN);
                 if (cancelled) return;
                 boolean nativeHome = SystemIntegration.homeIsOurs(context);
                 boolean secure = SystemIntegration.authorized(context);
                 if (nativeHome) HomeSetup.acceptNative(context);
                 result = "本机调试连接：已授权\n系统设置权限：" + (secure ? "已获得" : "系统未授予")
-                        + "\n默认桌面：" + (nativeHome ? "系统已选择 Marco TV" : "系统未确认选择，请使用标准设置或 Home 兼容")
+                        + "\n默认桌面：" + (BuildEdition.RESTRICTED ? "本版不提供；请返回启用 Home 兼容" : nativeHome ? "系统已选择 Marco TV" : "系统未确认选择，请使用标准设置或 Home 兼容")
                         + "\n当前仍需测试实体 Home 与重启。";
                 Diagnostics.event(nativeHome ? "HOME_LOCAL_SETUP_SELECTED" : "HOME_LOCAL_SETUP_PARTIAL");
             } catch (Exception e) {

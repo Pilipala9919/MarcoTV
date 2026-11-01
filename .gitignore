@@ -70,3 +70,4 @@ CLAUDE.md
 !scripts/HomeSetupDeviceChecks.java
 !scripts/test_home_setup.py
 !scripts/test_home_setup_device.py
+!scripts/test_restricted.py

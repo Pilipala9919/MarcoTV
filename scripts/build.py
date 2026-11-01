@@ -37,7 +37,9 @@ def run(*args):
     subprocess.run([str(a) for a in args], check=True, cwd=ROOT, env=env)
 
 
-def build():
+def build(restricted=False):
+    global BUILD
+    BUILD = ROOT / 'build' / 'restricted' if restricted else ROOT / 'build'
     import shutil
     info = (SOURCE / 'java/com/pilipala/tvhome/ProjectInfo.java').read_text(encoding='utf-8')
     if f'VERSION="{VERSION}"' not in info:
@@ -60,9 +62,28 @@ def build():
                 raise RuntimeError('Generated output escapes its directory')
             previous.unlink()
     run(executable(TOOLS,'aapt2'), 'compile', '--dir', SOURCE / 'res', '-o', BUILD / 'resources.zip')
-    run(executable(TOOLS,'aapt2'), 'link', '-o', BUILD / 'resources.apk', '--manifest', SOURCE / 'AndroidManifest.xml',
+    manifest = SOURCE / 'AndroidManifest.xml'
+    if restricted:
+        tree = ET.parse(manifest)
+        app = tree.getroot().find('application')
+        ns = '{http://schemas.android.com/apk/res/android}'
+        for alias in list(app.findall('activity-alias')):
+            if alias.get(ns+'name') == '.HomeActivity': app.remove(alias)
+        if any(c.get(ns+'name') == 'android.intent.category.HOME' for c in tree.iter('category')):
+            raise RuntimeError('Restricted package must not declare HOME')
+        ET.SubElement(app, 'meta-data', {ns+'name':'com.pilipala.tvhome.EDITION', ns+'value':'restricted'})
+        manifest = BUILD / 'AndroidManifest.xml'
+        ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+        tree.write(manifest, encoding='utf-8', xml_declaration=True)
+    run(executable(TOOLS,'aapt2'), 'link', '-o', BUILD / 'resources.apk', '--manifest', manifest,
         '-I', ANDROID, '--auto-add-overlay', '-A', SOURCE / 'assets', BUILD / 'resources.zip')
     sources = sorted((SOURCE / 'java').rglob('*.java'))
+    if restricted:
+        edition = BUILD / 'generated/BuildEdition.java'
+        edition.parent.mkdir(parents=True, exist_ok=True)
+        original = SOURCE / 'java/com/pilipala/tvhome/BuildEdition.java'
+        edition.write_text(original.read_text(encoding='utf-8').replace('RESTRICTED = false', 'RESTRICTED = true'), encoding='utf-8')
+        sources = [s for s in sources if s != original] + [edition]
     run(executable(JDK/'bin','javac'), '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
         '-classpath', ANDROID, '-d', BUILD / 'classes', *sources)
     classes = sorted((BUILD / 'classes').rglob('*.class'))
@@ -88,7 +109,7 @@ def build():
         run(executable(JDK/'bin','keytool'), '-genkeypair', '-keystore', keystore, '-storetype', 'PKCS12',
             '-alias', alias, '-storepass:env', 'MARCOTV_STORE_PASSWORD', '-keypass:env', 'MARCOTV_STORE_PASSWORD', '-keyalg', 'RSA',
             '-keysize', '2048', '-validity', '10000', '-dname', 'CN=Pilipala, OU=Marco TV')
-    apk = DIST / f'MarcoTV-{VERSION}.apk'
+    apk = DIST / f'MarcoTV-{VERSION}{"-Restricted" if restricted else ""}.apk'
     run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'sign', '--ks', keystore,
         '--ks-key-alias', alias, '--ks-pass', 'env:MARCOTV_STORE_PASSWORD', '--out', apk, BUILD / 'aligned.apk')
     run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'verify', '--verbose', apk)
@@ -98,4 +119,8 @@ def build():
     print(f'Built: {apk}\nSHA256: {digest}\nSize: {apk.stat().st_size} bytes')
 
 
-if __name__ == '__main__': build()
+if __name__ == '__main__':
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--restricted', action='store_true', help='Build without HOME declaration for restricted firmware')
+    build(parser.parse_args().restricted)
