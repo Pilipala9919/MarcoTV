@@ -22,6 +22,12 @@ jobs:
         run: python scripts/bootstrap.py
       - name: Build and verify APK
         run: python scripts/build.py
+      - name: Build restricted firmware APK and verify edition isolation
+        run: |
+          python scripts/build.py --restricted
+          python scripts/test_restricted.py
+      - name: Home setup policy and local authorization transport checks
+        run: python scripts/test_home_setup.py
       - name: Motion checks
         run: python scripts/test_motion.py
       - name: Release tool regression checks

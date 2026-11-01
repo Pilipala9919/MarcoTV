@@ -18,6 +18,8 @@
 
 ## 下载与说明
 
+- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/restricted-test-0.14.4-20261101)**：面向安装报错含 `not signature by tcl` 的设备，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
+
 - **[没有 U 盘？打开安装向导](https://marcotv.wlj9919.top/install/)**：Windows 电脑 / 安卓手机助手、电视浏览器、厂商接收入口，按条件选择路线。
 - [安装助手 1.0.0 使用说明](installer/README.md)：内含 0.12.0 正式包，普通网络 ADB；无线配对码暂不支持。
 
