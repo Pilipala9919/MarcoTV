@@ -49,7 +49,7 @@ final class HomeSetup {
     static HomeSetupPolicy.Route route(Context c) {
         return HomeSetupPolicy.route(paused(c), SystemIntegration.homeIsOurs(c),
                 !BuildEdition.RESTRICTED && (roleAvailable(c) || canOpen(c, Settings.ACTION_HOME_SETTINGS)),
-                prefs(c).getBoolean("home_compat", false), serviceEnabled(c),
+                prefs(c).getBoolean("home_compat", false), serviceEnabled(c) && HomeKeyService.connected,
                 canOpen(c, Settings.ACTION_ACCESSIBILITY_SETTINGS));
     }
     /** Explicit user action only. Existing ADB settings are deliberately untouched. */
@@ -140,6 +140,7 @@ final class HomeSetup {
         if (paused(c)) boot = "已暂停自动恢复";
         return (BuildEdition.RESTRICTED ? "受限系统兼容版 · 无系统默认桌面入口\n" : "") + "桌面方式  ·  " + mode + "\nHome 返回  ·  " + (p.contains("setup_home_seen") ? "已记录返回" : "等待检查")
                 + "\n开机恢复  ·  " + boot
+                + (!nativeHome && SystemIntegration.homePreferenceIsOurs(c) ? "\n桌面选择已记录，但系统实际入口仍是其他桌面" : "")
                 + (p.getBoolean("home_compat", false) ? "\nHome 服务  ·  " + (HomeKeyService.connected ? "已连接" : "等待连接；请先检查 Home 返回") : "")
                 + (paused(c) ? "\n已暂停恢复：" + p.getString("setup_pause_reason", "请重新确认") : "");
     }

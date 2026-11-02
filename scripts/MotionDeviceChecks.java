@@ -10,7 +10,13 @@ public final class MotionDeviceChecks extends Instrumentation {
  TvDialog page(){return (TvDialog)field(host.dialogs,"activeDialog");}
  ViewGroup root(){return (ViewGroup)field(host.panelWindow(),"root");}
  void waitMotion()throws Exception{Thread.sleep(1600);}
- void capture(String name)throws Exception{Bitmap b=getUiAutomation().takeScreenshot();if(b!=null){java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(host.getExternalFilesDir(null),name+".png"));b.compress(Bitmap.CompressFormat.PNG,100,out);out.close();b.recycle();}}
+ void capture(String name)throws Exception{
+  // Default UiAutomation suppresses Home/accessibility services. Do not use it here.
+  // API 23 has no non-suppressing connection overload; omit optional screenshots there.
+  if(Build.VERSION.SDK_INT<24)return;
+  Bitmap b=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot();
+  if(b!=null){java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(host.getExternalFilesDir(null),name+".png"));b.compress(Bitmap.CompressFormat.PNG,100,out);out.close();b.recycle();}
+ }
  public void onCreate(Bundle b){super.onCreate(b);start();}
  public void onStart(){Bundle result=new Bundle();int duration=260;boolean had=false;try{
  host=(MainActivity)startActivitySync(new Intent().setClassName("com.pilipala.tvhome","com.pilipala.tvhome.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1000);

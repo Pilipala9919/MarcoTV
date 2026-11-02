@@ -28,6 +28,7 @@ public final class HomeAutoChecks {
         LocalAdbWire.hook = null; LocalAdbWire.closed = false;
         LocalAdbWire.connectFails = false;
         HomeSetup.serviceAllowed = true;
+        SystemIntegration.connectionAllowed=true;SystemIntegration.removed=0;
     }
     static String run(boolean restore) throws Exception {
         CountDownLatch done = new CountDownLatch(1);
@@ -51,6 +52,12 @@ public final class HomeAutoChecks {
         check("grant_denial_does_not_block_native_home", HomeSetup.accepted && !SystemIntegration.secure);
         reset(false); LocalAdbWire.select=false; run(false);
         check("selection_rejection_falls_back_to_compat", !HomeSetup.accepted && HomeSetup.service && HomeSetup.compat);
+        reset(false);LocalAdbWire.select=false;HomeSetup.service=true;run(false);
+        check("enabled_but_dead_service_is_rebound",SystemIntegration.removed==1&&HomeKeyService.connected);
+        reset(false);LocalAdbWire.select=false;HomeSetup.service=true;HomeKeyService.connected=true;run(false);
+        check("connected_service_not_disrupted",SystemIntegration.removed==0&&HomeKeyService.connected);
+        reset(false);LocalAdbWire.select=false;SystemIntegration.connectionAllowed=false;String unbound=run(false);
+        check("allowed_without_connection_not_reported_ready",HomeSetup.service&&!HomeKeyService.connected&&unbound.contains("尚未连接"));
         reset(false); LocalAdbWire.select=false; LocalAdbWire.grant=false; run(false);
         check("both_denied_not_success", !HomeSetup.accepted && !HomeSetup.service);
         reset(false); LocalAdbWire.select=false; HomeSetup.serviceAllowed=false; String refused=run(false);
@@ -108,9 +115,11 @@ class HomeKeyService { static boolean connected; }
 class Diagnostics { static void event(String value){} }
 class SystemIntegration {
     static boolean secure,nativeHome;
+    static boolean connectionAllowed;static int removed;
     static boolean authorized(Context c){return secure;}
     static boolean homeIsOurs(Context c){return nativeHome;}
-    static void recover(Context c){HomeSetup.service=HomeSetup.serviceAllowed;}
+    static void recover(Context c){HomeSetup.service=HomeSetup.serviceAllowed;HomeKeyService.connected=HomeSetup.service&&connectionAllowed;}
+    static boolean removeOwnHomeService(Context c){removed++;HomeSetup.service=false;return true;}
     static void startRecovery(Context c){}
 }
 class HomeSetup {

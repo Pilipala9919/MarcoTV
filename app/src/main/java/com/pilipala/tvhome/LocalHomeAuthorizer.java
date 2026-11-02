@@ -52,7 +52,7 @@ final class LocalHomeAuthorizer {
                 // Existing authorization can configure the restricted edition without ADB.
                 boolean localOnly = onMain(() -> restore ? canRestoreLocally()
                         : BuildEdition.RESTRICTED && SystemIntegration.authorized(context));
-                if (localOnly) result = onMain(() -> restore ? restoreLocalResult() : "使用已有系统设置权限。\n" + finishSetup());
+                if (localOnly) result = restore ? onMain(this::restoreLocalResult) : "使用已有系统设置权限。\n" + finishSetup();
                 else {
                     File folder = new File(context.getNoBackupFilesDir(), "home-setup");
                     if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
@@ -78,7 +78,7 @@ final class LocalHomeAuthorizer {
                         // An explicit repair re-applies HOME even if a stale OEM preference
                         // table still lists us. A read-only status query never comes here.
                         if (!BuildEdition.RESTRICTED) commands.selectHome(HomeSetup.OWN);
-                        result = "本机调试连接已授权。\n" + onMain(this::finishSetup);
+                        result = "本机调试连接已授权。\n" + finishSetup();
                     }
                 }
             } catch (Exception e) {
@@ -89,7 +89,7 @@ final class LocalHomeAuthorizer {
                 // A previously granted settings permission survives ADB being switched off.
                 // Only an explicit, still-live setup may use it; timeout/cancel never does.
                 if (!restore && !cancelled && !expired) try {
-                    String fallback = onMain(() -> SystemIntegration.authorized(context) ? finishSetup() : null);
+                    String fallback = onMain(() -> SystemIntegration.authorized(context)) ? finishSetup() : null;
                     if (fallback != null) {
                         Diagnostics.event("HOME_AUTO_EXISTING_PERMISSION_FALLBACK");
                         result = "本机调试暂不可用，使用已有系统设置权限。\n" + fallback;
@@ -106,28 +106,55 @@ final class LocalHomeAuthorizer {
         });
     }
 
-    /** Called on main: service writes and observers cannot interleave with setup state. */
-    private String finishSetup() {
-        HomeSetupSnapshot.capture(context);
-        if (!HomeSetup.prefs(context).getBoolean("setup_requested", false) || HomeSetup.paused(context))
-            HomeSetup.begin(context);
-        if (SystemIntegration.homeIsOurs(context)) {
-            HomeSetup.acceptNative(context);
-            Diagnostics.event("HOME_AUTO_NATIVE_SELECTED");
-            return "系统已确认选择 Marco TV。\n请继续检查实体 Home 返回及实际重启效果。";
-        }
-        if (SystemIntegration.authorized(context)) {
+    /** Worker orchestration; each settings mutation is serialized on the main thread. */
+    private String finishSetup() throws Exception {
+        String ready = onMain(() -> {
+            HomeSetupSnapshot.capture(context);
+            if (!HomeSetup.prefs(context).getBoolean("setup_requested", false) || HomeSetup.paused(context))
+                HomeSetup.begin(context);
+            if (SystemIntegration.homeIsOurs(context)) {
+                HomeSetup.acceptNative(context);
+                Diagnostics.event("HOME_AUTO_NATIVE_SELECTED");
+                return "系统当前 Home 入口已选择 Marco TV。\n请继续检查实体 Home 返回及实际重启效果。";
+            }
+            if (!SystemIntegration.authorized(context))
+                return "电视未确认默认桌面，也未授予兼容设置权限。请使用系统桌面选择或辅助功能设置。";
+            return null;
+        });
+        if (ready != null) return ready;
+        boolean rebind = onMain(() -> {
             HomeSetup.requestCompatibility(context);
+            // An allowed-but-dead binding survives some reinstalls/firmware restarts.
+            // Only this explicit setup may toggle our own service; other entries stay.
+            if (HomeSetup.serviceEnabled(context) && !HomeKeyService.connected) {
+                Diagnostics.event("HOME_AUTO_SERVICE_REBIND_REQUESTED");
+                return SystemIntegration.removeOwnHomeService(context);
+            }
+            return false;
+        });
+        if (rebind) {
+            // Let AccessibilityManager observe the removal before adding our entry back.
+            Thread.sleep(700);
+            check();
+        }
+        onMain(() -> {
             SystemIntegration.recover(context);
             HomeSetup.finishCompatibilityConsent(context);
             SystemIntegration.startRecovery(context);
-            boolean enabled = HomeSetup.serviceEnabled(context);
-            Diagnostics.event(enabled ? "HOME_AUTO_COMPAT_CONFIGURED" : "HOME_AUTO_COMPAT_DENIED");
-            return enabled ? "已自动配置 Home 兼容，" + (HomeKeyService.connected ? "服务已连接。" : "正在等待系统连接服务。")
-                    + "\n这不是系统默认桌面身份；Home 返回和开机恢复需要实际检查。"
-                    : "已获得设置授权，但电视未允许启用 Home 服务。请在其他设置方式中打开系统辅助功能。";
+            return null;
+        });
+        for (int i=0; i<30; i++) {
+            check();
+            if (HomeKeyService.connected || !onMain(() -> HomeSetup.serviceEnabled(context))) break;
+            Thread.sleep(100);
         }
-        return "电视未确认默认桌面，也未授予兼容设置权限。请使用系统桌面选择或辅助功能设置。";
+        return onMain(() -> {
+            boolean enabled = HomeSetup.serviceEnabled(context);
+            Diagnostics.event(enabled && HomeKeyService.connected ? "HOME_AUTO_COMPAT_CONNECTED" : "HOME_AUTO_COMPAT_UNCONNECTED");
+            return enabled ? (HomeKeyService.connected ? "Home 兼容服务已连接。" : "系统已允许 Home 服务，但尚未连接；还不能确认按键接管生效。")
+                    + "\n系统实际 Home 入口未改为 Marco TV，使用兼容方式返回；仍需检查实体 Home 和实际重启。"
+                    : "已获得设置授权，但电视未允许启用 Home 服务。请在其他设置方式中打开系统辅助功能。";
+        });
     }
 
     private boolean canRestoreLocally() {

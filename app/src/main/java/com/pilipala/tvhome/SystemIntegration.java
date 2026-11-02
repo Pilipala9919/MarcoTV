@@ -81,9 +81,12 @@ final class SystemIntegration {
     }
     static boolean homeIsOurs(Context context) {
         if(BuildEdition.RESTRICTED)return false;
-        // MIUI answers resolveActivity with its own launcher even when we hold the HOME
-        // preference, so read the preference table directly instead.
-        if (currentHome(context).startsWith(context.getPackageName() + "/")) return true;
+        // A stored preference is not enough: OEM firmware may still route HOME elsewhere.
+        return currentHome(context).startsWith(context.getPackageName() + "/");
+    }
+    static boolean homePreferenceIsOurs(Context context) {
+        if(BuildEdition.RESTRICTED)return false;
+        if (homeIsOurs(context)) return true;
         ArrayList<IntentFilter> filters = new ArrayList<>();
         ArrayList<ComponentName> names = new ArrayList<>();
         try {
