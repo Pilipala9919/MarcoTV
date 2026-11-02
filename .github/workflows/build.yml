@@ -28,6 +28,8 @@ jobs:
           python scripts/test_restricted.py
       - name: Home setup policy and local authorization transport checks
         run: python scripts/test_home_setup.py
+      - name: Automatic HOME routing and recovery checks
+        run: python scripts/test_home_auto.py
       - name: Motion checks
         run: python scripts/test_motion.py
       - name: Release tool regression checks

@@ -71,3 +71,6 @@ CLAUDE.md
 !scripts/test_home_setup.py
 !scripts/test_home_setup_device.py
 !scripts/test_restricted.py
+!scripts/test_home_auto.py
+!scripts/HomeAutoChecks.java
+!scripts/HomeSnapshotChecks.java

@@ -154,6 +154,16 @@ final class SystemIntegration {
         if (Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0) != enabled)
                 Settings.Secure.putInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, enabled);
     }
+    static boolean removeOwnHomeService(Context context) {
+        try {
+            Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
+            for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
+            writeServices(context, wanted);
+            return !HomeSetup.serviceEnabled(context);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
     static void recover(Context context) {
         SharedPreferences p = prefs(context);
         if (!authorized(context)) {
@@ -329,7 +339,7 @@ final class SystemIntegration {
                     break;
                 case 8:
                     host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
-                            .setMessage("首次安装需在电视系统中打开 ADB，并通过电脑完成一次授权。授权后可在 Marco TV 内开启自动恢复。\n\n卸载应用或恢复出厂设置后，需要重新授权。网络端口是否能恢复还取决于电视固件。")
+                            .setMessage("可在「桌面启用」中尝试一键设置。需要时在电视打开网络调试并允许连接；不支持本机授权的电视可使用手机或电脑助手。\n\n卸载应用或恢复出厂设置后可能需要重新授权。持续调试恢复需另行开启，端口能否恢复取决于电视固件。")
                             .setPositiveButton("查看授权方法", (dialog, button) -> permissionHelp(activity, host))
                             .setNegativeButton("返回", null).create());
                     break;

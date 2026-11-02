@@ -17,11 +17,16 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
     void ui(Runnable r){ final Throwable[] fail={null};runOnMainSync(()->{try{r.run();}catch(Throwable e){fail[0]=e;}});if(fail[0]!=null)throw new AssertionError(fail[0]); }
     void restore(SharedPreferences p,Map<String,?> saved){SharedPreferences.Editor e=p.edit().clear();for(Map.Entry<String,?> x:saved.entrySet()){Object v=x.getValue();if(v instanceof Boolean)e.putBoolean(x.getKey(),(Boolean)v);else if(v instanceof Integer)e.putInt(x.getKey(),(Integer)v);else if(v instanceof Long)e.putLong(x.getKey(),(Long)v);else if(v instanceof Float)e.putFloat(x.getKey(),(Float)v);else if(v instanceof String)e.putString(x.getKey(),(String)v);else if(v instanceof Set)e.putStringSet(x.getKey(),(Set<String>)v);}e.commit();}
     public void onCreate(Bundle b){super.onCreate(b);start();}
+    @Override public void callActivityOnResume(Activity activity){
+        super.callActivityOnResume(activity);
+        if(activity instanceof MainActivity)host=(MainActivity)activity;
+    }
     public void onStart(){Bundle output=new Bundle();Map<String,?> system=null,home=null;String originalDefault=null;
         try {
             host=(MainActivity)startActivitySync(new Intent().setClassName("com.pilipala.tvhome","com.pilipala.tvhome.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             Thread.sleep(700);system=new HashMap<>(HomeSetup.prefs(host).getAll());home=new HashMap<>(host.preferences.getAll());originalDefault=SystemIntegration.currentHome(host);
             final Map<String,?> before=system;
+            final String originalDefaultForTest=originalDefault;
             ui(()->{
                 host.exitMenus();host.defaultHome.show();
                 check("opening_setup_is_read_only",before.equals(HomeSetup.prefs(host).getAll()));
@@ -29,10 +34,28 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
                 check("capability_and_status_queries_are_read_only",before.equals(HomeSetup.prefs(host).getAll()));
                 try {
                     TvDialog root=(TvDialog)field(host.dialogs,"activeDialog");
+                    if(root==null)throw new IllegalStateException("Setup dialog missing: destroyed="+host.isDestroyed()+", finishing="+host.isFinishing()+", foreground="+host.foreground);
                     check("setup_root_has_two_choices",((String[])field(field(root,"spec"),"items")).length==2);
+                    host.defaultHome.localAuthorization();
+                    check("auto_consent_opens_without_mutation",host.isPage("home_local_consent")&&before.equals(HomeSetup.prefs(host).getAll()));
+                    TvDialog progress=new TvDialog.Builder(host).setPageId("test_progress").setTitle("test").create();
+                    final boolean[] left={false};progress.onLeave(()->left[0]=true);host.showDialog(progress);
+                    host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("test_result").setTitle("test").create());
+                    check("completed_operation_releases_progress",left[0]&&host.isPage("test_result"));
+                    host.panelWindow().onBackPressed();
+                    check("back_does_not_reopen_completed_operation",host.isPage("home_local_consent"));
+                    host.panelWindow().onBackPressed();
+                    HomeSetupSnapshot.clear(host);HomeSetupSnapshot.capture(host);
+                    String savedTarget=HomeSetupSnapshot.target(host);
+                    check("snapshot_capture_preserves_system_home",originalDefaultForTest.equals(SystemIntegration.currentHome(host)));
+                    HomeSetupSnapshot.capture(host);
+                    check("snapshot_retry_keeps_first_target",savedTarget.equals(HomeSetupSnapshot.target(host)));
+                    HomeSetupSnapshot.clear(host);
+                    check("snapshot_clear_removes_only_snapshot",!HomeSetup.prefs(host).contains(HomeSetupSnapshot.PREFIX+"saved"));
+                    restore(HomeSetup.prefs(host),before);
                     host.defaultHome.help();
                     TvDialog more=(TvDialog)field(host.dialogs,"activeDialog");
-                    check("advanced_choices_live_in_more_page",((String[])field(field(more,"spec"),"items")).length==5);
+                    check("advanced_choices_live_in_more_page",((String[])field(field(more,"spec"),"items")).length==8);
                     host.defaultHome.assistant();
                     TvDialog assistant=(TvDialog)field(host.dialogs,"activeDialog");
                     Object content=field(field(assistant,"spec"),"view");
@@ -84,7 +107,7 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
             });
             check("test_did_not_replace_default_home",originalDefault.equals(SystemIntegration.currentHome(host)));
             output.putString("stream","OK "+passed+" home setup device checks\n");
-        }catch(Throwable e){output.putString("stream","FAIL "+e+"\n");}
+        }catch(Throwable e){output.putString("stream","FAIL "+android.util.Log.getStackTraceString(e)+"\n");}
         finally {
             if(host!=null&&system!=null){final Map<String,?> s=system,h=home;ui(()->{host.exitMenus();restore(HomeSetup.prefs(host),s);restore(host.preferences,h);host.screensaver.pause();host.screensaver.resume();host.armIdle();SystemIntegration.startRecovery(host);});}
         }

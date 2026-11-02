@@ -46,6 +46,17 @@ final class DialogStack {
         return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);
     }
 
+    /** Completed async work replaces its progress page; Back must not reopen a dead operation. */
+    void replace(TvDialog expected, TvDialog result) {
+        if (activeDialog != expected || dialogHistory.isEmpty()) return;
+        expected.setOnDismissListener(null);
+        expected.dismiss();
+        dialogHistory.remove(dialogHistory.size()-1);
+        expected.leave();
+        activeDialog = null;
+        show(result);
+    }
+
     /** Shows the current page again after the activity returns to the foreground. */
     void resume(){
         if(activeDialog!=null&&!activeDialog.isShowing())presentDialog(activeDialog);
