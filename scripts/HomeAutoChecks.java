@@ -40,10 +40,13 @@ public final class HomeAutoChecks {
     }
     static boolean selected() { return LocalAdbWire.commands.toString().contains(" set-home-activity "); }
     public static void main(String[] args) throws Exception {
-        reset(false); run(false);
+        reset(false); String connectedResult=run(false);
+        check("result_distinguishes_authenticated_transport",connectedResult.contains("本机调试连接已授权"));
         check("native_confirmed_after_real_readback", SystemIntegration.nativeHome && HomeSetup.accepted && !HomeSetup.compat);
         check("snapshot_precedes_mutation", HomeSetupSnapshot.saved && !HomeSetupSnapshot.beforeNative);
         check("current_android_user_not_hardcoded_zero", LocalAdbWire.commands.toString().contains("--user 10"));
+        reset(false);SystemIntegration.nativeHome=true;run(false);
+        check("explicit_setup_repairs_existing_home_preference",selected());
         reset(false); LocalAdbWire.grant=false; run(false);
         check("grant_denial_does_not_block_native_home", HomeSetup.accepted && !SystemIntegration.secure);
         reset(false); LocalAdbWire.select=false; run(false);
@@ -60,8 +63,9 @@ public final class HomeAutoChecks {
         check("restricted_never_sets_home", !selected() && HomeSetup.compat && HomeSetup.service);
         reset(true); SystemIntegration.secure=true; run(false);
         check("authorized_restricted_needs_no_adb", LocalAdbWire.connects==0 && HomeSetup.compat);
-        reset(false);SystemIntegration.secure=true;LocalAdbWire.connectFails=true;run(false);
+        reset(false);SystemIntegration.secure=true;LocalAdbWire.connectFails=true;String fallbackResult=run(false);
         check("existing_permission_recovers_when_adb_is_off",HomeSetup.compat&&HomeSetup.service&&!selected());
+        check("result_distinguishes_existing_permission_fallback",fallbackResult.contains("本机调试暂不可用"));
         reset(false); LocalAdbWire.uid="10000"; run(false);
         check("wrong_identity_has_no_mutations", LocalAdbWire.commands.size()==1 && !HomeSetupSnapshot.saved && HomeSetup.begins==0);
         reset(false); LocalAdbWire.hook=command->{ if(command.equals("id -u")) android.os.Handler.fireTimeout(); }; run(false);

@@ -52,7 +52,7 @@ final class LocalHomeAuthorizer {
                 // Existing authorization can configure the restricted edition without ADB.
                 boolean localOnly = onMain(() -> restore ? canRestoreLocally()
                         : BuildEdition.RESTRICTED && SystemIntegration.authorized(context));
-                if (localOnly) result = onMain(() -> restore ? restoreLocalResult() : finishSetup());
+                if (localOnly) result = onMain(() -> restore ? restoreLocalResult() : "使用已有系统设置权限。\n" + finishSetup());
                 else {
                     File folder = new File(context.getNoBackupFilesDir(), "home-setup");
                     if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
@@ -70,13 +70,15 @@ final class LocalHomeAuthorizer {
                         return output;
                     }, android.os.Process.myUid() / 100000);
                     commands.authenticate();
+                    Diagnostics.event("HOME_AUTO_ADB_AUTHENTICATED");
                     if (restore) result = restore(commands);
                     else {
                         onMain(() -> { HomeSetupSnapshot.capture(context); HomeSetup.begin(context); return null; });
                         commands.grantSettings();
-                        boolean nativeBefore = onMain(() -> SystemIntegration.homeIsOurs(context));
-                        if (!BuildEdition.RESTRICTED && !nativeBefore) commands.selectHome(HomeSetup.OWN);
-                        result = onMain(this::finishSetup);
+                        // An explicit repair re-applies HOME even if a stale OEM preference
+                        // table still lists us. A read-only status query never comes here.
+                        if (!BuildEdition.RESTRICTED) commands.selectHome(HomeSetup.OWN);
+                        result = "本机调试连接已授权。\n" + onMain(this::finishSetup);
                     }
                 }
             } catch (Exception e) {
@@ -88,7 +90,10 @@ final class LocalHomeAuthorizer {
                 // Only an explicit, still-live setup may use it; timeout/cancel never does.
                 if (!restore && !cancelled && !expired) try {
                     String fallback = onMain(() -> SystemIntegration.authorized(context) ? finishSetup() : null);
-                    if (fallback != null) result = fallback;
+                    if (fallback != null) {
+                        Diagnostics.event("HOME_AUTO_EXISTING_PERMISSION_FALLBACK");
+                        result = "本机调试暂不可用，使用已有系统设置权限。\n" + fallback;
+                    }
                 } catch (Exception ignored) { }
             } finally {
                 main.removeCallbacks(timeout);
