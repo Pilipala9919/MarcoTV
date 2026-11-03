@@ -45,6 +45,8 @@ jobs:
         run: python scripts/test_motion_lifecycle.py
       - name: Visual transaction and loading queue checks
         run: python scripts/test_core_consistency.py
+      - name: Background playback ownership and weather refresh policies
+        run: python scripts/test_ambient_weather.py
       - name: Release tool regression checks
         run: python scripts/test_release_tools.py
       - name: Settings migration checks
