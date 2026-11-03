@@ -15,6 +15,7 @@ import java.util.Map;
 final class PersonalizationPanel extends LinearLayout {
     private final MainActivity host;
     private final PreviewPreferences draft;
+    private final AppearanceSession session;
     private final Map<String,ContinuousSlider> controls=new LinkedHashMap<>();
     private final Map<String,Integer> defaults=new LinkedHashMap<>();
     private final Map<String,View> groups=new LinkedHashMap<>();
@@ -26,7 +27,8 @@ final class PersonalizationPanel extends LinearLayout {
     PersonalizationPanel(MainActivity host){
         super(host);
         this.host=host;
-        draft=new PreviewPreferences(host.preferences);
+        session=new AppearanceSession(host);
+        draft=session.draft;
         setOrientation(VERTICAL);
         setDescendantFocusability(FOCUS_AFTER_DESCENDANTS);
         section("cards","桌面卡片与动效");
@@ -77,7 +79,7 @@ final class PersonalizationPanel extends LinearLayout {
         slider("任务卡片倾斜","recent_tilt",0,18,7,"°");
         slider("任务卡片圆角","recent_radius",8,80,36,"");
         slider("任务背景压暗","recent_dim",0,90,65,"%");
-        slider("任务动画时长","recent_duration",120,700,280," ms");
+        slider("任务动画时长","recent_duration",120,700,host.preferences.getInt("motion_duration",260)," ms");
         slider("任务显示数量","recent_limit",3,20,10," 个");
         slider("Home 双击间隔","recent_double_ms",200,700,400," ms");
         updateClockControls();
@@ -137,8 +139,12 @@ final class PersonalizationPanel extends LinearLayout {
         row.setBackground(TvDialog.background(0xFF293541,dp(12)));
         row.setFocusable(true);
         row.setFocusableInTouchMode(true);
+        android.graphics.drawable.GradientDrawable surface=TvDialog.background(0xFF293541,dp(12));
+        row.setBackground(surface);
+        android.animation.ArgbEvaluator colors=new android.animation.ArgbEvaluator();
+        UiMotion focus=new UiMotion(row,0,30,value->surface.setColor((Integer)colors.evaluate(value,0xFF293541,0xFF354B5D)));
         row.setOnFocusChangeListener((v,focused)->{
-            row.setBackground(TvDialog.background(focused?0xFF354B5D:0xFF293541,dp(12)));
+            focus.to(focused?1:0);
             if(focused)selectScene(key);
         });
         row.setOnClickListener(v->action.run());
@@ -149,22 +155,35 @@ final class PersonalizationPanel extends LinearLayout {
         if(host.recents.visible)host.recents.close();
         page=new TvDialog.Builder(host).setPageId("personalization").setTitle("Magic Desktop").setPreview(scene)
                 .setView(this)
-                .setPositiveButton("保存",(d,w)->save()).setNegativeButton("取消",null)
+                .setPositiveButton("保存",null).setNegativeButton("取消",null)
                 .setInlineButton("默认值",(d,w)->{
             clockStyle.setValue(0);
             clockStyle.closeMenu();
             for(Map.Entry<String,ContinuousSlider> entry:controls.entrySet())entry.getValue().setValue(defaults.get(entry.getKey()));
         }).create();
-        page.onLeave(()->{
-            if(host.localPreview==draft){
-                host.localPreview=null;
-                host.home.refreshAppearance();
-                host.home.invalidate();
+        page.confirmGuard(()->{
+            if(session.pendingImports>0){
+                host.toast("图片仍在读取，请完成后再保存；也可以取消本次编辑。");
+                return false;
             }
+            if(session.save())return true;
+            host.toast("壁纸保存未完成，本次编辑仍保留，请重试或取消。");
+            return false;
         });
+        page.onLeave(()->{
+            session.finish(false);
+            if(recentPreviewLoaded&&!host.recents.visible)host.recents.cancelLoads();
+        });
+        if(host.appearanceSession!=null)host.appearanceSession.finish(false);
+        host.appearanceSession=session;
+        session.changed=()->{
+            for(Map.Entry<String,ContinuousSlider> entry:controls.entrySet())
+                entry.getValue().setValue(draft.getInt(entry.getKey(),defaults.get(entry.getKey())));
+        };
         host.localPreview=draft;
         host.showDialog(page);
         post(()->{
+            if(controls.containsKey(group)){controls.get(group).requestFocus();return;}
             if("clock".equals(group)){
                 clockStyle.focusHeading();
                 return;
@@ -173,12 +192,5 @@ final class PersonalizationPanel extends LinearLayout {
             int at=heading==null?0:indexOfChild(heading)+1;
             if(at<getChildCount())getChildAt(at).requestFocus();
         });
-    }
-    private void save(){
-        SharedPreferences.Editor editor=host.preferences.edit();
-        for(Map.Entry<String,Integer> value:draft.values.entrySet())editor.putInt(value.getKey(),value.getValue());
-        editor.apply();
-        host.home.refreshAppearance();
-        host.home.invalidate();
     }
 }

@@ -112,7 +112,7 @@ final class ContinuousSlider extends View {
             return;
         }
         float p=dp(20), y=dp(compact?47:77), right=getWidth()-p;
-        paint.setColor(isFocused()?0xFF354B5D:0xFF293541);
+        paint.setColor((Integer)COLORS.evaluate(focusProgress,0xFF293541,0xFF354B5D));
         rect.set(0,0,getWidth(),getHeight());
         c.drawRoundRect(rect,dp(16),dp(16),paint);
         paint.setTypeface(Typeface.create("sans-serif-medium",0));
@@ -124,10 +124,10 @@ final class ContinuousSlider extends View {
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeWidth(dp(4));
         c.drawLine(p,y,right,y,paint);
-        float knob=p+(right-p)*(value-min)/(float)(max-min);
+        float knob=p+(right-p)*(displayedValue-min)/(float)(max-min);
         paint.setColor(0xFFA9DCE2);
         c.drawLine(p,y,knob,y,paint);
-        c.drawCircle(knob,y,dp(isFocused()?9:7),paint);
+        c.drawCircle(knob,y,dp(7+2*focusProgress),paint);
         paint.setTextSize(dp(12));
         paint.setColor(0xFFB8C6D2);
         paint.setTextAlign(Paint.Align.LEFT);

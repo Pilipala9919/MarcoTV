@@ -3,6 +3,22 @@
 const $=id=>document.getElementById(id);
 const base='https://marcotv.wlj9919.top/';
 const brandText={generic:'在电视“关于 / 设备信息”核对系统和完整型号。标准 Android TV 可在关于页连续选择版本号，再返回开发者选项。USB 调试不等于网络调试。',xiaomi:'小米国内部分旧版：设置 → 账户与安全 → 允许 ADB 调试。网络详情可查看 IP。本项目实测仅 MiTV-ASTP0 / Android 9，不能套用于所有新固件。',google:'Android TV / Google TV：设置 → 系统 / 设备偏好设置 → 关于 → 连续选择 Build / 版本号，再进入开发者选项。以电视实际提供的网络调试为准；仅配对码机型暂不支持助手。',custom:'国内 TCL、雷鸟、海信、创维等入口因型号和固件变化。先记录完整型号、系统号，在本机帮助或厂商说明中核对安装与调试入口，不使用未经核实的工程菜单代码。',fire:'仅 Fire OS 机型：设置 → My Fire TV / Device & Software → About，连续选择设备名显示开发者选项，查找 ADB Debugging。不是所有 Fire TV 都运行 Fire OS；本项目未实测其 Home 接管。'};
+Object.assign(brandText,{
+ tcl:'国内部分 TCL／雷鸟：设置 → 系统 → 系统信息／本机信息，在该页依次按上、下、左、右，查看是否出现 ADB 开关。社区入口参考，尚未核实你的型号与固件；海外 Google TV 使用标准开发者入口。',
+ skyworth:'部分创维／酷开：设置 → 关于本机 → 本机信息 → 更多信息，依次按上、上、下、下、左、右、左、右，查看通用设置中的 ADB 项。社区入口参考，当前固件可能不同，只查看调试项，其他工程参数保持原值。',
+ hisense:'国内海信／Vidda 与海外 Google TV、VIDAA 不能共用一套方法。先核对完整型号、软件号与系统，在实际提供的开发者选项中查看调试。未确认时不要修改工厂参数或清空电视。',
+ huawei:'华为／荣耀先确认具体型号是否兼容 Android APK。支持第三方安装不代表开放 ADB 或默认桌面。没有调试入口时不要仅凭 HarmonyOS 版本套用 Android 指令。'
+});
+function installationIssue(kind){
+ const messages={
+  source:'安装来源未允许：在电视系统中仅允许实际打开 APK 的浏览器或文件管理器安装未知应用，再重新打开安装包。与开启 ADB 是两回事。',
+  verification:'INSTALL_FAILED_VERIFICATION_FAILURE：系统安装校验拒绝。先核对官方来源、完整下载和本机允许的安装入口；这不等于桌面签名限制，不默认关闭全局安装校验。',
+  launcher:'提示 disable install launcher app not signature by tcl：这是厂商对桌面身份的安装限制。可查看项目受限兼容版的说明；该版本采用 Home 兼容，不能承诺原生默认桌面或该固件已适配。',
+  signature:'仅提示签名不一致、没有 TCL 桌面限制文字：可能是已安装同包名但签名不同的应用。先核对来源和已有版本，保留配置；不要直接卸载，或把所有签名冲突都当作 TCL 限制。',
+  connect:'无法连接／unauthorized：先检查电视是否提供普通网络调试、地址与端口是否正确，再在电视确认授权。USB 调试开关不保证网络端口开放，配对码端口也不能当作普通连接端口。'
+ };
+ return messages[kind]||'请选择电视上实际看到的提示，再按对应步骤检查。';
+}
 function route(system,device,entry){
  if(system==='other')return {title:'这台系统不能直接安装此 APK',intro:'Marco TV 是 Android 电视桌面，当前没有 Tizen、webOS、Roku 或 tvOS 版本。',steps:['不要下载安卓安装助手尝试强行安装。','如果电视连接了 Android 盒子，请按盒子的系统重新选择；安装目标是盒子。'],limit:'不会因为同一个电视品牌就自动获得 APK 兼容性。'};
  if(system==='unknown')return {title:'先确认系统，再决定安装路线',intro:'仅凭品牌或屏幕尺寸还不能判断。',steps:['打开原厂设置 → 关于 / 系统信息，记录完整型号与系统版本。','查对应型号官方说明，确认支持 Android APK，且 Android 版本不低于 6.0。','确认后回到上方选择 Android；不需要公开序列号、MAC 或家庭 IP。'],limit:'华为、荣耀与 VIDAA 等不能统一视为 Android 兼容系统。'};
@@ -15,15 +31,16 @@ function route(system,device,entry){
 }
 function homeRoute(system){
  if(system!=='android')return route(system,'other','unknown');
- return {title:'先在电视里完成桌面选择',intro:'新版流程会优先打开电视已有的系统设置。仅使用默认桌面选择时，不需要电脑授权。',steps:['新版正式发布并更新后，打开 Marco TV → 设置 → 系统与启动 → 桌面启用与检查，选择「开始设置」。当前版本未看到入口，请查看下方完整说明。','如果系统弹出桌面选择，选中 Marco TV。若没有此入口，按向导尝试「Home 兼容」，在辅助功能中仅开启 Marco TV。','打开另一个应用，按一次 Home 检查是否回到 Marco TV。再在方便时真正重启电视，查看开机是否返回；开关屏不算重启。','如果系统限制了这些操作，进入「更多设置方式」。本机增强设置仍属试验功能，需要普通网络调试与电视确认；无法连接时查看完整电脑授权说明。'],limit:'此网页只提供步骤，不远程修改电视。安装助手 1.0.0 只负责安装，不自动授权或选择桌面；默认桌面设置不需要付费。新流程尚未正式发布，其他机型仍待实测反馈。',docs:true};
+ return {title:'先在电视里完成桌面选择',intro:'新版流程会优先打开电视已有的系统设置。仅使用默认桌面选择时，不需要电脑授权。',steps:['更新到 0.15.0 后，打开 Marco TV → 设置 → 系统与启动 → 桌面启用与检查，选择「开始设置」。当前版本未看到入口，请查看下方完整说明。','如果系统弹出桌面选择，选中 Marco TV。若没有此入口，按向导尝试「Home 兼容」，在辅助功能中仅开启 Marco TV。','打开另一个应用，按一次 Home 检查是否回到 Marco TV。再在方便时真正重启电视，查看开机是否返回；开关屏不算重启。','如果系统限制了这些操作，进入「更多设置方式」。本机自动设置需要普通网络调试与电视确认；新版可按本机指引进入系统设置，返回后自动继续一次。仅有无线配对码时查看助手说明。'],limit:'此网页只提供步骤，不远程修改电视。安装助手 1.0.0 只负责安装，不自动授权或选择桌面；默认桌面设置不需要付费。新流程已随 0.15.0 发布，其他机型仍待实测反馈。',docs:true};
 }
 function render(){const r=$('purpose').value==='home'?homeRoute($('system').value):route($('system').value,$('device').value,$('entry').value);$('routeTitle').textContent=r.title;$('routeIntro').textContent=r.intro;$('steps').replaceChildren(...r.steps.map(t=>{const li=document.createElement('li');li.textContent=t;return li;}));$('limits').textContent=r.limit;$('brandGuide').textContent=brandText[$('brand').value];$('download').replaceChildren();
- if(r.download){const files={tv:['MarcoTV-0.14.4.apk','下载电视安装包 · 0.14.4'],windows:['MarcoTV-Installer-1.0.0-Windows.exe','下载 Windows 安装助手'],android:['MarcoTV-Installer-1.0.0-Android.apk','下载安卓手机助手']};const [file,label]=files[r.download];const a=document.createElement('a');a.className='button';a.href=base+file;a.textContent=label;$('download').append(a);const p=document.createElement('p');p.className='download-note';p.textContent='约 8 MB · 免费 · ';const sha=document.createElement('a');sha.href=base+file+'.sha256';sha.textContent='文件校验值';p.append(sha);const source=document.createElement('a');source.href='https://github.com/Pilipala9919/MarcoTV/tree/main/installer';source.textContent='源码与说明';p.append(source);$('download').append(p);}
+ if(r.download){const files={tv:['MarcoTV-0.15.0.apk','下载电视安装包 · 0.15.0'],windows:['MarcoTV-Installer-1.0.0-Windows.exe','下载 Windows 安装助手'],android:['MarcoTV-Installer-1.0.0-Android.apk','下载安卓手机助手']};const [file,label]=files[r.download];const a=document.createElement('a');a.className='button';a.href=base+file;a.textContent=label;$('download').append(a);const p=document.createElement('p');p.className='download-note';p.textContent='约 8 MB · 免费 · ';const sha=document.createElement('a');sha.href=base+file+'.sha256';sha.textContent='文件校验值';p.append(sha);const source=document.createElement('a');source.href='https://github.com/Pilipala9919/MarcoTV/tree/main/installer';source.textContent='源码与说明';p.append(source);$('download').append(p);}
  if(r.docs){const a=document.createElement('a');a.href='https://github.com/Pilipala9919/MarcoTV/blob/main/docs/安装说明.md';a.textContent='查看完整安装与授权说明 ↗';$('download').append(a);}
  $('result').hidden=false;$('result').focus();$('result').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
 }
 $('choices').addEventListener('submit',e=>{e.preventDefault();render();});
-for(const select of document.querySelectorAll('select'))select.addEventListener('change',()=>{$('result').hidden=true;});
+for(const select of document.querySelectorAll('#choices select'))select.addEventListener('change',()=>{$('result').hidden=true;});
+$('installError').addEventListener('change',()=>{$('installErrorHelp').textContent=installationIssue($('installError').value);});
 function selectPurpose(){const home=$('purpose').value==='home';$('goalTitle').textContent=home?'让 Home 回到 Marco TV':'先看看你手边有什么';for(const id of ['device','entry']){$(id).hidden=home;document.querySelector('label[for="'+id+'"]').hidden=home;}}
 $('purpose').addEventListener('change',selectPurpose);
 if(location.hash==='#home'){$('purpose').value='home';$('choices').scrollIntoView({block:'start'});}

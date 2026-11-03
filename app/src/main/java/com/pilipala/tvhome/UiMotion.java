@@ -11,6 +11,8 @@ final class UiMotion implements Choreographer.FrameCallback {
         void apply(float value);
     }
     final MotionSpring spring;
+    // NaN follows the global setting; a component may preserve a stored local override.
+    float speedOverride=Float.NaN;
     private final View owner;
     private final Update update;
     private Runnable completion;
@@ -80,7 +82,7 @@ final class UiMotion implements Choreographer.FrameCallback {
         }
         float dt=lastFrame==0?1f/60:Math.min(.05f,(nanos-lastFrame)/1e9f);
         lastFrame=nanos;
-        boolean moving=spring.step(dt*speed(owner));
+        boolean moving=spring.step(dt*(Float.isNaN(speedOverride)?speed(owner):speedOverride));
         update.apply(spring.value);
         if(moving)Choreographer.getInstance().postFrameCallback(this);
         else{

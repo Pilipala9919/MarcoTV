@@ -19,6 +19,8 @@ final class LocalHomeAuthorizer {
     private volatile boolean cancelled;
     private volatile boolean expired;
     private volatile LocalAdbWire connection;
+    private volatile HomeDeviceGuide.Issue issue = HomeDeviceGuide.Issue.NONE;
+    HomeDeviceGuide.Issue issue() { return issue; }
     private long deadline;
     private final Runnable timeout = () -> {
         expired = true;
@@ -61,7 +63,9 @@ final class LocalHomeAuthorizer {
                     check();
                     java.security.KeyPair key = LocalAdbWire.key(folder);
                     check();
-                    wire.connect("127.0.0.1", 5555, key, status -> { });
+                    issue = HomeDeviceGuide.Issue.CONNECTION;
+                    wire.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
+                    issue = HomeDeviceGuide.Issue.SYSTEM;
                     check();
                     HomeShellSetup commands = new HomeShellSetup(command -> {
                         check();
@@ -81,9 +85,12 @@ final class LocalHomeAuthorizer {
                         result = "本机调试连接已授权。\n" + finishSetup();
                     }
                 }
+                issue = HomeDeviceGuide.Issue.NONE;
             } catch (Exception e) {
-                result = expired ? "设置等待超时，请检查电视的调试授权后重试。"
-                        : "自动设置未完成。请检查本机网络调试是否已打开，并在电视弹窗中允许连接；也可使用其他设置方式。";
+                if (expired) issue = HomeDeviceGuide.Issue.TIMEOUT;
+                else if (issue == HomeDeviceGuide.Issue.NONE) issue = HomeDeviceGuide.Issue.SYSTEM;
+                result = (restore ? "桌面恢复尚未完成。\n" : "自动设置未完成。\n")
+                        + HomeDeviceGuide.explanation(issue);
                 result += "\n已执行的步骤可能保留，请查看当前状态或恢复设置。普通网络调试仅支持本机 5555 端口，暂不支持配对码。";
                 Diagnostics.event(restore ? "HOME_AUTO_RESTORE_INCOMPLETE" : "HOME_AUTO_SETUP_INCOMPLETE");
                 // A previously granted settings permission survives ADB being switched off.
@@ -91,6 +98,7 @@ final class LocalHomeAuthorizer {
                 if (!restore && !cancelled && !expired) try {
                     String fallback = onMain(() -> SystemIntegration.authorized(context)) ? finishSetup() : null;
                     if (fallback != null) {
+                        issue = HomeDeviceGuide.Issue.NONE;
                         Diagnostics.event("HOME_AUTO_EXISTING_PERMISSION_FALLBACK");
                         result = "本机调试暂不可用，使用已有系统设置权限。\n" + fallback;
                     }

@@ -3,23 +3,27 @@
 package com.pilipala.tvhome;
 import android.content.SharedPreferences;
 import java.util.*;
-/** Drawing-only overlay. A phone preview never writes preferences or backup data. */
+/** Read-only overlay; only an explicit editor transaction persists a local visual draft. */
 final class PreviewPreferences implements SharedPreferences {
     private final SharedPreferences base;
     final Map<String,Integer> values=new HashMap<>();
+    final Map<String,String> strings=new HashMap<>();
+    final Map<String,Boolean> booleans=new HashMap<>();
     PreviewPreferences(SharedPreferences p){
         base=p;
     }
     public Map<String,?> getAll(){
         Map<String,Object> m=new HashMap<>(base.getAll());
         m.putAll(values);
+        m.putAll(strings);
+        m.putAll(booleans);
         return m;
     }
     public int getInt(String k,int d){
         return values.containsKey(k)?values.get(k):base.getInt(k,d);
     }
     public String getString(String k,String d){
-        return base.getString(k,d);
+        return strings.containsKey(k)?strings.get(k):base.getString(k,d);
     }
     public Set<String> getStringSet(String k,Set<String> d){
         return base.getStringSet(k,d);
@@ -31,10 +35,16 @@ final class PreviewPreferences implements SharedPreferences {
         return base.getFloat(k,d);
     }
     public boolean getBoolean(String k,boolean d){
-        return base.getBoolean(k,d);
+        return booleans.containsKey(k)?booleans.get(k):base.getBoolean(k,d);
     }
     public boolean contains(String k){
-        return values.containsKey(k)||base.contains(k);
+        return values.containsKey(k)||strings.containsKey(k)||booleans.containsKey(k)||base.contains(k);
+    }
+    /** Commit only edited keys, leaving unrelated concurrent settings untouched. */
+    void writeTo(Editor editor){
+        for(Map.Entry<String,Integer> value:values.entrySet())editor.putInt(value.getKey(),value.getValue());
+        for(Map.Entry<String,String> value:strings.entrySet())editor.putString(value.getKey(),value.getValue());
+        for(Map.Entry<String,Boolean> value:booleans.entrySet())editor.putBoolean(value.getKey(),value.getValue());
     }
     public Editor edit(){
         throw new UnsupportedOperationException("preview is read only");

@@ -14,7 +14,7 @@ import java.util.*;
 /** Builds the home shelves from installed launchers, TV inputs and the user's card settings. */
 final class AppCatalog {
     private final MainActivity host;
-    private int loadGeneration;
+    private volatile int loadGeneration;
 
     AppCatalog(MainActivity host) {
         this.host = host;
@@ -69,7 +69,8 @@ final class AppCatalog {
         final Row current = host.home.row>=0&&host.home.row<host.home.rows.size()?host.home.rows.get(host.home.row):null;
         final String focusedId = current==null||current.selected<0||current.selected>=current.tiles.size()?null:current.tiles.get(current.selected).id;
         final String focusedRow = current==null?null:current.orderKey;
-        host.loader.execute(() -> {
+        host.appReads.execute(() -> {
+            if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
             ArrayList<Row> result = new ArrayList<>();
             Row apps = new Row("TV 应用", "\ue333");
             Row inputs = new Row("输入源", "\ue890");
@@ -79,9 +80,11 @@ final class AppCatalog {
             HashSet<String> excluded = new HashSet<>(Arrays.asList(host.getPackageName(), "com.spocky.projengmenu", "com.mitv.tvhome"));
             try {
                 for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0)) {
+                    if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
                     if (!excluded.contains(r.activityInfo.packageName) && seen.add(r.activityInfo.packageName)) apps.tiles.add(applicationTile(r));
                 }
                 for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
+                    if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
                     String id = r.activityInfo.packageName;
                     if (!excluded.contains(id) && seen.add(id)) {
                         Tile t = applicationTile(r);
@@ -99,6 +102,7 @@ final class AppCatalog {
                     }
                 }
                 for(String id:host.cards.set("manual_apps")) {
+                    if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
                     try {
                         ComponentName component=ComponentName.unflattenFromString(host.cards.manual(id));
                         if(component==null || !component.getPackageName().equals(id) || id.equals(host.getPackageName()))continue;

@@ -33,6 +33,7 @@ public final class MainActivity extends Activity {
     PhoneManager phone;
     PreviewPreferences previewPreferences;
     PreviewPreferences localPreview;
+    AppearanceSession appearanceSession;
     SharedPreferences appearance(){
         return localPreview!=null?localPreview:previewPreferences==null?preferences:previewPreferences;
     }
@@ -61,6 +62,11 @@ public final class MainActivity extends Activity {
     private boolean ambientRequested;
     final Handler handler = new Handler(Looper.getMainLooper());
     final ExecutorService loader = Executors.newSingleThreadExecutor();
+    final LatestTaskQueue appReads=new LatestTaskQueue("Marco-apps");
+    final LatestTaskQueue wallpaperReads=new LatestTaskQueue("Marco-wallpaper");
+    final LatestTaskQueue taskReads=new LatestTaskQueue("Marco-tasks");
+    final LatestTaskQueue taskImages=new LatestTaskQueue("Marco-task-images");
+    final ExecutorService taskCommands=Executors.newSingleThreadExecutor();
     SharedPreferences preferences;
     HomeView home;
     boolean foreground;
@@ -232,6 +238,12 @@ public final class MainActivity extends Activity {
             unregisterReceiver(playbackAccess);
         }
         closeMenus();
+        if(recents!=null&&home!=null)recents.close();
+        appReads.close();
+        wallpaperReads.close();
+        taskReads.close();
+        taskImages.close();
+        taskCommands.shutdownNow();
         loader.shutdownNow();
         if (receiverRegistered) unregisterReceiver(packageChanges);
         super.onDestroy();
@@ -339,7 +351,7 @@ public final class MainActivity extends Activity {
         if (request == CoverManager.READ_COVER) cover.onPermissionResult(grants);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
-        state.putString("pending_cover", cover.pendingId);
+        state.putString("pending_cover", cover.pendingForState());
         super.onSaveInstanceState(state);
     }
 

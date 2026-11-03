@@ -15,9 +15,11 @@ final class WallpaperSource {
     static final String[] ASSETS={"wallpapers/coast.png","wallpapers/dunes.png","wallpapers/aurora.png","canyon.png"};
     static Bitmap load(Context context){
         SharedPreferences p=context.getSharedPreferences("home",0);
+        return load(context,p.getString("wallpaper",""),p.getInt("wallpaper_builtin",0));
+    }
+    static Bitmap load(Context context,String uri,int builtin){
         int maxWidth=cap(context)[0], maxHeight=cap(context)[1];
         Bitmap.Config leanConfig=ArtworkCache.lean(context)?Bitmap.Config.RGB_565:Bitmap.Config.ARGB_8888;
-        String uri=p.getString("wallpaper","");
         if(!uri.isEmpty())try {
             BitmapFactory.Options o=new BitmapFactory.Options();
             o.inJustDecodeBounds=true;
@@ -33,7 +35,7 @@ final class WallpaperSource {
                 if(b!=null)return b;
             }
         }catch(Exception ignored){}
-        int index=Math.max(0,Math.min(ASSETS.length-1,p.getInt("wallpaper_builtin",0)));
+        int index=Math.max(0,Math.min(ASSETS.length-1,builtin));
         try {
             BitmapFactory.Options o=new BitmapFactory.Options();
             o.inJustDecodeBounds=true;

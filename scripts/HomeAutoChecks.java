@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 /** Executes production orchestration against a deterministic firmware/service simulator. */
 public final class HomeAutoChecks {
     static int passed;
+    static HomeDeviceGuide.Issue lastIssue;
     static Context context = new Context();
     static void check(String name, boolean ok) {
         if (!ok) throw new AssertionError(name);
@@ -27,6 +28,7 @@ public final class HomeAutoChecks {
         LocalAdbWire.current = "com.vendor.launcher/.Home";
         LocalAdbWire.hook = null; LocalAdbWire.closed = false;
         LocalAdbWire.connectFails = false;
+        LocalAdbWire.authorizationFails = false;
         HomeSetup.serviceAllowed = true;
         SystemIntegration.connectionAllowed=true;SystemIntegration.removed=0;
     }
@@ -37,11 +39,13 @@ public final class HomeAutoChecks {
         LocalHomeAuthorizer.Result result = value -> {outcome[0] = value; done.countDown();};
         if (restore) a.restore(result); else a.start(result);
         if (!done.await(4, TimeUnit.SECONDS)) { a.cancel(); throw new AssertionError("callback timed out"); }
+        lastIssue = a.issue();
         return outcome[0];
     }
     static boolean selected() { return LocalAdbWire.commands.toString().contains(" set-home-activity "); }
     public static void main(String[] args) throws Exception {
         reset(false); String connectedResult=run(false);
+        check("successful_connection_has_no_transport_issue",lastIssue==HomeDeviceGuide.Issue.NONE);
         check("result_distinguishes_authenticated_transport",connectedResult.contains("本机调试连接已授权"));
         check("native_confirmed_after_real_readback", SystemIntegration.nativeHome && HomeSetup.accepted && !HomeSetup.compat);
         check("snapshot_precedes_mutation", HomeSetupSnapshot.saved && !HomeSetupSnapshot.beforeNative);
@@ -73,10 +77,18 @@ public final class HomeAutoChecks {
         reset(false);SystemIntegration.secure=true;LocalAdbWire.connectFails=true;String fallbackResult=run(false);
         check("existing_permission_recovers_when_adb_is_off",HomeSetup.compat&&HomeSetup.service&&!selected());
         check("result_distinguishes_existing_permission_fallback",fallbackResult.contains("本机调试暂不可用"));
+        check("permission_fallback_clears_connection_issue",lastIssue==HomeDeviceGuide.Issue.NONE);
+        reset(false);LocalAdbWire.connectFails=true;run(false);
+        check("connection_failure_is_actionable",lastIssue==HomeDeviceGuide.Issue.CONNECTION);
+        check("connection_failure_has_no_writes",LocalAdbWire.commands.isEmpty());
+        reset(false);LocalAdbWire.authorizationFails=true;run(false);
+        check("authorization_failure_is_distinct",lastIssue==HomeDeviceGuide.Issue.AUTHORIZATION);
+        check("authorization_failure_has_no_writes",LocalAdbWire.commands.isEmpty());
         reset(false); LocalAdbWire.uid="10000"; run(false);
         check("wrong_identity_has_no_mutations", LocalAdbWire.commands.size()==1 && !HomeSetupSnapshot.saved && HomeSetup.begins==0);
         reset(false); LocalAdbWire.hook=command->{ if(command.equals("id -u")) android.os.Handler.fireTimeout(); }; run(false);
         check("deadline_prevents_followup_commands", LocalAdbWire.commands.size()==1 && !HomeSetupSnapshot.saved);
+        check("deadline_has_timeout_issue",lastIssue==HomeDeviceGuide.Issue.TIMEOUT);
         reset(false);
         CountDownLatch entered=new CountDownLatch(1), release=new CountDownLatch(1);
         LocalAdbWire.hook=command->{if(command.equals("id -u")){entered.countDown();release.await();}};
@@ -154,11 +166,15 @@ class LocalAdbWire {
     interface Hook {void run(String command)throws Exception;}
     static Hook hook;
     static List<String> commands=Collections.synchronizedList(new ArrayList<>());
-    static boolean grant,select,modern,legacy,connectFails; static volatile boolean closed;
+    static boolean grant,select,modern,legacy,connectFails,authorizationFails; static volatile boolean closed;
     static int connects; static String uid,current;
     interface Status{void accept(String text);}
     static java.security.KeyPair key(java.io.File f){return null;}
-    void connect(String host,int port,java.security.KeyPair key,Status status)throws Exception{connects++;if(connectFails)throw new java.io.IOException("unavailable");}
+    void connect(String host,int port,java.security.KeyPair key,Status status)throws Exception{
+        connects++;
+        if(connectFails)throw new java.io.IOException("unavailable");
+        if(authorizationFails){status.accept("confirm");throw new java.io.IOException("unconfirmed");}
+    }
     String shell(String command)throws Exception{
         commands.add(command); if(hook!=null)hook.run(command);
         if(closed)throw new java.io.IOException("closed");

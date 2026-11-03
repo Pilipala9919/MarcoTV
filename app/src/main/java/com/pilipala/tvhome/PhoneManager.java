@@ -532,6 +532,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             final File staged=ready;
             return main(()->{
                 if(closed||!approved)return fail(401,"连接已关闭");
+                if(host.localPreview!=null)return fail(409,"电视正在调整外观，请先在电视保存或取消");
                 if(expected!=revision||!host.foreground)return fail(409,"电视状态已变化，请刷新后上传");
                 File dest=new File(host.getFilesDir(),"wallpaper-image");
                 if(!staged.renameTo(dest))return fail(500,"壁纸保存失败");
@@ -564,7 +565,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             }
             try{
                 return main(()->{
-                    if(closed||!approved||expected!=revision||!host.foreground){
+                    if(closed||!approved||expected!=revision||!host.foreground||host.localPreview!=null){
                         copy.delete();
                         return fail(409,"电视状态已变化，请重试");
                     }

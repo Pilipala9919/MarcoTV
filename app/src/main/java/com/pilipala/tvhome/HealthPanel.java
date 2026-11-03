@@ -66,14 +66,14 @@ final class HealthPanel {
     void guide(int step){
         String[] titles={"先试用桌面","默认桌面与 Home","开机与调试恢复","正在播放与本地诊断","完成检查"};
         String[] messages={"方向键选择卡片，确定打开，长按编辑。菜单键进入设置；从设置首页按返回可回桌面。你可以跳过引导，以后从状态页重新打开。",
-                "点「设为默认桌面」，在系统页面选择 Marco TV，再选「始终」或确认。支持桌面选择的电视不需要电脑。系统没有这个选项时，按帮助页操作；设置后按遥控器 Home 检查。",
-                "默认桌面、Home 和开机状态在桌面启用向导分别检查。标准设置不需要调试；增强授权只在遇到限制时使用，不保证所有电视开放相关能力。",
+                "打开「桌面启用与检查」，按电视检测结果继续。系统支持时设为默认桌面；受限时可尝试 Home 兼容。遇到系统授权弹窗，需要用遥控器确认。",
+                "完成设置后，先打开其他应用再按 Home 检查。方便时真正重启电视，确认自动进入桌面；关屏再唤醒不算重启。三项状态分别显示，未验证的项目不会标为完成。",
                 "正在播放卡片需要可选通知使用权，仅使用媒体会话。本地诊断默认记录自身异常，不记录节目、密码和通知内容，不上传；可以随时关闭与清除。",
                 "可以查看当前状态、检查需要补齐的授权，再开始使用。备份与恢复可导出配置到 U 盘或电脑；权限不能随备份迁移。"};
         TvDialog.Builder b=new TvDialog.Builder(host).setPageId("guide:"+step).setTitle("首次使用 · "+(step+1)+" / 5 · "+titles[step])
                 .setMessage(messages[step]);
         if(step==0)b.setItems(new String[]{"下一步"},(d,w)->guide(1));
-        else if(step==1||step==2)b.setItems(new String[]{step==1?"设为默认桌面":"打开相关设置","下一步"},(d,w)->{
+        else if(step==1||step==2)b.setItems(new String[]{step==1?"桌面启用与检查":"打开相关设置","下一步"},(d,w)->{
             if(w==0){
                 if(step==1)host.defaultHome.show();
                 else host.navigator.systemPanel();

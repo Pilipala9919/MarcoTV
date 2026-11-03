@@ -29,16 +29,21 @@ final class RecentApps {
     boolean visible;
     int selected;
     private float position;
-    private int generation;
+    private volatile int generation;
+    private volatile int imageGeneration;
+    private boolean switching;
     private boolean loading;
     private boolean canRemove;
     private boolean bridgeConnected;
     private String bridgeStatus="辅助服务尚未连接";
-    private ValueAnimator animation,removalAnimation;
+    private UiMotion animation;
+    private ValueAnimator removalAnimation;
     private boolean removing,dragging;
     private float touchX,touchY,dragY;
     private int removingTask=-1;
-    private ValueAnimator entranceAnimation,backdropAnimation;
+    private UiMotion entranceAnimation,backdropAnimation;
+    private boolean closing;
+    private float drawAlpha=1;
     private float reveal=1,backdrop=1;
     private boolean entrancePending;
     RecentApps(MainActivity h){
@@ -53,41 +58,77 @@ final class RecentApps {
     private int count(){
         return Math.min(entries.size(),value("limit",10));
     }
+    private void motions(){
+        if(animation==null){
+            animation=new UiMotion(host.home,position,26,v->{position=v;host.home.invalidate();});
+            entranceAnimation=new UiMotion(host.home,reveal,26,v->{reveal=v;host.home.invalidate();});
+            backdropAnimation=new UiMotion(host.home,backdrop,26,v->{backdrop=v;host.home.invalidate();});
+        }
+        float speed=host.appearance().contains("recent_duration")
+                ?260f/Math.max(120,Math.min(700,value("duration",280))):Float.NaN;
+        animation.speedOverride=speed;
+        entranceAnimation.speedOverride=speed;
+        backdropAnimation.speedOverride=speed;
+    }
     void show(){
+        boolean reversing=visible&&closing;
         host.exitMenus();
-        selected=0;
-        stop();
+        switching=false;
+        motions();
+        if(!reversing){
+            selected=0;
+            stop();
+            entranceAnimation.snap(0);
+            backdropAnimation.snap(0);
+        }
+        closing=false;
         visible=true;
         host.home.setIdle(false);
-        reveal=0;
-        backdrop=0;
-        entrancePending=true;
-        backdropAnimation=ValueAnimator.ofFloat(0,1);
-        backdropAnimation.setDuration(Math.min(240,value("duration",280)));
-        backdropAnimation.addUpdateListener(a->{
-            backdrop=(float)a.getAnimatedValue();
-            host.home.invalidate();
-        });
-        backdropAnimation.start();
+        entrancePending=entries.isEmpty();
+        backdropAnimation.to(1);
         if(!entries.isEmpty())enter();
         load();
         describe();
         host.home.invalidate();
     }
+    /** User Back reverses the reveal; lifecycle and Home retain immediate close(). */
+    void dismiss(){
+        if(!visible||closing)return;
+        cancelLoads();
+        closing=true;
+        motions();
+        animation.cancel();
+        if(removalAnimation!=null)removalAnimation.cancel();
+        removing=false;
+        removingTask=-1;
+        dragging=false;
+        dragY=0;
+        entranceAnimation.to(0);
+        backdropAnimation.to(0,()->{if(closing)close();});
+    }
     void close(){
+        closing=false;
         visible=false;
-        generation++;
-        loading=false;
+        cancelLoads();
+        switching=false;
         stop();
         host.home.describeFocus();
         host.home.invalidate();
         host.armIdle();
     }
+    void cancelLoads(){
+        generation++;
+        imageGeneration++;
+        host.taskReads.cancelPending();
+        host.taskImages.cancelPending();
+        loading=false;
+    }
     void stop(){
-        if(animation!=null)animation.cancel();
+        if(closing){visible=false;closing=false;cancelLoads();}
+        if(animation!=null)animation.snap(selected);
         if(removalAnimation!=null)removalAnimation.cancel();
-        if(entranceAnimation!=null)entranceAnimation.cancel();
-        if(backdropAnimation!=null)backdropAnimation.cancel();
+        if(entranceAnimation!=null)entranceAnimation.snap(1);
+        if(backdropAnimation!=null)backdropAnimation.snap(1);
         entrancePending=false;
         reveal=1;
         backdrop=1;
@@ -98,20 +139,17 @@ final class RecentApps {
     }
     private void enter(){
         entrancePending=false;
-        if(entranceAnimation!=null)entranceAnimation.cancel();
-        entranceAnimation=ValueAnimator.ofFloat(0,1);
-        entranceAnimation.setDuration(value("duration",280));
-        entranceAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
-        entranceAnimation.addUpdateListener(a->{
-            reveal=(float)a.getAnimatedValue();
-            host.home.invalidate();
-        });
-        entranceAnimation.start();
+        motions();
+        entranceAnimation.to(1);
     }
     void load(){
+        switching=false;
         final int token=++generation;
+        imageGeneration++;
+        host.taskImages.cancelPending();
         loading=true;
-        host.loader.execute(()->{
+        host.taskReads.execute(()->{
+            if(generation!=token||Thread.currentThread().isInterrupted())return;
             ArrayList<Entry> result=new ArrayList<>();
             PackageManager pm=host.getPackageManager();
             String status;
@@ -123,6 +161,7 @@ final class RecentApps {
                 org.json.JSONArray tasks=TaskBridgeClient.request("list").getJSONArray("tasks");
                 status="已连接系统任务服务 · "+state.optString("lastWake");
                 for(int i=0;i<tasks.length()&&result.size()<20;i++){
+                    if(generation!=token||Thread.currentThread().isInterrupted())return;
                     org.json.JSONObject task=tasks.getJSONObject(i);
                     String id=task.getString("package");
                     try{
@@ -139,13 +178,6 @@ final class RecentApps {
                         icon.draw(new Canvas(e.icon));
                         e.artwork=ArtworkStyle.card(icon);
                         e.background=ArtworkStyle.background(e.icon);
-                        try{
-                            org.json.JSONObject shot=TaskBridgeClient.task("snapshot",e.taskId);
-                            if(shot.optBoolean("available")){
-                                byte[] bytes=android.util.Base64.decode(shot.getString("image"),android.util.Base64.DEFAULT);
-                                e.snapshot=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
-                            }
-                        }catch(Exception ignored){}
                         result.add(e);
                     }catch(PackageManager.NameNotFoundException ignored){}
                 }
@@ -157,46 +189,80 @@ final class RecentApps {
             final boolean allowRemove=removable,available=connected;
             host.handler.post(()->{
                 if(host.isDestroyed()||generation!=token)return;
+                int focused=entries.isEmpty()?-1:entries.get(Math.min(selected,entries.size()-1)).taskId;
+                int previous=selected;
+                if(animation!=null)animation.cancel();
                 entries.clear();
                 entries.addAll(result);
                 bridgeStatus=message;
                 bridgeConnected=available;
                 canRemove=allowRemove;
-                selected=0;
-                position=0;
+                int[] ids=new int[entries.size()];
+                for(int i=0;i<ids.length;i++)ids[i]=entries.get(i).taskId;
+                selected=TaskSelection.resolve(ids,count(),focused,previous);
+                position=selected;
+                if(animation!=null)animation.snap(selected);
                 loading=false;
                 if(visible&&entrancePending)enter();
                 describe();
                 host.home.invalidate();
+                loadVisibleImages();
             });
+        });
+    }
+    /** Publish usable Logo cards first; screenshots follow only around the current focus. */
+    private void loadVisibleImages(){
+        final int token=generation,images=++imageGeneration;
+        ArrayList<Entry> wanted=new ArrayList<>();
+        int[] offsets={0,1,-1,2,-2};
+        for(int offset:offsets){
+            int index=selected+offset;
+            if(index>=0&&index<count()&&entries.get(index).snapshot==null)wanted.add(entries.get(index));
+        }
+        host.taskImages.execute(()->{
+            for(Entry entry:wanted){
+                if(generation!=token||imageGeneration!=images||Thread.currentThread().isInterrupted())return;
+                Bitmap decoded=null;
+                try{
+                    org.json.JSONObject shot=TaskBridgeClient.task("snapshot",entry.taskId);
+                    if(shot.optBoolean("available")){
+                        byte[] bytes=android.util.Base64.decode(shot.getString("image"),android.util.Base64.DEFAULT);
+                        decoded=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                    }
+                }catch(Exception ignored){}
+                final Bitmap ready=decoded;
+                if(ready!=null)host.handler.post(()->{
+                    if(!host.isDestroyed()&&generation==token&&imageGeneration==images&&entries.contains(entry)){
+                        entry.snapshot=ready;
+                        entry.artworkShader=null;
+                        host.home.invalidate();
+                    }else ready.recycle();
+                });
+            }
         });
     }
     void describe(){
         if(visible)host.home.setContentDescription("最近任务，"+(entries.isEmpty()?(loading?"正在读取":"暂无任务"):entries.get(selected).name+"，"+(selected+1)+" / "+count())+"，左右切换，确定返回任务，菜单键设置，返回桌面");
     }
     void move(int direction){
-        if(entries.isEmpty()||removing)return;
+        if(entries.isEmpty()||removing||switching)return;
         selected=Math.max(0,Math.min(count()-1,selected+direction));
-        if(animation!=null)animation.cancel();
-        animation=ValueAnimator.ofFloat(position,selected);
-        animation.setDuration(value("duration",280));
-        animation.setInterpolator(new android.view.animation.DecelerateInterpolator());
-        animation.addUpdateListener(a->{
-            position=(float)a.getAnimatedValue();
-            host.home.invalidate();
-        });
-        animation.start();
+        motions();
+        animation.to(selected);
         describe();
+        loadVisibleImages();
     }
     void open(){
         if(entries.isEmpty()){
             if(!loading)recovery();
             return;
         }
-        if(removing)return;
+        if(removing||switching)return;
         Entry e=entries.get(selected);
         final int token=generation;
-        host.loader.execute(()->{
+        switching=true;
+        host.taskCommands.execute(()->{
+            if(generation!=token||Thread.currentThread().isInterrupted())return;
             try{
                 TaskBridgeClient.task("switch",e.taskId);
                 host.handler.post(()->{
@@ -206,6 +272,7 @@ final class RecentApps {
                 Diagnostics.event("TASK_SWITCH_FAILED");
                 host.handler.post(()->{
                     if(generation!=token||host.isDestroyed())return;
+                    switching=false;
                     host.toast("任务已结束或系统不支持切换，请刷新");
                     load();
                 });
@@ -213,7 +280,7 @@ final class RecentApps {
         });
     }
     void remove(){
-        if(entries.isEmpty()||removing)return;
+        if(entries.isEmpty()||removing||switching)return;
         Entry entry=entries.get(selected);
         if(!entry.removable){
             dragY=0;
@@ -222,16 +289,19 @@ final class RecentApps {
             return;
         }
         final int token=++generation;
+        imageGeneration++;
+        host.taskImages.cancelPending();
         loading=false;
         removing=true;
         removingTask=entry.taskId;
-        host.loader.execute(()->{
+        host.taskCommands.execute(()->{
+            if(generation!=token||Thread.currentThread().isInterrupted())return;
             try{
                 TaskBridgeClient.task("remove",entry.taskId);
                 host.handler.post(()->{
                     if(generation!=token||host.isDestroyed())return;
                     removalAnimation=ValueAnimator.ofFloat(dragY,-900);
-                    removalAnimation.setDuration(220);
+                    removalAnimation.setDuration(Math.round(220/UiMotion.speed(host.home)));
                     removalAnimation.setInterpolator(new android.view.animation.AccelerateInterpolator());
                     removalAnimation.addUpdateListener(a->{
                         dragY=(float)a.getAnimatedValue();
@@ -243,12 +313,14 @@ final class RecentApps {
                             for(Iterator<Entry> it=entries.iterator();it.hasNext();)if(it.next().taskId==entry.taskId)it.remove();
                             selected=Math.max(0,Math.min(selected,count()-1));
                             position=selected;
+                            if(animation!=null)animation.snap(selected);
                             dragY=0;
                             removing=false;
                             removingTask=-1;
                             describe();
                             host.home.invalidate();
                             host.toast("已清除任务");
+                            loadVisibleImages();
                         }
                     });
                     removalAnimation.start();
@@ -267,11 +339,12 @@ final class RecentApps {
     }
     boolean key(int code,KeyEvent event){
         if(!visible)return false;
+        if(closing)return true;
         if(event.getAction()==KeyEvent.ACTION_DOWN){
             if(code==KeyEvent.KEYCODE_DPAD_LEFT)move(-1);
             else if(code==KeyEvent.KEYCODE_DPAD_RIGHT)move(1);
             else if(event.getRepeatCount()==0){
-                if(code==KeyEvent.KEYCODE_BACK)close();
+                if(code==KeyEvent.KEYCODE_BACK)dismiss();
                 else if(code==KeyEvent.KEYCODE_MENU)settings();
                 else if(code==KeyEvent.KEYCODE_DPAD_UP)remove();
             }
@@ -279,7 +352,7 @@ final class RecentApps {
         return true;
     }
     void touch(int action,float x,float y){
-        if(removing)return;
+        if(removing||closing)return;
         if(action==MotionEvent.ACTION_DOWN){
             touchX=x;
             touchY=y;
@@ -316,17 +389,22 @@ final class RecentApps {
         }
         if(Math.abs(dx)>35||Math.abs(dy)>35)return;
         if(y<200){
-            close();
+            dismiss();
             return;
         }
         if(x<650)move(-1);
         else if(x>1270)move(1);
         else open();
     }
+    private void color(int color){
+        paint.setColor((color&0x00FFFFFF)|(Math.round(Color.alpha(color)*drawAlpha)<<24));
+    }
     void draw(Canvas c,boolean preview){
+        drawAlpha=1;
         paint.setShader(null);
-        paint.setColor(Color.argb(Math.round(value("dim",65)*2.55f*(preview?1:backdrop)),0,0,0));
+        color(Color.argb(Math.round(value("dim",65)*2.55f*(preview?1:backdrop)),0,0,0));
         c.drawRect(0,0,1920,1080,paint);
+        drawAlpha=preview?1:backdrop;
         text(c,"最近任务",112,120,46,bold,0xFFF5F7FA,Paint.Align.LEFT);
         text(c,"系统任务 · 返回上次停留的页面",112,168,24,normal,0xBBDCE3EC,Paint.Align.LEFT);
         if(entries.isEmpty()){
@@ -354,22 +432,22 @@ final class RecentApps {
         c.rotate(Math.max(-1,Math.min(1,offset))*value("tilt",7)*progress,cx,cy);
         float radius=value("radius",36)*zoom;
         rect.set(cx-w/2+10,cy-h/2+16,cx+w/2+10,cy+h/2+16);
-        paint.setColor(0x66000000);
+        color(0x66000000);
         c.drawRoundRect(rect,radius,radius,paint);
         rect.set(cx-w/2,cy-h/2,cx+w/2,cy+h/2);
-        paint.setColor(Color.WHITE);
+        color(Color.WHITE);
         paint.setShader(new LinearGradient(cx,cy-h/2,cx,cy+h/2,new int[]{0xFF34485E,0xFF172331},null,Shader.TileMode.CLAMP));
         c.drawRoundRect(rect,radius,radius,paint);
         paint.setShader(null);
         if(abs<.5f){
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(3);
-            paint.setColor(0xDDE0EDFA);
+            color(0xDDE0EDFA);
             c.drawRoundRect(rect,radius,radius,paint);
             paint.setStyle(Paint.Style.FILL);
         }
-        paint.setColor(Color.WHITE);
-        paint.setAlpha(255);
+        color(Color.WHITE);
+        paint.setAlpha(Math.round(255*drawAlpha));
         RectF frame=new RectF(cx-w/2+20*zoom,cy-h/2+20*zoom,cx+w/2-20*zoom,cy+72*zoom);
         Bitmap visual=e.snapshot!=null?e.snapshot:e.artwork;
         // Draw the curved image boundary with Paint antialiasing. Hardware clipPath
@@ -380,9 +458,9 @@ final class RecentApps {
             e.artworkMatrix.setScale(ratio,ratio);
             e.artworkMatrix.postTranslate(frame.centerX()-visual.getWidth()*ratio/2,frame.centerY()-visual.getHeight()*ratio/2);
             e.artworkShader.setLocalMatrix(e.artworkMatrix);
-            paint.setColor(Color.WHITE);
+            color(Color.WHITE);
             paint.setShader(e.artworkShader);
-        }else paint.setColor(e.background);
+        }else color(e.background);
         float imageRadius=Math.max(8,radius-12*zoom);
         c.drawRoundRect(frame,imageRadius,imageRadius,paint);
         paint.setShader(null);
@@ -400,7 +478,7 @@ final class RecentApps {
     }
     private void text(Canvas c,String s,float x,float y,float size,Typeface face,int color,Paint.Align align){
         paint.setShader(null);
-        paint.setColor(color);
+        color(color);
         paint.setTypeface(face);
         paint.setTextSize(size);
         paint.setTextAlign(align);
@@ -428,7 +506,7 @@ final class RecentApps {
         host.showDialog(new TvDialog.Builder(host).setPageId("recents").setTitle("最近任务")
                 .setOrder("recents","enabled","open","style","double","status")
                 .setMessage("双击功能："+(enabled()?"已开启":"未开启")+"。需要默认桌面或 Home 兼容，以及已启动的任务辅助服务。上滑或上键清除所选任务，未保存的页面可能丢失。唤醒恢复请到系统与启动设置。")
-                .setItems(new String[]{enabled()?"关闭双击 Home":"开启双击 Home","立即打开最近任务","任务卡片与动画","双击间隔","状态中心"},(d,w)->{
+                .setItems(new String[]{enabled()?"关闭双击 Home":"开启双击 Home","立即打开最近任务","任务卡片与动画","Home 按键设置","状态中心"},(d,w)->{
             switch(w){
                 case 0:
                     host.preferences.edit().putBoolean("recent_enabled",!enabled()).apply();
@@ -441,7 +519,7 @@ final class RecentApps {
                     styleSettings();
                     break;
                 case 3:
-                    host.navigator.personalization("recent");
+                    SystemIntegration.homeGestures(host,host::showDialog);
                     break;
                 case 4:
                     host.health.status();

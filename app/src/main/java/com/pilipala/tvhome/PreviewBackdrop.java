@@ -10,8 +10,8 @@ final class PreviewBackdrop {
     private int generation,width,height;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final RectF bounds=new RectF();
-    void draw(Canvas canvas,Bitmap wallpaper,int viewWidth,int viewHeight){
-        canvas.drawColor(0xFF0B121C);
+    /** Can be prepared on the wallpaper worker before publication to the UI. */
+    void prepare(Bitmap wallpaper,int viewWidth,int viewHeight){
         if(wallpaper==null||wallpaper.isRecycled()||viewWidth<=0||viewHeight<=0){
             clear();
             return;
@@ -40,6 +40,11 @@ final class PreviewBackdrop {
             }
             blurred.setPixels(pixels,0,w,0,0,w,h);
         }
+    }
+    void draw(Canvas canvas,Bitmap wallpaper,int viewWidth,int viewHeight){
+        canvas.drawColor(0xFF0B121C);
+        prepare(wallpaper,viewWidth,viewHeight);
+        if(blurred==null)return;
         bounds.set(0,0,viewWidth,viewHeight);
         paint.setColor(Color.WHITE);
         canvas.drawBitmap(blurred,null,bounds,paint);

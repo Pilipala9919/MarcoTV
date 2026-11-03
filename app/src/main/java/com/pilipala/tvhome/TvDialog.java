@@ -15,6 +15,9 @@ import java.util.ArrayList;
 
 /** Remote-first Marco TV panel. No platform AlertDialog layouts or buttons. */
 final class TvDialog extends Dialog {
+    interface ConfirmGuard {boolean allow();}
+    private ConfirmGuard confirmGuard;
+    void confirmGuard(ConfirmGuard guard){confirmGuard=guard;}
     private final Builder spec;
     private LinearLayout body;
     private LinearLayout panel;
@@ -269,18 +272,21 @@ final class TvDialog extends Dialog {
         }
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(getContext());
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setOrientation(spec.stackedButtons?LinearLayout.VERTICAL:LinearLayout.HORIZONTAL);
         buttons.setPadding(0, dp(13), 0, 0);
         for (ButtonSpec action : spec.buttons) {
             TextView button = row(action.text, false);
             button.setGravity(Gravity.CENTER);
             button.setTextSize(15);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(preview?34:44), 1);
+            LinearLayout.LayoutParams p = spec.stackedButtons
+                    ?new LinearLayout.LayoutParams(-1,dp(44))
+                    :new LinearLayout.LayoutParams(0, dp(preview?34:44), 1);
             p.setMargins(dp(3), 0, dp(3), 0);
             buttons.addView(button, p);
             choices.add(button);
             button.setOnClickListener(v -> {
                 if(!isShowing())return;
+                if(action.which==DialogInterface.BUTTON_POSITIVE&&confirmGuard!=null&&!confirmGuard.allow())return;
                 forwardDismiss=false;
                 if(!action.stayOpen)dismiss();
                 if (action.callback != null) action.callback.onClick(this, action.which);
@@ -458,6 +464,8 @@ final class TvDialog extends Dialog {
         }
     }
     static final class Builder {
+        boolean stackedButtons;
+        Builder stackedButtons(){stackedButtons=true;return this;}
         final Activity activity;
         String title="", message;
         String[] items;

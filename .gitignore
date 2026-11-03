@@ -74,3 +74,9 @@ CLAUDE.md
 !scripts/test_home_auto.py
 !scripts/HomeAutoChecks.java
 !scripts/HomeSnapshotChecks.java
+!scripts/test_core_consistency.py
+!scripts/CoreConsistencyChecks.java
+!scripts/test_motion_lifecycle.py
+!scripts/MotionLifecycleChecks.java
+!scripts/test_home_guide.py
+!scripts/HomeGuideChecks.java

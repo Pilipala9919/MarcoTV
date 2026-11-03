@@ -25,16 +25,28 @@ for(const sys of ['android','unknown','other'])for(const dev of ['windows','andr
 }
 for(const sys of ['unknown','other'])assert(!c.homeRoute(sys).download);
 const home=c.homeRoute('android');assert(home.docs&&!home.download&&home.steps.length===4);
-assert(home.limit.includes('尚未正式发布')&&home.limit.includes('不自动授权'));
+assert(home.limit.includes('0.15.0')&&home.limit.includes('不自动授权'));
 element('system').value='android';c.render();
 assert.equal(element('routeTitle').textContent,home.title);
 assert.equal(element('steps').children.length,4);
 element('purpose').value='install';c.selectPurpose();assert.equal(element('device').hidden,false);
 element('device').value='iphone';element('entry').value='browser';c.render();
 const link=element('download').children[0];
-const stable=JSON.parse(fs.readFileSync('docs/updates/stable.json','utf8'));
-assert.equal(link.href,'https://marcotv.wlj9919.top/MarcoTV-'+stable.versionName+'.apk');
+const version=fs.readFileSync('app/src/main/AndroidManifest.xml','utf8').match(/android:versionName="([^"]+)"/)[1];
+assert.equal(link.href,'https://marcotv.wlj9919.top/MarcoTV-'+version+'.apk');
 const html=fs.readFileSync('docs/install/index.html','utf8');
+for(const key of ['source','verification','launcher','signature','connect']){
+ assert(c.installationIssue(key).length>20);
+ assert(html.includes('value="'+key+'"'));
+}
+assert(c.installationIssue('launcher').includes('受限兼容版'));
+assert(c.installationIssue('signature').includes('保留配置'));
+assert(c.installationIssue('verification').includes('不默认关闭'));
+assert(!c.installationIssue('unknown').includes('关闭'));
+for(const key of ['tcl','skyworth','hisense','huawei']){
+ assert(html.includes('value="'+key+'"'));
+ assert(vm.runInContext('brandText.'+key,c).length>30);
+}
 for(const id of ['purpose','system','device','entry','goalTitle','routeTitle','steps','download'])assert(html.includes('id="'+id+'"'));
 console.log('OK '+combinations+' installation route combinations; home routing, hash entry, form mode, render and release link checks passed');
 '''

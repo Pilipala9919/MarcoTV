@@ -13,7 +13,9 @@ final class OverviewRenderer {
     private Canvas overviewCanvas;
     private BitmapShader overviewShader;
     private final Paint overviewPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
-    private final PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
+    private PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
+    private final RectF bounds=new RectF(),frame=new RectF();
+    private final Matrix bufferMatrix=new Matrix();
     private final Path previewCutout=new Path();
 
     OverviewRenderer(HomeView view) {
@@ -22,12 +24,21 @@ final class OverviewRenderer {
 
     void detach() {
         overviewBackdrop.clear();
+        if(overviewBitmap!=null)overviewBitmap.recycle();
+        overviewBitmap=null;
+        overviewCanvas=null;
+        overviewShader=null;
+    }
+
+    void backdrop(PreviewBackdrop prepared){
+        overviewBackdrop.clear();
+        overviewBackdrop=prepared;
     }
 
     /** @param overview 0 for the plain home screen, 1 for the fully projected preview */
     void draw(Canvas canvas, float overview) {
         if(overview<=0){
-            overviewBackdrop.clear();
+            // Keep the tiny prepared blur across editor visits; the wallpaper loader replaces it.
             if(overviewBitmap!=null){
                 overviewBitmap.recycle();
                 overviewBitmap=null;
@@ -45,7 +56,7 @@ final class OverviewRenderer {
         overviewCamera.getMatrix(overviewMatrix);
         overviewCamera.restore();
         overviewMatrix.preTranslate(-view.getWidth()/2f,-view.getHeight()/2f);
-        RectF bounds=new RectF(0,0,view.getWidth(),view.getHeight());
+        bounds.set(0,0,view.getWidth(),view.getHeight());
         overviewMatrix.mapRect(bounds);
         float available=Math.max(view.getWidth()*.25f,view.getWidth()-350*density);
         float targetScale=Math.min(available/bounds.width(),view.getHeight()*.78f/bounds.height());
@@ -58,7 +69,7 @@ final class OverviewRenderer {
             // projected outline without a full-screen intermediate render target.
             int transformed=canvas.save();
             canvas.concat(overviewMatrix);
-            RectF frame=new RectF(0,0,view.getWidth(),view.getHeight());
+            frame.set(0,0,view.getWidth(),view.getHeight());
             previewCutout.reset();
             previewCutout.addRoundRect(frame,8*density,8*density,Path.Direction.CW);
             int clipped=canvas.save();
@@ -89,12 +100,11 @@ final class OverviewRenderer {
             overviewCanvas.restoreToCount(bufferSave);
             view.previewDirty=false;
         }
-        Matrix bufferMatrix=new Matrix();
         bufferMatrix.setScale(view.getWidth()/(float)bufferWidth,view.getHeight()/(float)bufferHeight);
         overviewShader.setLocalMatrix(bufferMatrix);
         int save=canvas.save();
         canvas.concat(overviewMatrix);
-        RectF frame=new RectF(0,0,view.getWidth(),view.getHeight());
+        frame.set(0,0,view.getWidth(),view.getHeight());
         overviewPaint.setShader(overviewShader);
         overviewPaint.setStyle(Paint.Style.FILL);
         overviewPaint.setColor(Color.WHITE);

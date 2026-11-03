@@ -38,6 +38,12 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
                     check("setup_root_has_two_choices",((String[])field(field(root,"spec"),"items")).length==2);
                     host.defaultHome.localAuthorization();
                     check("auto_consent_opens_without_mutation",host.isPage("home_local_consent")&&before.equals(HomeSetup.prefs(host).getAll()));
+                    host.defaultHome.deviceGuide(HomeDeviceGuide.Issue.CONNECTION);
+                    check("device_guide_is_read_only",host.isPage("home_device_guide")&&before.equals(HomeSetup.prefs(host).getAll()));
+                    TvDialog deviceGuide=(TvDialog)field(host.dialogs,"activeDialog");
+                    check("guide_has_continue_and_alternatives",((String[])field(field(deviceGuide,"spec"),"items")).length==5);
+                    host.panelWindow().onBackPressed();
+                    check("guide_back_restores_consent",host.isPage("home_local_consent"));
                     TvDialog progress=new TvDialog.Builder(host).setPageId("test_progress").setTitle("test").create();
                     final boolean[] left={false};progress.onLeave(()->left[0]=true);host.showDialog(progress);
                     host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("test_result").setTitle("test").create());

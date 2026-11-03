@@ -22,7 +22,7 @@ stubs={
 files=[]
 for name,content in stubs.items():
  path=folder/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding='utf8');files.append(path)
-files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeShellSetup.java','LocalHomeAuthorizer.java']]
+files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeShellSetup.java','HomeDeviceGuide.java','LocalHomeAuthorizer.java']]
 files += [ROOT/'scripts/HomeAutoChecks.java']
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-d',str(folder),*[str(p) for p in files]],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),f'-Dfixture.dir={folder}', '-cp',str(folder),'com.pilipala.tvhome.HomeAutoChecks'],check=True,capture_output=True,text=True,timeout=30)

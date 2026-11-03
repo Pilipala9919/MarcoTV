@@ -18,11 +18,16 @@ final class CoverManager {
     static final int PICK_COVER = 101, READ_COVER = 102;
     private final MainActivity host;
     String pendingId;
+    private AppearanceSession wallpaperSession;
+    private int pickerEpoch;
     CoverManager(MainActivity host) {
         this.host = host;
     }
+    String pendingForState(){return wallpaperSession==null?pendingId:null;}
 
     void chooseCoverImage() {
+        wallpaperSession="__wallpaper__".equals(pendingId)?host.appearanceSession:null;
+        pickerEpoch=host.menuEpoch;
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*")
                 .addCategory(Intent.CATEGORY_OPENABLE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (host.getPackageManager().resolveActivity(picker, 0) != null) {
@@ -91,12 +96,18 @@ final class CoverManager {
 
     void importCover(Uri uri) {
         final String id = pendingId;
+        final AppearanceSession session=wallpaperSession;
+        final int epoch=pickerEpoch;
+        final long revision=session==null?0:session.wallpaperRevision;
         pendingId = null;
+        wallpaperSession=null;
+        if((session!=null&&!session.open)||epoch!=host.menuEpoch)return;
         if (id == null) {
             host.toast("请重新选择要编辑的卡片");
             return;
         }
-        host.toast("正在保存封面…");
+        host.toast("正在读取图片…");
+        if(session!=null)session.pendingImports++;
         host.loader.execute(() -> {
             try {
                 if (id.equals("__wallpaper__")) {
@@ -106,7 +117,7 @@ final class CoverManager {
                         BitmapFactory.decodeStream(check, null, bounds);
                     }
                     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Invalid image");
-                    android.util.AtomicFile file = new android.util.AtomicFile(new File(host.getFilesDir(), "wallpaper-image"));
+                    android.util.AtomicFile file = new android.util.AtomicFile(File.createTempFile("wallpaper-import-", ".img",host.getFilesDir()));
                     FileOutputStream output = null;
                     try (InputStream input = host.getContentResolver().openInputStream(uri)) {
                         output = file.startWrite();
@@ -122,15 +133,21 @@ final class CoverManager {
                         output = null;
                     } catch (IOException | RuntimeException error) {
                         if (output != null) file.failWrite(output);
+                        file.delete();
                         throw error;
                     }
-                    host.preferences.edit().putString("wallpaper", Uri.fromFile(file.getBaseFile()).toString())
-                            .apply();
                     host.handler.post(() -> {
-                        if (!host.isDestroyed()) {
-                            host.loadWallpaper();
-                            host.toast("壁纸已保存");
-                        }
+                        if(host.isDestroyed()||epoch!=host.menuEpoch){file.delete();return;}
+                        if(session!=null){
+                            if(session.imported(file.getBaseFile(),revision))host.toast("壁纸已预览，请在 Magic Desktop 保存");
+                        }else if(host.localPreview==null){
+                            try{
+                                File published=WallpaperFile.publish(file.getBaseFile(),host.getFilesDir());
+                                host.preferences.edit().putString("wallpaper",Uri.fromFile(published).toString()).apply();
+                                host.loadWallpaper();
+                                host.toast("壁纸已保存");
+                            }catch(IOException error){file.delete();host.toast("壁纸保存失败，请重试。");}
+                        }else file.delete();
                     });
                 } else {
                     host.cards.importImage(id, uri);
@@ -146,6 +163,8 @@ final class CoverManager {
                 host.handler.post(() -> {
                     if (!host.isDestroyed()) host.toast("图片无法读取，请换一张图片");
                 });
+            } finally {
+                if(session!=null)host.handler.post(()->session.pendingImports--);
             }
         });
     }
@@ -159,6 +178,7 @@ final class CoverManager {
     }
 
     void onPermissionResult(int[] grants) {
+        if(pickerEpoch!=host.menuEpoch){pendingId=null;wallpaperSession=null;return;}
         if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) chooseCoverImage();
         else {
             pendingId = null;

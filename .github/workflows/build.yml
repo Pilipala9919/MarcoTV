@@ -30,8 +30,14 @@ jobs:
         run: python scripts/test_home_setup.py
       - name: Automatic HOME routing and recovery checks
         run: python scripts/test_home_auto.py
+      - name: Device guidance and return continuation checks
+        run: python scripts/test_home_guide.py
       - name: Motion checks
         run: python scripts/test_motion.py
+      - name: Interrupted motion lifecycle checks
+        run: python scripts/test_motion_lifecycle.py
+      - name: Visual transaction and loading queue checks
+        run: python scripts/test_core_consistency.py
       - name: Release tool regression checks
         run: python scripts/test_release_tools.py
       - name: Settings migration checks

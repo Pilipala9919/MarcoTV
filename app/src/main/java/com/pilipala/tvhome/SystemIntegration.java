@@ -256,12 +256,12 @@ final class SystemIntegration {
                 "状态中心", "桌面启用与检查",
                 "开机打开 Marco TV：" + (p.getBoolean("boot_home", false) ? "已开启" : "未开启"),
                 "Home 键兼容模式：" + (p.getBoolean("home_compat", false) ? "已开启" : "未开启"),
-                "恢复原桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明",
+                "恢复设置前的桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明",
                 "Home 长按与原厂兼容"};
         host.show(new TvDialog.Builder(activity).setPageId("startup").setTitle("系统与启动")
                 .setMessage("当前默认桌面：" + (ownHome ? "Marco TV" : "厂商或其他桌面")
                 + "\n唤醒恢复还需开启 Home 兼容并连接任务辅助服务；只打开偏好不代表已经生效。"
-                + (ownHome ? "" : "\n部分电视在 Marco TV 更新后会重置此项，回到本页选择「设为默认桌面」即可恢复。"))
+                + (ownHome ? "" : "\n需要设置或修复时，选择「桌面启用与检查」，按本机检测结果继续。"))
                 .setOrder("startup","adb","status","home","boot","home_key","restore","wake","recover","help","home_gestures")
                 .setItems(items, (d, which) ->
                 activity.getWindow().getDecorView().post(() -> {
@@ -316,10 +316,7 @@ final class SystemIntegration {
                     } else ((MainActivity)activity).defaultHome.compatibility();
                     break;
                 case 5:
-                    host.show(new TvDialog.Builder(activity).setTitle("恢复原桌面")
-                            .setMessage("关闭 Marco TV 的默认桌面入口、开机打开与 Home 键兼容，恢复此前暂停的桌面辅助服务。ADB 自动恢复保持当前选择。")
-                            .setPositiveButton("恢复", (dialog, button) -> restoreHome(activity))
-                            .setNegativeButton("返回", null).create());
+                    ((MainActivity)activity).defaultHome.restore();
                     break;
                 case 6:
                     activity.getSharedPreferences("home",0).edit().putBoolean("recent_wake",!activity.getSharedPreferences("home",0)
@@ -356,47 +353,12 @@ final class SystemIntegration {
         host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("Home 按键")
                 .setMessage("短按返回桌面，双击可打开 Marco 最近任务。长按默认请求系统任务界面；厂商可能不支持。原厂模式会完整放行按键，短按可能经过原桌面，双击也可能受系统限制。")
                 .setItems(new String[]{"长按：系统最近任务"+(action.equals("system")?" ✓":""),"长按：Marco 最近任务"+(action.equals("marco")?" ✓":""),"长按：不执行操作"+(action.equals("none")?" ✓":""),
-                "保留原厂 Home 按键："+(nativeKeys?"已开启":"未开启")},(d,w)->{
+                "保留原厂 Home 按键："+(nativeKeys?"已开启":"未开启"),"双击响应间隔"},(d,w)->{
+            if(w==4){((MainActivity)activity).navigator.personalization("recent_double_ms");return;}
             if(w==3)p.edit().putBoolean("home_native_keys",!nativeKeys).apply();
             else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w]).apply();
             homeGestures(activity,host);
         }).setNegativeButton("返回",null).create());
-    }
-    private static void restoreHome(Activity activity) {
-        HomeSetup.pause(activity, "你已选择恢复原桌面。");
-        SharedPreferences p = prefs(activity);
-        p.edit().putBoolean("managed_home", false).putBoolean("home_compat", false).putBoolean("boot_home", false)
-                .commit();
-        if (authorized(activity)) {
-            Set<String> wanted = services(Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
-            for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
-            for (String saved : services(p.getString("saved_competing_services", ""))) {
-                try {
-                    activity.getPackageManager().getServiceInfo(ComponentName.unflattenFromString(saved), 0);
-                    wanted.add(saved);
-                }
-                catch (PackageManager.NameNotFoundException ignored) { }
-            }
-            writeServices(activity, wanted);
-        }
-        activity.getSharedPreferences("home",0).edit().putBoolean("ambient_enabled",false).apply();
-        AmbientIntegration.configure(activity);
-        enableHome(activity, false);
-        startRecovery(activity);
-        ComponentName original = ComponentName.unflattenFromString(p.getString("original_home", ""));
-        try {
-            if (original != null) {
-                ActivityInfo info = activity.getPackageManager().getActivityInfo(original, 0);
-                if (info.permission == null || activity.checkSelfPermission(info.permission) == PackageManager.PERMISSION_GRANTED)
-                        activity.startActivity(new Intent(Intent.ACTION_MAIN).setComponent(original).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            }
-            else activity.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
-        } catch (Exception e) {
-            Log.w(TAG, "Original HOME requires the system Home key", e);
-        }
-        // Some OEM launchers require a signature permission. Let the system expose HOME
-        // by finishing our task instead of attempting to bypass that permission.
-        activity.finishAndRemoveTask();
     }
     private static void status(Activity activity, DialogHost host) {
         if(activity instanceof MainActivity)((MainActivity)activity).health.status();

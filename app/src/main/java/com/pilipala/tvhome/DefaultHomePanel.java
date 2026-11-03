@@ -14,6 +14,7 @@ final class DefaultHomePanel {
     private boolean returnToHelp;
     private int pendingEpoch;
     private LocalHomeAuthorizer authorizer;
+    private final HomeDeviceGuide.ReturnGate guideReturn = new HomeDeviceGuide.ReturnGate();
     DefaultHomePanel(MainActivity h){
         host=h;
     }
@@ -21,7 +22,7 @@ final class DefaultHomePanel {
         HomeSetupPolicy.Route route=HomeSetup.route(host);
         boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
         host.showDialog(new TvDialog.Builder(host).setPageId("default_home").setTitle("桌面启用")
-                .setMessage(deviceSummary()+"\n\n"+HomeSetup.summary(host))
+                .setMessage(deviceSummary()+"\n\n"+(ready?"桌面服务已就绪，接下来检查 Home 返回和实际重启效果。":"按本机检测结果继续设置，完成后再检查使用效果。"))
                 .setItems(new String[]{route==HomeSetupPolicy.Route.PAUSED?"继续一键设置":ready?"检查使用效果":"一键启用 Marco TV","更多设置方式"},(d,w)->{
             if(w==0)start();else help();
         }).setNegativeButton("稍后",null).create());
@@ -34,6 +35,7 @@ final class DefaultHomePanel {
             case COMPAT_READY:
                 if(!HomeSetup.prefs(host).getBoolean("setup_requested",false))HomeSetup.begin(host);
                 verification();break;
+            case SYSTEM_PICKER:request();break;
             default:localAuthorization();break;
         }
     }
@@ -79,12 +81,23 @@ final class DefaultHomePanel {
         help();
     }
     void resumed(){
+        if(guideReturn.take(host.menuEpoch,host.foreground)){
+            host.handler.post(()->{
+                if(host.foreground&&host.menuEpoch==pendingEpoch&&host.isPage("home_device_guide"))runAutomatic(false);
+            });
+            return;
+        }
         if(pending){
             pending=false;
             if(compatibilityPending){HomeSetup.finishCompatibilityConsent(host);compatibilityPending=false;}
             HomeSetup.reconcile(host);
             host.handler.post(()->{
-                if(host.foreground&&host.menuEpoch==pendingEpoch){if(returnToHelp)help();else show();}
+                if(host.foreground&&host.menuEpoch==pendingEpoch){
+                    if(returnToHelp)help();
+                    else if(!SystemIntegration.homeIsOurs(host)&&!compatibilityPending
+                            &&HomeSetup.route(host)!=HomeSetupPolicy.Route.COMPAT_READY)deviceGuide(HomeDeviceGuide.Issue.NONE);
+                    else show();
+                }
             });
         }
     }
@@ -108,19 +121,48 @@ final class DefaultHomePanel {
                 }).setNegativeButton("返回",null).create());
     }
     void localAuthorization(){
-        host.showDialog(new TvDialog.Builder(host).setPageId("home_local_consent").setTitle("一键启用 Marco TV")
-                .setMessage(deviceSummary()+"\n\n"+(BuildEdition.RESTRICTED
+        host.showDialog(new TvDialog.Builder(host).stackedButtons().setPageId("home_local_consent").setTitle("一键启用 Marco TV")
+                .setMessage(HomeDeviceGuide.family(Build.MANUFACTURER,Build.BRAND)+" · "+Build.MODEL+"\n\n"+(BuildEdition.RESTRICTED
                         ?"本版将自动配置 Home 兼容，不申请系统默认桌面身份。"
                         :"优先设置系统默认桌面；电视不支持时，自动尝试 Home 兼容。")
-                        +"\n需要时在电视开启网络调试，并在系统弹窗选择“允许连接”。已授权的电视会继续自动设置。"
-                        +"\n保留原厂桌面，可恢复设置。完成后还需检查 Home 和实际重启效果。")
+                        +"\n需要时开启网络调试，在系统弹窗选择允许。保留原厂桌面，完成后检查 Home 和重启效果。")
                 .setPositiveButton("开始自动设置",(d,w)->runAutomatic(false))
-                .setNeutralButton("其他设置方式",(d,w)->help())
+                .setNeutralButton("查看本机操作指引",(d,w)->deviceGuide(HomeDeviceGuide.Issue.NONE))
                 .setNegativeButton("返回",null).create());
     }
     String deviceSummary(){
-        return "识别电视  ·  "+HomeShellSetup.brand(Build.MANUFACTURER,Build.BRAND)+" / "+Build.MODEL
-                +"\n系统  ·  Android "+Build.VERSION.RELEASE+" / "+Build.DISPLAY;
+        return "识别电视  ·  "+HomeDeviceGuide.family(Build.MANUFACTURER,Build.BRAND)+" / "+Build.MODEL
+                +"\n系统  ·  Android "+Build.VERSION.RELEASE+"（API "+Build.VERSION.SDK_INT+"） / "+Build.DISPLAY;
+    }
+    void deviceGuide(HomeDeviceGuide.Issue issue){
+        HomeDeviceGuide guide=HomeDeviceGuide.find(Build.MANUFACTURER,Build.BRAND);
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_device_guide").setTitle("本机设置指引")
+                .setMessage((issue==HomeDeviceGuide.Issue.NONE?"":HomeDeviceGuide.explanation(issue)+"\n\n")+guide.steps
+                        +"\n\nUSB 调试不等于网络调试；仅有配对码时请用助手。")
+                .setItems(new String[]{"打开调试设置，返回后自动继续","已准备好，继续自动设置","使用 Home 兼容方式","用手机查看向导","查看资料来源"},(d,w)->{
+                    if(w==0)openGuideSettings();
+                    else if(w==1)runAutomatic(false);
+                    else if(w==2)compatibility();
+                    else if(w==3)assistant();
+                    else host.showDialog(new TvDialog.Builder(host).setPageId("home_guide_source").setTitle("指引来源")
+                            .setMessage(deviceSummary()+"\n\n"+guide.evidence+"\n核对日期：2026-11-03\n"+guide.source
+                                    +"\n\n品牌资料用于帮助查找入口；自动配置仍按本机实际能力检查。")
+                            .setNegativeButton("返回",null).create());
+                }).setNegativeButton("返回",null).create());
+    }
+    private void openGuideSettings(){
+        String[] actions={Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS,Settings.ACTION_SETTINGS};
+        for(String action:actions)try{
+            Intent intent=new Intent(action);
+            ResolveInfo info=host.getPackageManager().resolveActivity(intent,0);
+            if(info==null||info.activityInfo==null||!info.activityInfo.exported
+                    ||info.activityInfo.name.endsWith("EmptyStubActivity"))continue;
+            pendingEpoch=host.menuEpoch;
+            guideReturn.arm(pendingEpoch);
+            host.startActivity(intent);
+            return;
+        }catch(RuntimeException ignored){guideReturn.cancel();}
+        host.toast("电视没有开放直接入口，请按本页指引进入原厂设置，返回后选择继续。");
     }
     private void runAutomatic(boolean restore){
         TvDialog progress=new TvDialog.Builder(host).setPageId("home_local_authorize")
@@ -133,28 +175,42 @@ final class DefaultHomePanel {
         host.showDialog(progress);
         LocalHomeAuthorizer.Result callback=result->{
             if(authorizer!=active||!host.foreground||!host.isPage("home_local_authorize"))return;
+            HomeSetupPolicy.Route route=HomeSetup.route(host);
+            HomeDeviceGuide.Issue issue=active.issue()!=HomeDeviceGuide.Issue.NONE?active.issue():
+                    !restore&&route!=HomeSetupPolicy.Route.NATIVE_READY&&route!=HomeSetupPolicy.Route.COMPAT_READY
+                            ?HomeDeviceGuide.Issue.SYSTEM:HomeDeviceGuide.Issue.NONE;
             host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("home_local_result").setTitle(restore?"恢复结果":"自动设置结果")
-                    .setMessage(result+"\n\n"+HomeSetup.summary(host))
-                    .setItems(new String[]{"检查使用效果","其他设置方式","恢复设置前的桌面"},(d,w)->{
-                        if(w==0)verification();else if(w==1)help();else restore();
+                    .setMessage(restore?result:issue==HomeDeviceGuide.Issue.NONE?HomeSetup.summary(host):HomeDeviceGuide.explanation(issue))
+                    .setItems(new String[]{issue==HomeDeviceGuide.Issue.NONE?"检查使用效果":restore?"重试恢复":"按本机指引继续设置","其他设置方式","恢复设置前的桌面","查看执行详情"},(d,w)->{
+                        if(w==0){if(issue==HomeDeviceGuide.Issue.NONE)verification();else if(restore)restore();else deviceGuide(issue);}
+                        else if(w==1)help();else if(w==2)restore();
+                        else host.showDialog(new TvDialog.Builder(host).setPageId("home_execution_detail").setTitle("执行详情")
+                                .setMessage(result).setNegativeButton("返回",null).create());
                     }).setNegativeButton("返回",null).create());
         };
         if(restore)active.restore(callback);else active.start(callback);
     }
     void restore(){
         if(!HomeSetup.prefs(host).getBoolean(HomeSetupSnapshot.PREFIX+"saved",false)){
-            host.toast("没有一键设置的恢复记录，可使用系统桌面选择。");return;
+            host.showDialog(new TvDialog.Builder(host).setPageId("home_restore_manual").setTitle("选择恢复方式")
+                    .setMessage("没有可靠的设置前快照，不能自动推测原配置。可暂停 Marco 接管，再在电视系统中选择桌面。壁纸、屏保和其他应用的辅助服务保持不变。")
+                    .setItems(new String[]{"暂停 Marco 自动恢复","打开系统桌面选择"},(d,w)->{
+                        if(w==0)pause();
+                        else try{host.startActivity(new Intent(Settings.ACTION_HOME_SETTINGS));}
+                        catch(RuntimeException e){host.toast("电视未提供桌面选择入口，请从原厂系统设置中选择。");}
+                    }).setNegativeButton("返回",null).create());
+            return;
         }
         host.showDialog(new TvDialog.Builder(host).setPageId("home_auto_restore").setTitle("恢复设置前的桌面？")
-                .setMessage("尝试切回一键设置前记录的桌面，并撤回本次启用的 Home 兼容设置。保留其他辅助服务、调试授权与系统设置权限。\n电视仍可能要求确认调试授权；没有可靠记录时会提示手动选择。")
+                .setMessage("尝试切回一键设置前记录的桌面，并撤回本次启用的 Home 兼容设置。保留壁纸、屏保、其他辅助服务、调试授权与系统设置权限。\n电视仍可能要求确认调试授权；没有可靠记录时会提示手动选择。")
                 .setPositiveButton("恢复",(d,w)->runAutomatic(true)).setNegativeButton("取消",null).create());
     }
-    void destroy(){if(authorizer!=null){authorizer.cancel();authorizer=null;}}
+    void destroy(){guideReturn.cancel();if(authorizer!=null){authorizer.cancel();authorizer=null;}}
     void help(){
         host.showDialog(new TvDialog.Builder(host).setPageId("default_home_help").setTitle("更多设置方式")
                 .setMessage((BuildEdition.RESTRICTED?"本版使用 Home 兼容；开机和唤醒效果仍需在电视上检查。":"不想使用调试时，可直接打开系统默认桌面选择，或在辅助功能中启用 Home 兼容。")
                         +"\n自动设置目前支持本机普通网络调试（5555 端口），暂不支持配对码。不会开启持续调试恢复；未实测机型按实际系统能力尝试。")
-                .setItems(new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","系统默认桌面选择（无需调试）","打开开发者选项","恢复设置前的桌面"},(d,w)->{
+                .setItems(new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","系统默认桌面选择（无需调试）","本机调试操作指引","恢复设置前的桌面"},(d,w)->{
             if(w==0)try{
                 pending=true;returnToHelp=true;pendingEpoch=host.menuEpoch;
                 host.startActivity(new Intent(Settings.ACTION_SETTINGS));
@@ -166,9 +222,7 @@ final class DefaultHomePanel {
             else if(w==3)localAuthorization();
             else if(w==4)pause();
             else if(w==5)request();
-            else if(w==6)try{
-                host.startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
-            }catch(RuntimeException e){host.toast("电视未提供直接入口，请从系统设置中打开开发者选项。");}
+            else if(w==6)deviceGuide(HomeDeviceGuide.Issue.NONE);
             else restore();
         }).setNegativeButton("返回",null).create());
     }

@@ -39,6 +39,6 @@ def main():
  print(call('install','-r',str(f/'tests.apk')),flush=True)
  try:
   result=call('shell','am','instrument','-w','com.pilipala.tvhome.setup.tests/com.pilipala.tvhome.HomeSetupDeviceChecks');(f/'result.txt').write_text(result,encoding='utf8');print(result)
-  if 'OK 34 home setup device checks' not in result or 'FAIL' in result:raise RuntimeError('Home setup device checks failed')
+  if 'OK 37 home setup device checks' not in result or 'FAIL' in result:raise RuntimeError('Home setup device checks failed')
  finally:print(call('uninstall','com.pilipala.tvhome.setup.tests'))
 if __name__=='__main__':main()

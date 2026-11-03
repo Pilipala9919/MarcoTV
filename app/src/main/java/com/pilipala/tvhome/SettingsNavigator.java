@@ -145,9 +145,7 @@ final class SettingsNavigator {
             else host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_reset").setTitle("恢复默认壁纸？")
                     .setMessage("恢复内置雾蓝海岸和默认压暗程度，不删除原始图片。")
                     .setPositiveButton("恢复",(x,y)->{
-                host.preferences.edit().remove("wallpaper").putInt("wallpaper_builtin",0).remove("wallpaper_dim")
-                        .apply();
-                host.loadWallpaper();
+                selectWallpaper("",0,true);
                 wallpaperSettings();
             })
                     .setNegativeButton("取消",null).create());
@@ -199,9 +197,16 @@ final class SettingsNavigator {
         String[] labels = {"雾蓝海岸", "暖沙丘", "极夜山脊", "峡谷"};
         host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_gallery").setTitle("内置壁纸").setMessage("四张风景壁纸 · 选择后立即预览")
                 .setItems(labels, (d,w) -> {
-            host.preferences.edit().remove("wallpaper").putInt("wallpaper_builtin", w).apply();
-            host.loadWallpaper();
+            selectWallpaper("",w,false);
         }).setNegativeButton("返回", null).create());
+    }
+
+    private void selectWallpaper(String uri,int builtin,boolean resetDim){
+        if(host.appearanceSession!=null){host.appearanceSession.wallpaper(uri,builtin,resetDim);return;}
+        android.content.SharedPreferences.Editor editor=host.preferences.edit().putString("wallpaper",uri).putInt("wallpaper_builtin",builtin);
+        if(resetDim)editor.putInt("wallpaper_dim",10);
+        editor.apply();
+        host.loadWallpaper();
     }
 
     static final int[] SLEEP_CHOICES={15,30,60,120,0};
@@ -209,26 +214,29 @@ final class SettingsNavigator {
         return minutes<=0?"不限制（始终保持亮屏）":minutes+" 分钟后";
     }
     void ambientSettings() {
-        boolean enabled=AmbientIntegration.enabled(host);
+        boolean enabled=host.appearance().getBoolean("ambient_enabled",true);
         host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("屏保开关")
-                .setMessage("时间大小、亮度与渐变时长在 Magic Desktop 右侧列表调整。\n屏保期间时间会缓慢移动，减少长时间静止显示造成的残影；到达设定时长后交还电视自身的休眠设置。")
-                .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保","屏保后允许电视休眠："+sleepLabel(host.preferences.getInt("ambient_sleep_minutes",
+                .setMessage((host.appearanceSession!=null?"本页修改在 Magic Desktop 保存后生效，取消会撤回。\n":"")+"时间大小、亮度与渐变时长在 Magic Desktop 右侧列表调整。\n屏保期间时间会缓慢移动；到达设定时长后交还电视自身的休眠设置。")
+                .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保","屏保后允许电视休眠："+sleepLabel(host.appearance().getInt("ambient_sleep_minutes",
                 IdleController.DEFAULT_SLEEP_MINUTES))},(d,w)->{
             if(w==1){
                 previewAmbient();
                 return;
             }
             if(w==2){
-                int current=host.preferences.getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
+                int current=host.appearance().getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
                 for(int i=0;i<SLEEP_CHOICES.length;i++)if(SLEEP_CHOICES[i]==current)next=SLEEP_CHOICES[(i+1)%SLEEP_CHOICES.length];
-                host.preferences.edit().putInt("ambient_sleep_minutes",next).apply();
+                if(host.appearanceSession!=null)host.appearanceSession.draft.values.put("ambient_sleep_minutes",next);
+                else host.preferences.edit().putInt("ambient_sleep_minutes",next).apply();
                 ambientSettings();
                 return;
             }
-            host.preferences.edit().putBoolean("ambient_enabled",!enabled).apply();
-            AmbientIntegration.configure(host);
-            if(!enabled)host.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            else host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if(host.appearanceSession!=null)host.appearanceSession.draft.booleans.put("ambient_enabled",!enabled);
+            else{
+                host.preferences.edit().putBoolean("ambient_enabled",!enabled).apply();
+                AmbientIntegration.configure(host);
+                host.screensaver.resume();
+            }
             ambientSettings();
         }).setNegativeButton("返回",null).create());
     }
