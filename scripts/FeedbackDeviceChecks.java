@@ -11,9 +11,14 @@ import org.json.*;
 /** Uses synthetic reports for the only cloud write; never opts the user's TV into uploads. */
 public final class FeedbackDeviceChecks extends Instrumentation {
     MainActivity host;FeedbackPanel panel;int passed;
+    Map<String,?> savedSystem;
     void check(String name,boolean ok){if(!ok)throw new AssertionError(name);passed++;Bundle b=new Bundle();b.putString("stream","PASS "+name+"\n");sendStatus(0,b);}
     void ui(Runnable task){final Throwable[] failure={null};runOnMainSync(()->{try{task.run();}catch(Throwable e){failure[0]=e;}});if(failure[0]!=null)throw new AssertionError(failure[0]);}
-    public void onCreate(Bundle b){super.onCreate(b);start();}
+    public void onCreate(Bundle b){
+        super.onCreate(b);
+        savedSystem=new HashMap<>(HomeSetup.prefs(getTargetContext()).getAll());
+        start();
+    }
     public void callActivityOnResume(Activity activity){super.callActivityOnResume(activity);if(activity instanceof MainActivity)host=(MainActivity)activity;}
     public void onStart(){
         Bundle result=new Bundle();Map<String,?> before=null;
@@ -61,6 +66,23 @@ public final class FeedbackDeviceChecks extends Instrumentation {
                 }editor.commit();});
             }
         }
+        // Activity startup may reconcile a test-disrupted HOME binding. Feedback
+        // tests must not leave compatibility, boot recovery or pause choices changed.
+        ui(()->{
+            SharedPreferences target=HomeSetup.prefs(getTargetContext());
+            SharedPreferences.Editor editor=target.edit().clear();
+            for(Map.Entry<String,?> entry:savedSystem.entrySet()){
+                String key=entry.getKey();Object value=entry.getValue();
+                if(value instanceof Boolean)editor.putBoolean(key,(Boolean)value);
+                else if(value instanceof Integer)editor.putInt(key,(Integer)value);
+                else if(value instanceof Long)editor.putLong(key,(Long)value);
+                else if(value instanceof Float)editor.putFloat(key,(Float)value);
+                else if(value instanceof String)editor.putString(key,(String)value);
+                else if(value instanceof Set)editor.putStringSet(key,(Set<String>)value);
+            }
+            editor.commit();
+            if(!target.getAll().equals(savedSystem))throw new AssertionError("Feedback tests changed HOME preferences");
+        });
         finish(-1,result);
     }
 }

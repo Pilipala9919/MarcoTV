@@ -15,12 +15,14 @@ def main():
   if args[0]=='shell':args.insert(1,'-x')
   if args[0]=='install':args.insert(1,'--no-streaming')
   return subprocess.check_output(adb+args,timeout=180).decode('utf8',errors='replace')
+ original_services=None
  if not a.compile_only:
   if int(call('shell','getprop','ro.build.version.sdk').strip())<23:raise RuntimeError('Requires API 23+')
   if 'mWakefulness=Awake' not in call('shell','dumpsys','power'):
    raise RuntimeError('TV is not awake. No UI checks, wake command or test installation performed.')
   if 'mFinished=false' in call('shell','dumpsys','activity'):
    raise RuntimeError('Another instrumentation is running. Leave the shared TV untouched and retry later.')
+  original_services=call('shell','settings','get','secure','enabled_accessibility_services').strip()
  check_class='FeedbackDeviceChecks' if a.feedback else 'HomeSetupDeviceChecks'
  f=ROOT/('build/feedback-device-tests' if a.feedback else 'build/home-setup-tests')
  for folder in ['classes','dex']:(f/folder).mkdir(parents=True,exist_ok=True)
@@ -45,4 +47,16 @@ def main():
   expected='OK 16 feedback device checks' if a.feedback else 'OK 37 home setup device checks'
   if expected not in result or 'FAIL' in result:raise RuntimeError('Device checks failed')
  finally:print(call('uninstall','com.pilipala.tvhome.setup.tests'))
+ # Instrumentation can pass its UI checks while Android drops the target's
+ # accessibility binding. Do not report a healthy HOME setup from UI results alone.
+ current_services=call('shell','settings','get','secure','enabled_accessibility_services').strip()
+ def components(value):
+  return {x.replace('com.pilipala.tvhome/com.pilipala.tvhome.HomeKeyService','com.pilipala.tvhome/.HomeKeyService') for x in value.split(':') if x and x!='null'}
+ if components(current_services)!=components(original_services):
+  raise RuntimeError('UI checks completed, but accessibility settings changed. HOME recovery is not verified; use the explicit launcher setup flow to restore it. No system settings were overwritten by the runner.')
+ if 'com.pilipala.tvhome/.HomeKeyService' in components(original_services):
+  binding=call('shell','dumpsys','activity','services','com.pilipala.tvhome.HomeKeyService')
+  if 'ProcessRecord' not in binding or 'DEAD com.pilipala.tvhome/' in binding:
+   raise RuntimeError('UI checks completed, but the HOME binding is unavailable after instrumentation. Restore it through the launcher setup flow before device acceptance.')
+ print('Post-test accessibility settings and HOME binding verified. Physical HOME and wake checks remain separate.')
 if __name__=='__main__':main()

@@ -12,20 +12,31 @@ import java.util.*;
 /** Bounded setup checks; restores preferences, never selects HOME or changes system services. */
 public final class HomeSetupDeviceChecks extends Instrumentation {
     MainActivity host; int passed;
+    Map<String,?> savedSystem, savedHome;
+    String savedDefault;
     void check(String name, boolean ok) { if(!ok)throw new AssertionError(name);passed++;Bundle b=new Bundle();b.putString("stream","PASS "+name+"\n");sendStatus(0,b); }
     Object field(Object o,String key)throws Exception { Field f=o.getClass().getDeclaredField(key);f.setAccessible(true);return f.get(o); }
     void ui(Runnable r){ final Throwable[] fail={null};runOnMainSync(()->{try{r.run();}catch(Throwable e){fail[0]=e;}});if(fail[0]!=null)throw new AssertionError(fail[0]); }
     void restore(SharedPreferences p,Map<String,?> saved){SharedPreferences.Editor e=p.edit().clear();for(Map.Entry<String,?> x:saved.entrySet()){Object v=x.getValue();if(v instanceof Boolean)e.putBoolean(x.getKey(),(Boolean)v);else if(v instanceof Integer)e.putInt(x.getKey(),(Integer)v);else if(v instanceof Long)e.putLong(x.getKey(),(Long)v);else if(v instanceof Float)e.putFloat(x.getKey(),(Float)v);else if(v instanceof String)e.putString(x.getKey(),(String)v);else if(v instanceof Set)e.putStringSet(x.getKey(),(Set<String>)v);}e.commit();}
-    public void onCreate(Bundle b){super.onCreate(b);start();}
+    public void onCreate(Bundle b){
+        super.onCreate(b);
+        // Capture before MainActivity.onCreate/onResume can reconcile a temporarily
+        // unavailable accessibility binding caused by instrumentation startup.
+        Context target=getTargetContext();
+        savedSystem=new HashMap<>(HomeSetup.prefs(target).getAll());
+        savedHome=new HashMap<>(target.getSharedPreferences("home",0).getAll());
+        savedDefault=SystemIntegration.currentHome(target);
+        start();
+    }
     @Override public void callActivityOnResume(Activity activity){
         super.callActivityOnResume(activity);
         if(activity instanceof MainActivity)host=(MainActivity)activity;
     }
-    public void onStart(){Bundle output=new Bundle();Map<String,?> system=null,home=null;String originalDefault=null;
+    public void onStart(){Bundle output=new Bundle();Map<String,?> system=savedSystem,home=savedHome;String originalDefault=savedDefault;
         try {
             host=(MainActivity)startActivitySync(new Intent().setClassName("com.pilipala.tvhome","com.pilipala.tvhome.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            Thread.sleep(700);system=new HashMap<>(HomeSetup.prefs(host).getAll());home=new HashMap<>(host.preferences.getAll());originalDefault=SystemIntegration.currentHome(host);
-            final Map<String,?> before=system;
+            Thread.sleep(700);
+            final Map<String,?> before=new HashMap<>(HomeSetup.prefs(host).getAll());
             final String originalDefaultForTest=originalDefault;
             ui(()->{
                 host.exitMenus();host.defaultHome.show();
@@ -115,7 +126,19 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
             output.putString("stream","OK "+passed+" home setup device checks\n");
         }catch(Throwable e){output.putString("stream","FAIL "+android.util.Log.getStackTraceString(e)+"\n");}
         finally {
-            if(host!=null&&system!=null){final Map<String,?> s=system,h=home;ui(()->{host.exitMenus();restore(HomeSetup.prefs(host),s);restore(host.preferences,h);host.screensaver.pause();host.screensaver.resume();host.armIdle();SystemIntegration.startRecovery(host);});}
+            if(system!=null){
+                final Map<String,?> s=system,h=home;
+                ui(()->{
+                    Context target=getTargetContext();
+                    if(host!=null)host.exitMenus();
+                    restore(HomeSetup.prefs(target),s);
+                    restore(target.getSharedPreferences("home",0),h);
+                    if(host!=null){host.screensaver.pause();host.screensaver.resume();host.armIdle();}
+                    // Do not start an asynchronous recovery while instrumentation
+                    // is tearing down the very binding being checked.
+                    if(!HomeSetup.prefs(target).getAll().equals(s))throw new AssertionError("HOME preferences were not restored");
+                });
+            }
         }
         finish(-1,output);
     }
