@@ -80,3 +80,8 @@ CLAUDE.md
 !scripts/MotionLifecycleChecks.java
 !scripts/test_home_guide.py
 !scripts/HomeGuideChecks.java
+!scripts/test_feedback.py
+!scripts/FeedbackPolicyChecks.java
+!scripts/test_feedback_transport.py
+!scripts/FeedbackTransportChecks.java
+!scripts/FeedbackDeviceChecks.java

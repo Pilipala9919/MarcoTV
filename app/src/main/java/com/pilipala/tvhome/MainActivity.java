@@ -198,6 +198,7 @@ public final class MainActivity extends Activity {
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
         if(updates!=null)updates.resume();
         if(defaultHome!=null)defaultHome.resumed();
+        FeedbackPanel.maybeOffer(this);
     }
 
     @Override protected void onPause() {

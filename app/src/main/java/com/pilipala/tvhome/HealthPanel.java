@@ -68,7 +68,7 @@ final class HealthPanel {
         String[] messages={"方向键选择卡片，确定打开，长按编辑。菜单键进入设置；从设置首页按返回可回桌面。你可以跳过引导，以后从状态页重新打开。",
                 "打开「桌面启用与检查」，按电视检测结果继续。系统支持时设为默认桌面；受限时可尝试 Home 兼容。遇到系统授权弹窗，需要用遥控器确认。",
                 "完成设置后，先打开其他应用再按 Home 检查。方便时真正重启电视，确认自动进入桌面；关屏再唤醒不算重启。三项状态分别显示，未验证的项目不会标为完成。",
-                "正在播放卡片需要可选通知使用权，仅使用媒体会话。本地诊断默认记录自身异常，不记录节目、密码和通知内容，不上传；可以随时关闭与清除。",
+                "正在播放卡片需要可选通知使用权，仅使用媒体会话。本地诊断默认记录自身异常，不记录节目、密码和通知内容，默认不上传；可在问题反馈中预览后提交。",
                 "可以查看当前状态、检查需要补齐的授权，再开始使用。备份与恢复可导出配置到 U 盘或电脑；权限不能随备份迁移。"};
         TvDialog.Builder b=new TvDialog.Builder(host).setPageId("guide:"+step).setTitle("首次使用 · "+(step+1)+" / 5 · "+titles[step])
                 .setMessage(messages[step]);
@@ -102,9 +102,9 @@ final class HealthPanel {
     }
     void diagnostics(){
         host.showDialog(new TvDialog.Builder(host).setPageId("diagnostics").setTitle("本地诊断")
-                .setOrder("diagnostics","status","preview","export","enabled","clear")
-                .setMessage("自动记录："+(Diagnostics.enabled(host)?"已开启":"已关闭")+"\n仅留电视本地，不上传。最多保留 7 天、5 MB。关闭不删除已有记录，可单独清除。\n\n突然断电或系统结束进程可能无法记录原因；无响应仅是线索，不等于已确认崩溃。")
-                .setItems(new String[]{"状态中心","预览诊断报告","导出诊断报告",Diagnostics.enabled(host)?"关闭自动记录":"开启自动记录","清除所有记录"},(d,w)->{
+                .setOrder("diagnostics","status","preview","export","enabled","clear","feedback")
+                .setMessage("自动记录："+(Diagnostics.enabled(host)?"已开启":"已关闭")+"\n本地最多保留 7 天、5 MB。关闭不删除已有记录。报告仅在问题反馈中主动提交或单独同意自动提交时发送。\n\n断电或系统结束进程可能无法记录原因；无响应仅是线索。")
+                .setItems(new String[]{"状态中心","预览诊断报告","导出诊断报告",Diagnostics.enabled(host)?"关闭自动记录":"开启自动记录","清除所有记录","问题反馈 / 扫码提交"},(d,w)->{
             if(w==0)status();
             else if(w==1)report(false);
             else if(w==2)report(true);
@@ -112,6 +112,7 @@ final class HealthPanel {
                 Diagnostics.setEnabled(host,!Diagnostics.enabled(host));
                 diagnostics();
             }
+            else if(w==5)new FeedbackPanel(host).show();
             else host.showDialog(new TvDialog.Builder(host).setTitle("清除本地诊断？").setMessage("删除电视内部异常记录。已导出的文件需要在保存位置另行删除。")
                     .setPositiveButton("清除",(x,y)->{
                 Diagnostics.clear(host);

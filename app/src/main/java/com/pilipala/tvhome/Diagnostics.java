@@ -62,6 +62,7 @@ final class Diagnostics {
         if(active)main.post(beat);
         if(context!=null)context.getSharedPreferences("diagnostics",0).edit().putBoolean("foreground",active&&enabled(context))
                 .apply();
+        if(active&&context!=null)FeedbackManager.tick(context);
     }
     static String safeStack(Throwable error){
         StringBuilder out=new StringBuilder();
@@ -81,6 +82,7 @@ final class Diagnostics {
         writer.execute(()->{
             try{
                 append(code);
+                if(FeedbackPolicy.hasFailure(java.util.Collections.singletonList(code)))FeedbackManager.tick(context);
             }catch(Exception ignored){}
         });
     }

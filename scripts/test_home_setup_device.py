@@ -6,7 +6,7 @@ from pathlib import Path
 from build import ROOT,JDK,TOOLS,env,executable,run
 from build import ANDROID as SDK14
 def main():
- p=argparse.ArgumentParser();p.add_argument('--adb',default='adb');p.add_argument('--serial');p.add_argument('--compile-only',action='store_true');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--adb',default='adb');p.add_argument('--serial');p.add_argument('--compile-only',action='store_true');p.add_argument('--feedback',action='store_true',help='Use synthetic cloud feedback checks instead of HOME checks');a=p.parse_args()
  if not a.compile_only and not a.serial:p.error('--serial is required for device checks')
 
  adb=[a.adb,'-s',a.serial]
@@ -21,11 +21,14 @@ def main():
    raise RuntimeError('TV is not awake. No UI checks, wake command or test installation performed.')
   if 'mFinished=false' in call('shell','dumpsys','activity'):
    raise RuntimeError('Another instrumentation is running. Leave the shared TV untouched and retry later.')
- f=ROOT/'build/home-setup-tests'
+ check_class='FeedbackDeviceChecks' if a.feedback else 'HomeSetupDeviceChecks'
+ f=ROOT/('build/feedback-device-tests' if a.feedback else 'build/home-setup-tests')
  for folder in ['classes','dex']:(f/folder).mkdir(parents=True,exist_ok=True)
  (f/'manifest.xml').write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.setup.tests"><uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28"/><application/><instrumentation android:name="com.pilipala.tvhome.HomeSetupDeviceChecks" android:targetPackage="com.pilipala.tvhome"/></manifest>',encoding='utf8')
+ if a.feedback:
+  manifest=f/'manifest.xml';manifest.write_text(manifest.read_text().replace('HomeSetupDeviceChecks',check_class),encoding='utf8')
  run(executable(TOOLS,'aapt2'),'link','-o',f/'res.apk','--manifest',f/'manifest.xml','-I',SDK14)
- run(executable(JDK/'bin','javac'),'-encoding','UTF-8','-source','8','-target','8','-Xlint:-options','-classpath',str(SDK14)+os.pathsep+str(ROOT/'build/classes.jar'),'-d',f/'classes',ROOT/'scripts/HomeSetupDeviceChecks.java')
+ run(executable(JDK/'bin','javac'),'-encoding','UTF-8','-source','8','-target','8','-Xlint:-options','-classpath',str(SDK14)+os.pathsep+str(ROOT/'build/classes.jar'),'-d',f/'classes',ROOT/('scripts/'+check_class+'.java'))
  with zipfile.ZipFile(f/'classes.jar','w') as z:
   for file in (f/'classes').rglob('*.class'):z.write(file,file.relative_to(f/'classes').as_posix())
  run(executable(JDK/'bin','java'),'-cp',TOOLS/'lib/d8.jar','com.android.tools.r8.D8','--min-api','23','--lib',SDK14,'--classpath',ROOT/'build/classes.jar','--output',f/'dex',f/'classes.jar')
@@ -38,7 +41,8 @@ def main():
   print('Home setup UI test APK compiled; no device connected or changed.');return
  print(call('install','-r',str(f/'tests.apk')),flush=True)
  try:
-  result=call('shell','am','instrument','-w','com.pilipala.tvhome.setup.tests/com.pilipala.tvhome.HomeSetupDeviceChecks');(f/'result.txt').write_text(result,encoding='utf8');print(result)
-  if 'OK 37 home setup device checks' not in result or 'FAIL' in result:raise RuntimeError('Home setup device checks failed')
+  result=call('shell','am','instrument','-w','com.pilipala.tvhome.setup.tests/com.pilipala.tvhome.'+check_class);(f/'result.txt').write_text(result,encoding='utf8');print(result)
+  expected='OK 16 feedback device checks' if a.feedback else 'OK 37 home setup device checks'
+  if expected not in result or 'FAIL' in result:raise RuntimeError('Device checks failed')
  finally:print(call('uninstall','com.pilipala.tvhome.setup.tests'))
 if __name__=='__main__':main()
