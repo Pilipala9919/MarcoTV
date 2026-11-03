@@ -46,7 +46,7 @@ final class FeedbackPanel {
     }
     String privacy(){return "提交给 Pilipala 的 Marco TV 反馈服务（marcotv.wlj9919.top，由 Cloudflare 托管）。\n包含型号、固件、版本、故障代码与本应用代码位置；不含账号、密码、Wi-Fi、节目、截图、序列号或应用列表。Cloudflare 会处理连接 IP 等网络信息。";}
     void consent(boolean automatic){
-        host.showDialog(new TvDialog.Builder(host).setPageId("feedback_consent").setTitle(automatic?"允许自动提交异常？":"提交这份报告？")
+        host.showDialog(new TvDialog.Builder(host).centered().setPageId("feedback_consent").setTitle(automatic?"允许自动提交异常？":"提交这份报告？")
                 .setMessage(privacy()+(automatic?"\n仅在开启本地诊断且发现异常时尝试，每24小时最多一次；相同报告不重复提交，可随时关闭。关闭后正在发送的请求可能已经到达。":"\n仅提交本次预览的报告，失败时保留在本机供重试。"))
                 .setPositiveButton(automatic?"同意并开启":"同意并提交",(d,w)->{
                     if(automatic){FeedbackManager.setAutomatic(host,true);page();}
@@ -88,7 +88,7 @@ final class FeedbackPanel {
             image.setContentDescription("手机扫描预览并提交反馈");box.addView(image,new LinearLayout.LayoutParams(unit*9,unit*9));
             TextView text=new TextView(host);text.setTextColor(Color.WHITE);text.setTextSize(16);text.setPadding(unit,0,0,0);
             text.setText("手机扫一扫\n先预览，再确认提交\n\n二维码含脱敏报告\n请勿公开转发\n网页显示成功才算收到");box.addView(text,new LinearLayout.LayoutParams(0,-2,1));
-            host.showDialog(new TvDialog.Builder(host).setPageId("feedback_qr").setTitle("用手机提交问题").setView(box).setNegativeButton("返回",null).create());
+            host.showDialog(new TvDialog.Builder(host).centered().setPageId("feedback_qr").setTitle("用手机提交问题").setView(box).setNegativeButton("返回",null).create());
         }catch(Exception e){host.toast("二维码生成失败，请使用电视提交或导出报告。");}
     }
     static void maybeOffer(MainActivity host){
