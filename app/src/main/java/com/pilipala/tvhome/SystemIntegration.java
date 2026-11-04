@@ -47,7 +47,7 @@ final class SystemIntegration {
         long until = p.getLong("adb_restore_until", 0);
         if (!p.getBoolean("adb_restore", false) || until <= 0 || System.currentTimeMillis() < until) return false;
         p.edit().putBoolean("adb_restore", false).remove("adb_restore_until")
-                .putString("last_notice", "ADB 自动恢复已到设定时长并自动停止；调试开关保持当前状态，可在开发者选项中手动关闭。").commit();
+                .putString("last_notice", "ADB 自动恢复已到设定时长并自动停止；调试开关保持当前状态，可在开发者选项中手动关闭。").apply();
         Diagnostics.event("ADB_RESTORE_EXPIRED");
         return true;
     }
@@ -233,9 +233,9 @@ final class SystemIntegration {
             Set<String> saved = new LinkedHashSet<>();
             for (String service : services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)))
                     if (competing(service)) saved.add(service);
-            p.edit().putString("saved_competing_services", join(saved)).commit();
+            p.edit().putString("saved_competing_services", join(saved)).apply();
         }
-        p.edit().putBoolean("managed_home", true).putBoolean("boot_home", true).commit();
+        p.edit().putBoolean("managed_home", true).putBoolean("boot_home", true).apply();
         enableHome(context, true);
         recover(context);
         startRecovery(context);
@@ -276,21 +276,21 @@ final class SystemIntegration {
                             .setMessage("开机后恢复调试开关，运行期间被关闭时也会恢复。\n\n调试开关打开期间，同一网络中的设备可以请求连接电视（仍需在电视上确认授权）。建议只在需要时开启：默认 24 小时后自动停止恢复，调试开关保持当时状态。\n\n网络 ADB 还需系统保留端口配置；本功能不会关闭设备授权验证。")
                             .setPositiveButton("开启 24 小时", (dialog, button) -> {
                     p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", System.currentTimeMillis() + ADB_RESTORE_WINDOW)
-                            .remove("last_notice").commit();
+                            .remove("last_notice").apply();
                     recover(activity);
                     startRecovery(activity);
                     show(activity,host);
                     })
                             .setNeutralButton("长期开启", (dialog, button) -> {
                     p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", 0).remove("last_notice")
-                            .commit();
+                            .apply();
                     recover(activity);
                     startRecovery(activity);
                     show(activity,host);
                     })
                             .setNegativeButton("返回", null).create());
                     else {
-                    p.edit().putBoolean("adb_restore", false).remove("adb_restore_until").commit();
+                    p.edit().putBoolean("adb_restore", false).remove("adb_restore_until").apply();
                     startRecovery(activity);
                     show(activity,host);
                     }
@@ -302,7 +302,7 @@ final class SystemIntegration {
                     ((MainActivity)activity).defaultHome.show();
                     break;
                 case 3:
-                    p.edit().putBoolean("boot_home", !p.getBoolean("boot_home", false)).commit();
+                    p.edit().putBoolean("boot_home", !p.getBoolean("boot_home", false)).apply();
                     show(activity,host);
                     break;
                 case 4:

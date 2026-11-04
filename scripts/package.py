@@ -16,8 +16,13 @@ def package():
     files.extend([apk,checksum]); output=ROOT/f'dist/MarcoTV-{version}-source-and-apk.zip'
     manifest={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED,compresslevel=8) as archive:
-        for p in files:archive.write(p,'MarcoTV/'+p.relative_to(ROOT).as_posix())
-        archive.writestr('MarcoTV/checksums.json',json.dumps(manifest,ensure_ascii=False,indent=2))
+        for p in files:
+            info=zipfile.ZipInfo('MarcoTV/'+p.relative_to(ROOT).as_posix(),(2026,1,1,0,0,0))
+            info.compress_type=zipfile.ZIP_DEFLATED
+            archive.writestr(info,p.read_bytes())
+        chk=zipfile.ZipInfo('MarcoTV/checksums.json',(2026,1,1,0,0,0))
+        chk.compress_type=zipfile.ZIP_DEFLATED
+        archive.writestr(chk,json.dumps(manifest,ensure_ascii=False,indent=2,sort_keys=True))
     with zipfile.ZipFile(output) as archive:
         if archive.testzip() is not None:raise RuntimeError('ZIP CRC failed')
     print(f'{output.name}: {output.stat().st_size} bytes, {len(files)} files; CRC verified')

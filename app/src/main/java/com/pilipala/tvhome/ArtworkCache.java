@@ -14,6 +14,7 @@ import android.util.LruCache;
  */
 final class ArtworkCache {
     private static final int RICH_BUDGET_MB = 26;
+    private static final int LEAN_BUDGET_MB = 8;
     private static boolean evaluated;
     private static boolean retain = true;
     private static final LruCache<String, Bitmap> ENTRIES = new LruCache<String, Bitmap>(RICH_BUDGET_MB * 1024 * 1024) {
@@ -25,8 +26,8 @@ final class ArtworkCache {
     private ArtworkCache() { }
 
     static void configure(Context context) {
-        retain = !lean(context);
-        if (!retain) ENTRIES.evictAll();
+        retain = true;
+        ENTRIES.resize((lean(context) ? LEAN_BUDGET_MB : RICH_BUDGET_MB) * 1024 * 1024);
         evaluated = true;
     }
 

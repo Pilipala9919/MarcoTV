@@ -87,3 +87,4 @@ CLAUDE.md
 !scripts/FeedbackDeviceChecks.java
 !scripts/AmbientWeatherChecks.java
 !scripts/test_ambient_weather.py
+!scripts/test_offline.py

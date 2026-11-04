@@ -12,6 +12,8 @@ import java.util.*;
 
 /** MarcoTV's own card preferences; no third-party config or code is imported. */
 final class CardStore {
+    private static final char[] HEX = "0123456789abcdef".toCharArray();
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> FILE_NAMES = new java.util.concurrent.ConcurrentHashMap<>();
     private final Context context;
     private final SharedPreferences prefs;
     CardStore(Context context) {
@@ -42,7 +44,7 @@ final class CardStore {
         return new LinkedHashSet<>(prefs.getStringSet(key, Collections.emptySet()));
     }
     boolean contains(String key, String id) {
-        return set(key).contains(id);
+        return prefs.getStringSet(key, Collections.emptySet()).contains(id);
     }
     void toggle(String key, String id, boolean enabled) {
         Set<String> values = set(key);
@@ -56,25 +58,45 @@ final class CardStore {
         new AtomicFile(imageFile(id)).delete();
     }
     File imageFile(String id) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(id.getBytes("UTF-8"));
-            StringBuilder name = new StringBuilder();
-            for (byte b : hash) name.append(String.format(Locale.US, "%02x", b & 255));
-            return new File(context.getFilesDir(), "cover-" + name + ".jpg");
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+        String name = FILE_NAMES.get(id);
+        if (name == null) {
+            try {
+                byte[] hash = MessageDigest.getInstance("SHA-256").digest(id.getBytes("UTF-8"));
+                char[] chars = new char[hash.length * 2];
+                for (int i = 0; i < hash.length; i++) {
+                    int v = hash[i] & 0xFF;
+                    chars[i * 2] = HEX[v >>> 4];
+                    chars[i * 2 + 1] = HEX[v & 0x0F];
+                }
+                name = "cover-" + new String(chars) + ".jpg";
+                if (FILE_NAMES.size() < 512) FILE_NAMES.put(id, name);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         }
+        return new File(context.getFilesDir(), name);
     }
     Bitmap loadImage(String id) {
         if (!cover(id).equals("image")) return null;
         String key = "cover:" + id;
         Bitmap cached = ArtworkCache.get(key);
         if (cached != null) return cached;
+        File file = imageFile(id);
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (InputStream in = new AtomicFile(file).openRead()) {
+            BitmapFactory.decodeStream(in, null, bounds);
+        } catch (IOException e) {
+            return null;
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
         // Imported covers are stored as JPEG, so they never carry alpha; RGB_565 halves the cost.
         BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = 1;
+        while (bounds.outWidth / options.inSampleSize > 640 || bounds.outHeight / options.inSampleSize > 360) options.inSampleSize *= 2;
         options.inPreferredConfig = Bitmap.Config.RGB_565;
         Bitmap decoded;
-        try (InputStream in = new AtomicFile(imageFile(id)).openRead()) {
+        try (InputStream in = new AtomicFile(file).openRead()) {
             decoded = BitmapFactory.decodeStream(in, null, options);
         }
         catch (IOException e) {

@@ -15,7 +15,7 @@ final class PhoneHttp implements AutoCloseable {
         Response handle(Request r) throws Exception;
     }
     static final class Request {
-        String method, path, target;
+        String method, path, target, remoteAddress="";
         long length;
         final Map<String,String> headers=new HashMap<>();
         File body;
@@ -63,49 +63,83 @@ final class PhoneHttp implements AutoCloseable {
             return r;
         }
     }
+    static int headerTimeoutMs=5000;
+    static final int MAX_PER_IP=8;
     private final ServerSocket server;
     private final File folder;
     private final Handler handler;
-    private final ThreadPoolExecutor pool=new ThreadPoolExecutor(2,4,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(4));
+    private final ThreadPoolExecutor pool=new ThreadPoolExecutor(4,8,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(24));
     private final Set<Socket> sockets=Collections.synchronizedSet(new HashSet<>());
+    private final Map<String,Integer> activeByIp=new HashMap<>();
     private volatile boolean closed;
     PhoneHttp(InetAddress address,int port,File folder,Handler handler)throws IOException{
         this.folder=folder;
         this.handler=handler;
         folder.mkdirs();
+        File[] stale=folder.listFiles(f->f.isFile()&&f.getName().startsWith("phone-")&&f.getName().endsWith(".part"));
+        if(stale!=null)for(File f:stale)f.delete();
         server=new ServerSocket();
         server.setReuseAddress(true);
         server.bind(new InetSocketAddress(address,port),8);
         Thread accept=new Thread(()->{
             while(!closed)try{
                 Socket s=server.accept();
-                s.setSoTimeout(12000);
-                sockets.add(s);
+                String ip=s.getInetAddress()==null?"":s.getInetAddress().getHostAddress();
+                if(!acquireIp(ip)){
+                    try{
+                        s.close();
+                    }catch(IOException ignored){}
+                    continue;
+                }
                 try{
-                    pool.execute(()->serve(s));
-                }catch(RejectedExecutionException full){
+                    s.setSoTimeout(Math.max(200,Math.min(4000,headerTimeoutMs)));
+                    sockets.add(s);
+                    pool.execute(()->serve(s,ip));
+                }catch(RejectedExecutionException|IOException full){
                     sockets.remove(s);
-                    s.close();
+                    releaseIp(ip);
+                    try{
+                        s.close();
+                    }catch(IOException ignored){}
                 }
             }catch(IOException ignored){
-                if(!closed)close();
+                if(!closed&&server.isClosed())close();
             }
         },"MarcoPhoneAccept");
         accept.setDaemon(true);
         accept.start();
     }
+    private boolean acquireIp(String ip){
+        if(ip.isEmpty())return true;
+        synchronized(activeByIp){
+            int current=activeByIp.getOrDefault(ip,0);
+            if(current>=MAX_PER_IP)return false;
+            activeByIp.put(ip,current+1);
+            return true;
+        }
+    }
+    private void releaseIp(String ip){
+        if(ip.isEmpty())return;
+        synchronized(activeByIp){
+            int current=activeByIp.getOrDefault(ip,0);
+            if(current<=1)activeByIp.remove(ip);
+            else activeByIp.put(ip,current-1);
+        }
+    }
     int port(){
         return server.getLocalPort();
     }
-    private void serve(Socket socket){
+    private void serve(Socket socket,String ip){
         Request request=null;
         Response result=null;
         try(Socket s=socket){
             InputStream in=new BufferedInputStream(s.getInputStream());
             try{
-                request=readHead(in);
+                request=readHead(in,System.currentTimeMillis()+headerTimeoutMs);
+                request.remoteAddress=ip;
                 result=handler.check(request);
                 if(result==null){
+                    s.setSoTimeout(12000);
                     long max=request.path.equals("/restore")?128L*1024*1024:request.path.equals("/upload")?16L*1024*1024:65536;
                     if(request.length>max)result=Response.text(413,"文件过大");
                     else{
@@ -146,14 +180,19 @@ final class PhoneHttp implements AutoCloseable {
             out.flush();
         }catch(IOException ignored){}finally{
             sockets.remove(socket);
+            releaseIp(ip);
             if(request!=null&&request.body!=null)request.body.delete();
             if(result!=null&&result.deleteFile&&result.file!=null)result.file.delete();
         }
     }
     static Request readHead(InputStream in)throws IOException{
+        return readHead(in,System.currentTimeMillis()+headerTimeoutMs);
+    }
+    static Request readHead(InputStream in,long deadline)throws IOException{
         ByteArrayOutputStream b=new ByteArrayOutputStream();
         int state=0;
         while(state<4){
+            if(System.currentTimeMillis()>deadline)throw new SocketTimeoutException("header deadline");
             int c=in.read();
             if(c<0)throw new EOFException();
             if(b.size()>=8192)throw new IOException("header limit");

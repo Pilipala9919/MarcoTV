@@ -19,7 +19,8 @@ public final class MarcoDreamService extends DreamService {
         public void run(){
             if(view!=null){
                 view.invalidate();
-                handler.postDelayed(this,1000);
+                long toMinute=60000L-(System.currentTimeMillis()%60000L)+20L;
+                handler.postDelayed(this,Math.min(toMinute,5000L));
             }
         }
     };

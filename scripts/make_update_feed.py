@@ -7,9 +7,12 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from build import TOOLS, executable
+from build import OFFICIAL_SIGNER_SHA256, TOOLS, executable, signer_sha256
 
-def make(apk, url, prerelease, notes, restricted=False):
+def make(apk, url, prerelease, notes, restricted=False, require_official_signer=False):
+    cert=signer_sha256(apk)
+    if require_official_signer and cert!=OFFICIAL_SIGNER_SHA256:
+        raise ValueError(f'APK signer {cert} does not match official release signer {OFFICIAL_SIGNER_SHA256}')
     output=subprocess.check_output([str(executable(TOOLS,'aapt2')),'dump','badging',str(apk)],text=True,encoding='utf-8')
     package=re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'",output)
     sdk=re.search(r"(?:minSdkVersion|sdkVersion):'(\d+)'",output)
@@ -34,8 +37,9 @@ if __name__=='__main__':
     parser.add_argument('--apk',type=Path,required=True);parser.add_argument('--url',required=True)
     parser.add_argument('--prerelease',action='store_true');parser.add_argument('--notes',type=Path,required=True)
     parser.add_argument('--restricted',action='store_true',help='Require restricted APK identity and restricted download filename')
+    parser.add_argument('--allow-dev-signer',action='store_true',help='Allow non-official signer certificate for local testing only')
     parser.add_argument('--output',type=Path,required=True)
-    args=parser.parse_args();result=make(args.apk,args.url,args.prerelease,args.notes.read_text(encoding='utf-8'),args.restricted)
+    args=parser.parse_args();result=make(args.apk,args.url,args.prerelease,args.notes.read_text(encoding='utf-8'),args.restricted,not args.allow_dev_signer)
     if args.restricted and args.output.name not in ('restricted-stable.json','restricted-preview.json'):
         parser.error('Restricted feeds must use restricted-stable.json or restricted-preview.json')
     args.output.parent.mkdir(parents=True,exist_ok=True)

@@ -16,15 +16,9 @@ import java.util.zip.*;
 final class BackupStore {
     static final long LIMIT=128L*1024*1024;
     static final String[] GROUPS={"home","cards","menu_order"};
-    static final Set<String> HOME=new HashSet<>(Arrays.asList("card_height","card_row_position","card_surface","motion_duration","card_radius",
-            "focus_scale","label_opacity","clock_size","clock_style","clock_tilt","ambient_clock_size","ambient_transition","ambient_clock_brightness",
-            "ambient_dim","wallpaper_dim","idle_seconds","wallpaper_builtin","ambient_enabled","now_playing","tv_sort","order_tv","order_inputs",
-            "order_favorites","order_other","recent_size","recent_spacing","recent_tilt","recent_radius","recent_dim","recent_duration","recent_double_ms",
-            "recent_limit","ambient_sleep_minutes"));
+    static final Set<String> HOME=new HashSet<>(SettingsCatalog.HOME_KEYS);
     static boolean allowed(String group,String key){
-        if(group.equals("home"))return HOME.contains(key)||key.startsWith("opened:");
-        if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps").contains(key)||key.matches("(name|cover|manual):.{1,500}");
-        return group.equals("menu_order")&&SettingsCatalog.ORDER_KEYS.contains(key);
+        return SettingsCatalog.allowed(group,key);
     }
     static JSONObject capture(Context c,boolean images)throws Exception{
         JSONObject root=new JSONObject().put("format","MarcoTV-backup").put("schema",1).put("version",ProjectInfo.VERSION)
@@ -92,7 +86,7 @@ final class BackupStore {
         return file.isFile()&&Uri.fromFile(file).toString().equals(c.getSharedPreferences("home",0).getString("wallpaper",""));
     }
     static boolean imageName(String name){
-        return name.equals("wallpaper-image")||name.matches("cover-[a-f0-9]{64}\\.jpg");
+        return SettingsCatalog.imageName(name);
     }
     static String hex(byte[] bytes){
         StringBuilder s=new StringBuilder();
@@ -167,7 +161,9 @@ final class BackupStore {
             BitmapFactory.Options o=new BitmapFactory.Options();
             o.inJustDecodeBounds=true;
             BitmapFactory.decodeFile(e.getValue().getPath(),o);
-            if(o.outWidth<1||o.outHeight<1||o.outWidth>32768||o.outHeight>32768)throw new IOException("invalid image");
+            int maxSide=e.getKey().startsWith("cover-")?1280:16384;
+            long maxPixels=e.getKey().startsWith("cover-")?1280L*1280:64000000L;
+            if(o.outWidth<1||o.outHeight<1||o.outWidth>maxSide||o.outHeight>maxSide||(long)o.outWidth*o.outHeight>maxPixels)throw new IOException("invalid image");
         }
         if(root.getBoolean("customWallpaper")&&!p.images.containsKey("wallpaper-image"))throw new IOException("wallpaper missing");
         Set<String> packages=new HashSet<>();
@@ -218,62 +214,10 @@ final class BackupStore {
         }
     }
     private static String expectedType(String group,String key){
-        if(group.equals("menu_order"))return "s";
-        if(group.equals("cards"))return key.contains(":")?"s":"set";
-        if(key.startsWith("opened:"))return "l";
-        if(key.equals("ambient_enabled")||key.equals("now_playing"))return "b";
-        if(key.startsWith("order_")||key.equals("tv_sort"))return "s";
-        return "i";
+        return SettingsCatalog.expectedType(group,key);
     }
     static int[] range(String key){
-        switch(key){
-            case "recent_size":
-                return new int[]{60,120};
-            case "recent_spacing":
-                return new int[]{80,360};
-            case "recent_tilt":
-                return new int[]{0,18};
-            case "recent_radius":
-                return new int[]{8,80};
-            case "recent_dim":
-                return new int[]{0,90};
-            case "recent_duration":
-                return new int[]{120,700};
-            case "recent_double_ms":
-                return new int[]{200,700};
-            case "recent_limit":
-                return new int[]{3,20};
-        }
-        switch(key){
-            case "card_height":
-                return new int[]{70,130};
-            case "clock_style":
-                return new int[]{0,3};
-            case "clock_tilt":
-                return new int[]{0,14};
-            case "motion_duration":
-                return new int[]{120,500};
-            case "card_radius":
-                return new int[]{0,90};
-            case "focus_scale":
-                return new int[]{0,30};
-            case "clock_size":
-                return new int[]{36,160};
-            case "ambient_clock_size":
-                return new int[]{100,280};
-            case "ambient_transition":
-                return new int[]{1,30};
-            case "idle_seconds":
-                return new int[]{0,600};
-            case "wallpaper_builtin":
-                return new int[]{0,3};
-            case "ambient_clock_brightness":
-                return new int[]{40,100};
-            case "ambient_sleep_minutes":
-                return new int[]{0,240};
-            default:
-                return new int[]{0,100};
-        }
+        return SettingsCatalog.range(key);
     }
     static synchronized File restore(Context c,Prepared p)throws Exception{
         validate(c,p);

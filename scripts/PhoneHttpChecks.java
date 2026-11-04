@@ -23,13 +23,29 @@ public final class PhoneHttpChecks {
         reject("folded_header","GET / HTTP/1.1\r\nHost: localhost\r\n Folded: value\r\n\r\n");
         reject("header_limit","GET / HTTP/1.1\r\nHost: localhost\r\nLarge: "+new String(new char[9000]).replace('\0','x')+"\r\n\r\n");
         File folder=Files.createTempDirectory("marcotv-http-test").toFile();
+        File stale=new File(folder,"phone-leftover.part");
+        stale.createNewFile();
+        boolean deadlineRejected=false;
+        try{
+            PhoneHttp.readHead(new ByteArrayInputStream("GET / HTTP/1.1\r\nHost: a\r\n\r\n".getBytes(StandardCharsets.US_ASCII)),System.currentTimeMillis()-1);
+        }catch(SocketTimeoutException expected){
+            deadlineRejected=true;
+        }
+        check("header_deadline_enforced",deadlineRejected);
         PhoneHttp server=new PhoneHttp(InetAddress.getByName("127.0.0.1"),0,folder,new PhoneHttp.Handler(){
             public PhoneHttp.Response check(PhoneHttp.Request r){return r.path.equals("/denied")?PhoneHttp.Response.text(401,"denied"):null;}
-            public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{return PhoneHttp.Response.text(200,r.text());}
+            public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{return PhoneHttp.Response.text(200,r.remoteAddress+":"+r.text());}
         });int port=server.port();
         try{
+            check("stale_part_files_cleaned_on_start",!stale.exists());
             String response=send(port,"POST /action HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello");
-            check("body_roundtrip",response.endsWith("hello")&&response.startsWith("HTTP/1.1 200"));
+            check("body_roundtrip",response.endsWith("127.0.0.1:hello")&&response.startsWith("HTTP/1.1 200"));
+            try(Socket slow1=new Socket("127.0.0.1",port);Socket slow2=new Socket("127.0.0.1",port)){
+                slow1.getOutputStream().write("GET /".getBytes(StandardCharsets.US_ASCII));
+                slow2.getOutputStream().write("GET /".getBytes(StandardCharsets.US_ASCII));
+                String concurrent=send(port,"POST /action HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\nok");
+                check("slow_headers_do_not_starve_requests",concurrent.endsWith("127.0.0.1:ok")&&concurrent.startsWith("HTTP/1.1 200"));
+            }
             check("response_is_not_cached",response.contains("Cache-Control: no-store")&&response.contains("X-Frame-Options: DENY"));
             check("oversized_body_rejected_before_upload",send(port,"POST /action HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n").startsWith("HTTP/1.1 413"));
             check("authorization_precedes_upload",send(port,"POST /denied HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n").startsWith("HTTP/1.1 401"));

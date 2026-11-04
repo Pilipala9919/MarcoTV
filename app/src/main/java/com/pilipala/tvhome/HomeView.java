@@ -52,7 +52,8 @@ final class HomeView extends View {
     private int topSelected = 0;
     private float uiAlpha = 1, ambientProgress;
     private final ClockScene clockScene;
-    private boolean idleMode, wakingKey, longPressed;
+    boolean idleMode;
+    private boolean wakingKey, longPressed;
     private final CardMover mover;
     boolean isMoving(){
         return mover.active();
@@ -63,6 +64,9 @@ final class HomeView extends View {
     ValueAnimator fade;
     private final RectF rect = new RectF();
     private final RectF iconBounds = new RectF();
+    private final Path playbackClip = new Path();
+    private String lastPlaybackTitle, clippedPlaybackTitle = "";
+    private String lastPlaybackSource, clippedPlaybackSource = "";
     private final Matrix artworkMatrix = new Matrix();
     private final Paint artworkPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final MotionSpring section = new MotionSpring(0, 20, 0.001f);
@@ -448,17 +452,25 @@ final class HomeView extends View {
         int foreground=alphaColor(row==-2?0xFF17232D:0xFFF1F5F8,opacity);
         if(item.artwork!=null && !item.artwork.isRecycled()) {
             int save=canvas.save();
-            Path clip=new Path();
+            playbackClip.reset();
             iconBounds.set(126,206,216,296);
-            clip.addRoundRect(iconBounds,14,14,Path.Direction.CW);
-            canvas.clipPath(clip);
+            playbackClip.addRoundRect(iconBounds,14,14,Path.Direction.CW);
+            canvas.clipPath(playbackClip);
             artworkPaint.setAlpha(Math.round(255*opacity));
             canvas.drawBitmap(item.artwork,null,iconBounds,artworkPaint);
             canvas.restoreToCount(save);
         } else icon(canvas,item.playing?"\ue037":"\ue034",171,251,44,foreground);
+        if(!Objects.equals(item.title,lastPlaybackTitle)){
+            lastPlaybackTitle=item.title;
+            clippedPlaybackTitle=clippedLabel(item.title==null?"":item.title,440,26);
+        }
+        if(!Objects.equals(item.source,lastPlaybackSource)){
+            lastPlaybackSource=item.source;
+            clippedPlaybackSource=clippedLabel(item.source==null?"":item.source,440,18);
+        }
         text(canvas,item.playing?"正在播放":"已暂停",238,225,18,bold,foreground,Paint.Align.LEFT);
-        text(canvas,clippedLabel(item.title,440,26),238,258,26,bold,foreground,Paint.Align.LEFT);
-        text(canvas,clippedLabel(item.source,440,18),238,287,18,normal,alphaColor(row==-2?0xB017232D:0xB0F1F5F8,opacity),Paint.Align.LEFT);
+        text(canvas,clippedPlaybackTitle,238,258,26,bold,foreground,Paint.Align.LEFT);
+        text(canvas,clippedPlaybackSource,238,287,18,normal,alphaColor(row==-2?0xB017232D:0xB0F1F5F8,opacity),Paint.Align.LEFT);
     }
 
     private void drawEdge(Canvas canvas,float opacity){

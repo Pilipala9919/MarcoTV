@@ -8,10 +8,10 @@
 
 | 名称 | 文件 | 画面 |
 | --- | --- | --- |
-| 雾蓝海岸 | `app/src/main/assets/wallpapers/coast.png` | 深蓝海岸、薄雾和安静的海面 |
-| 暖沙丘 | `app/src/main/assets/wallpapers/dunes.png` | 蓝调时刻的暖色沙丘 |
-| 极夜山脊 | `app/src/main/assets/wallpapers/aurora.png` | 云海、山脊及微弱极光 |
-| 峡谷 | `app/src/main/assets/canyon.png` | 暗色砂岩峡谷 |
+| 雾蓝海岸 | `app/src/main/assets/wallpapers/coast.jpg` | 深蓝海岸、薄雾和安静的海面 |
+| 暖沙丘 | `app/src/main/assets/wallpapers/dunes.jpg` | 蓝调时刻的暖色沙丘 |
+| 极夜山脊 | `app/src/main/assets/wallpapers/aurora.jpg` | 云海、山脊及微弱极光 |
+| 峡谷 | `app/src/main/assets/canyon.jpg` | 暗色砂岩峡谷 |
 
 图像中不含时钟、应用图标或桌面组件，运行时按画幅居中覆盖。桌面、时间及动画由应用实时绘制。
 

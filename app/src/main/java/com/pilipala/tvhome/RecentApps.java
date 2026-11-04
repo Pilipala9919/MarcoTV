@@ -16,6 +16,10 @@ final class RecentApps {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final Typeface bold=Typeface.create("sans-serif",Typeface.BOLD),normal=Typeface.create("sans-serif",Typeface.NORMAL);
     private final RectF rect=new RectF();
+    private final RectF frame=new RectF();
+    private final LinearGradient cardGradient=new LinearGradient(0,0,0,1,0xFF34485E,0xFF172331,Shader.TileMode.CLAMP);
+    private final Matrix gradientMatrix=new Matrix();
+    private final ArrayList<Integer> drawOrder=new ArrayList<>(10);
     static final class Entry {
         int taskId;
         String id,name;
@@ -412,7 +416,7 @@ final class RecentApps {
             text(c,bridgeStatus,960,545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);
         }
         else{
-            ArrayList<Integer> drawOrder=new ArrayList<>();
+            drawOrder.clear();
             for(int i=0;i<count();i++)if(Math.abs(i-position)<4)drawOrder.add(i);
             Collections.sort(drawOrder,(a,b)->Float.compare(Math.abs(b-position),Math.abs(a-position)));
             for(int i:drawOrder)card(c,entries.get(i),i-position,preview);
@@ -436,7 +440,10 @@ final class RecentApps {
         c.drawRoundRect(rect,radius,radius,paint);
         rect.set(cx-w/2,cy-h/2,cx+w/2,cy+h/2);
         color(Color.WHITE);
-        paint.setShader(new LinearGradient(cx,cy-h/2,cx,cy+h/2,new int[]{0xFF34485E,0xFF172331},null,Shader.TileMode.CLAMP));
+        gradientMatrix.setScale(1,h);
+        gradientMatrix.postTranslate(cx,cy-h/2);
+        cardGradient.setLocalMatrix(gradientMatrix);
+        paint.setShader(cardGradient);
         c.drawRoundRect(rect,radius,radius,paint);
         paint.setShader(null);
         if(abs<.5f){
@@ -448,7 +455,7 @@ final class RecentApps {
         }
         color(Color.WHITE);
         paint.setAlpha(Math.round(255*drawAlpha));
-        RectF frame=new RectF(cx-w/2+20*zoom,cy-h/2+20*zoom,cx+w/2-20*zoom,cy+72*zoom);
+        frame.set(cx-w/2+20*zoom,cy-h/2+20*zoom,cx+w/2-20*zoom,cy+72*zoom);
         Bitmap visual=e.snapshot!=null?e.snapshot:e.artwork;
         // Draw the curved image boundary with Paint antialiasing. Hardware clipPath
         // can leave stair-stepped edges on older TV GPUs, especially after rotation.

@@ -12,6 +12,8 @@ import io.nayuki.qrcodegen.QrCode;
 import org.json.*;
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.*;
@@ -25,7 +27,7 @@ final class PhoneManager implements PhoneHttp.Handler {
     static final int[] DEFAULTS={32,16,55,0,96,176,100,72,10,260};
     private final MainActivity host;
     private PhoneHttp server;
-    private volatile String authority="",pairCode="",nonce="",cookie="",csrf="";
+    private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="";
     private volatile long until, pairUntil;
     private volatile boolean approved,closed=true;
     private volatile long generation;
@@ -98,6 +100,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         try{
             pairCode=secret();
             nonce="";
+            clientAddress="";
             cookie=secret();
             csrf=secret();
             approved=false;
@@ -139,6 +142,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         if(SystemClock.elapsedRealtime()>pairUntil){
             pairCode=secret();
             nonce="";
+            clientAddress="";
             pairUntil=SystemClock.elapsedRealtime()+5*60000;
         }
         String url="http://"+authority+"/#"+pairCode;
@@ -192,6 +196,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         generation++;
         approved=false;
         nonce="";
+        clientAddress="";
         pairCode="";
         cookie="";
         csrf="";
@@ -212,8 +217,16 @@ final class PhoneManager implements PhoneHttp.Handler {
         new SecureRandom().nextBytes(b);
         return BackupStore.hex(b);
     }
+    private static boolean secretEquals(String expected,String actual){
+        if(expected==null||actual==null||expected.isEmpty())return false;
+        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),actual.getBytes(StandardCharsets.UTF_8));
+    }
     private boolean authorized(PhoneHttp.Request r){
-        return approved&&!cookie.isEmpty()&&Arrays.asList(r.header("cookie").split(";\\s*")).contains("MarcoSession="+cookie);
+        if(!approved||cookie.isEmpty()||clientAddress.isEmpty()||!clientAddress.equals(r.remoteAddress))return false;
+        for(String part:r.header("cookie").split(";\\s*")){
+            if(part.startsWith("MarcoSession=")&&secretEquals(cookie,part.substring(13)))return true;
+        }
+        return false;
     }
     public PhoneHttp.Response check(PhoneHttp.Request r)throws Exception{
         if(closed||SystemClock.elapsedRealtime()>until)return fail(410,"连接已过期，请在电视重新开启Marco 互联");
@@ -222,7 +235,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         if(r.path.equals("/")||r.path.equals("/phone.js")||r.path.equals("/phone.css"))return r.method.equals("GET")?null:fail(405,"不支持的操作");
         if(r.path.equals("/pair"))return r.method.equals("POST")?null:fail(405,"不支持的操作");
         if(!authorized(r))return fail(401,"请扫码并在电视确认连接");
-        if(r.method.equals("POST")&&!csrf.equals(r.header("x-marco-csrf")))return fail(403,"连接校验失败，请刷新");
+        if(r.method.equals("POST")&&!secretEquals(csrf,r.header("x-marco-csrf")))return fail(403,"连接校验失败，请刷新");
         return null;
     }
     public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{
@@ -239,7 +252,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             return new PhoneHttp.Response(200,name.endsWith("js")?"text/javascript; charset=utf-8":name.endsWith("css")?"text/css; charset=utf-8":"text/html; charset=utf-8",
                     out.toByteArray());
         }
-        if(r.path.equals("/pair"))return main(()->pair(new JSONObject(r.text())));
+        if(r.path.equals("/pair"))return main(()->pair(r,new JSONObject(r.text())));
         if(r.method.equals("POST"))until=SystemClock.elapsedRealtime()+15*60000;
         if(r.method.equals("GET")){
             switch(r.path){
@@ -265,18 +278,19 @@ final class PhoneManager implements PhoneHttp.Handler {
         JSONObject body=new JSONObject(r.text());
         return main(()->action(body));
     }
-    private PhoneHttp.Response pair(JSONObject b)throws Exception{
-        if(closed||SystemClock.elapsedRealtime()>pairUntil||!pairCode.equals(b.optString("code")))return fail(403,"二维码已过期或连接码不正确");
+    private PhoneHttp.Response pair(PhoneHttp.Request r,JSONObject b)throws Exception{
+        if(closed||SystemClock.elapsedRealtime()>pairUntil||!secretEquals(pairCode,b.optString("code")))return fail(403,"二维码已过期或连接码不正确");
         String supplied=b.optString("nonce");
-        if(!supplied.matches("[a-f0-9]{32}"))return fail(400,"请重新打开连接页面");
+        if(!supplied.matches("[a-f0-9]{32}")||r.remoteAddress.isEmpty())return fail(400,"请重新打开连接页面");
         if(nonce.isEmpty()){
             if(!host.foreground)return fail(409,"请先回到 Marco TV 桌面");
             nonce=supplied;
-            final String expected=nonce;
+            clientAddress=r.remoteAddress;
+            final String expected=nonce,expectedIp=clientAddress;
             host.showDialog(new TvDialog.Builder(host).setPageId("phone_approve").setTitle("允许手机通过 Marco 互联连接？")
-                    .setMessage("仅允许你刚刚扫码的手机连接。\n手机可读取应用卡片、调整外观、上传壁纸和下载备份。\n无需 ADB；可随时在“Marco 互联”断开。")
+                    .setMessage("请求设备："+expectedIp+"\n仅允许你刚刚扫码的手机连接。\n手机可读取应用卡片、调整外观、上传壁纸和下载备份。\n无需 ADB；可随时在“Marco 互联”断开。")
                     .setPositiveButton("允许连接",(d,w)->{
-                if(!closed&&nonce.equals(expected)){
+                if(!closed&&nonce.equals(expected)&&clientAddress.equals(expectedIp)){
                     approved=true;
                     host.exitMenus();
                     host.toast("手机已连接，未保存的预览不会写入配置");
@@ -284,9 +298,12 @@ final class PhoneManager implements PhoneHttp.Handler {
             })
                     .setNegativeButton("拒绝",(d,w)->stop()).create());
         }
-        if(!nonce.equals(supplied))return fail(409,"已有手机正在连接，请在电视重新开启");
+        if(!secretEquals(nonce,supplied)||!clientAddress.equals(r.remoteAddress))return fail(409,"已有手机正在连接，请在电视重新开启");
         PhoneHttp.Response result=json(new JSONObject().put("status",approved?"connected":"pending").put("csrf",approved?csrf:""));
-        if(approved)result.headers.put("Set-Cookie","MarcoSession="+cookie+"; HttpOnly; SameSite=Strict; Path=/");
+        if(approved){
+            pairCode="";
+            result.headers.put("Set-Cookie","MarcoSession="+cookie+"; HttpOnly; SameSite=Strict; Path=/");
+        }
         return result;
     }
     private JSONObject state()throws Exception{

@@ -74,12 +74,29 @@ public final class MainActivity extends Activity {
     final IdleController screensaver = new IdleController(this);
     void idleChanged(boolean idle) {
         screensaver.changed(idle);
+        scheduleClock();
+    }
+    private static long nextClockDelay(boolean drifting) {
+        long toMinute = 60000L - (System.currentTimeMillis() % 60000L) + 20L;
+        return drifting ? Math.min(toMinute, 5000L) : toMinute;
+    }
+    void scheduleClock() {
+        handler.removeCallbacks(clock);
+        if (foreground) handler.postDelayed(clock, nextClockDelay(home != null && home.idleMode));
     }
     private final Runnable clock = new Runnable() {
         @Override public void run() {
             if (foreground) {
                 home.invalidate();
-                handler.postDelayed(this, 1000);
+                scheduleClock();
+            }
+        }
+    };
+    private final BroadcastReceiver timeChanges = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (foreground && home != null) {
+                home.invalidate();
+                scheduleClock();
             }
         }
     };
@@ -148,6 +165,11 @@ public final class MainActivity extends Activity {
         f.addAction(Intent.ACTION_PACKAGE_CHANGED);
         f.addDataScheme("package");
         registerReceiver(packageChanges, f);
+        IntentFilter timeFilter = new IntentFilter();
+        timeFilter.addAction(Intent.ACTION_TIME_CHANGED);
+        timeFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        timeFilter.addAction(Intent.ACTION_TIME_TICK);
+        registerReceiver(timeChanges, timeFilter);
         receiverRegistered = true;
         if(getIntent().hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())homePressTracker.press(SystemClock.elapsedRealtime(),preferences.getInt("recent_double_ms",
                 400));
@@ -184,9 +206,9 @@ public final class MainActivity extends Activity {
         if (home != null) {
             if(dialogs.active()==null&&!ambientRequested)home.enter();
             else home.animateFocus();
+            home.invalidate();
         }
-        handler.removeCallbacks(clock);
-        handler.post(clock);
+        scheduleClock();
         armIdle();
         if (ambientRequested) {
             ambientRequested = false;
@@ -204,6 +226,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         if(phone!=null)phone.clearPreview();
         if(updates!=null)updates.pause();
+        if(network!=null)network.pause();
         foreground = false;
         Diagnostics.foreground(false);
         if(playback!=null)playback.stop();
@@ -246,7 +269,10 @@ public final class MainActivity extends Activity {
         taskImages.close();
         taskCommands.shutdownNow();
         loader.shutdownNow();
-        if (receiverRegistered) unregisterReceiver(packageChanges);
+        if (receiverRegistered) {
+            unregisterReceiver(packageChanges);
+            unregisterReceiver(timeChanges);
+        }
         super.onDestroy();
     }
 

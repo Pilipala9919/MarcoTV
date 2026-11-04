@@ -20,7 +20,7 @@ def package(stable, preview, apk_dir, output):
         if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?',version) or len(version)>48:
             raise ValueError('Invalid version')
         name=f'MarcoTV-{version}.apk';apk=apk_dir/name
-        expected=make(apk,source['url'],source['prerelease'],source.get('notes',''))
+        expected=make(apk,source['url'],source['prerelease'],source.get('notes',''),require_official_signer=True)
         if any(source.get(k)!=v for k,v in expected.items()):raise ValueError('Feed does not match actual APK: '+channel)
         if channel=='stable' and source['prerelease']:raise ValueError('Stable channel cannot contain prerelease')
         mirrored=dict(expected,url=f'https://marcotv.wlj9919.top/{name}')

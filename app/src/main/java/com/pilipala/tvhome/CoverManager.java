@@ -116,7 +116,8 @@ final class CoverManager {
                     try (InputStream check = host.getContentResolver().openInputStream(uri)) {
                         BitmapFactory.decodeStream(check, null, bounds);
                     }
-                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Invalid image");
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth > 16384 || bounds.outHeight > 16384
+                            || (long) bounds.outWidth * bounds.outHeight > 64000000L) throw new IOException("Invalid image");
                     android.util.AtomicFile file = new android.util.AtomicFile(File.createTempFile("wallpaper-import-", ".img",host.getFilesDir()));
                     FileOutputStream output = null;
                     try (InputStream input = host.getContentResolver().openInputStream(uri)) {

@@ -12,7 +12,7 @@ import java.io.*;
 
 final class WallpaperSource {
     static final String[] TITLES={"雾蓝海岸","暖沙丘","极夜山脊","旧版峡谷"};
-    static final String[] ASSETS={"wallpapers/coast.png","wallpapers/dunes.png","wallpapers/aurora.png","canyon.png"};
+    static final String[] ASSETS={"wallpapers/coast.jpg","wallpapers/dunes.jpg","wallpapers/aurora.jpg","canyon.jpg"};
     static Bitmap load(Context context){
         SharedPreferences p=context.getSharedPreferences("home",0);
         return load(context,p.getString("wallpaper",""),p.getInt("wallpaper_builtin",0));
@@ -53,11 +53,11 @@ final class WallpaperSource {
         return null;
     }
 
-    /** Wallpapers are drawn full screen, so anything above the real panel size is wasted memory. */
+    /** Wallpapers are drawn into a 1920x1080 design canvas; cap decode size accordingly. */
     private static int[] cap(Context context){
         WindowManager manager=(WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
         DisplayMetrics metrics=new DisplayMetrics();
         if(manager!=null&&manager.getDefaultDisplay()!=null)manager.getDefaultDisplay().getRealMetrics(metrics);
-        return new int[]{Math.max(metrics.widthPixels,1280),Math.max(metrics.heightPixels,720)};
+        return new int[]{Math.min(Math.max(metrics.widthPixels,1280),1920),Math.min(Math.max(metrics.heightPixels,720),1080)};
     }
 }

@@ -18,10 +18,11 @@ final class ClockScene {
     private final Paint imagePaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final RectF clockRect=new RectF();
     private final Typeface medium=Typeface.create("sans-serif-medium",Typeface.NORMAL);
-    private final SimpleDateFormat time=new SimpleDateFormat("HH:mm",Locale.ROOT);
+    private SimpleDateFormat time=new SimpleDateFormat("HH:mm",Locale.ROOT);
     private final SimpleDateFormat date=new SimpleDateFormat("M月d日  EEEE",Locale.CHINA);
+    private final Date nowDate=new Date();
     private Bitmap clockBitmap;
-    private String cachedTime="";
+    private String cachedTime="",cachedDate="";
     private int cachedStyle=-1,cachedTilt=-1,bitmapGlyphHeight;
     private Layout layout;
     private int layoutStyle=-1,layoutTilt=-1;
@@ -95,19 +96,23 @@ final class ClockScene {
             time.setTimeZone(currentZone);
             date.setTimeZone(currentZone);
             cachedTime="";
+            cachedDate="";
         }
-        Date current=new Date(System.currentTimeMillis());
-        String shown=time.format(current);
+        nowDate.setTime(System.currentTimeMillis());
+        String shown=time.format(nowDate);
         Layout glyphs=layout(prefs);
         int style=style(prefs),tilt=tilt(prefs,style);
         // Only rebuild on minute/style/tilt changes. The same pixels are scaled
         // throughout a screensaver transition, including the tilted numerals.
         if(clockBitmap==null||!shown.equals(cachedTime)||style!=cachedStyle||tilt!=cachedTilt){
-            clockBitmap=glyphs.render(shown);
+            clockBitmap=glyphs.render(shown,clockBitmap);
             bitmapGlyphHeight=glyphs.height;
             cachedTime=shown;
+            cachedDate=date.format(nowDate);
             cachedStyle=style;
             cachedTilt=tilt;
+        }else if(cachedDate.isEmpty()){
+            cachedDate=date.format(nowDate);
         }
         float ratio=size(prefs,ambient)/280;
         int glow=prefs.getInt("ambient_clock_brightness",100);
@@ -118,7 +123,7 @@ final class ClockScene {
         p.setTextSize(24);
         p.setColor(Color.argb(Math.round(155+65*ambient),225,233,239));
         p.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(date.format(current),1798,72+bitmapGlyphHeight*ratio+36,p);
+        c.drawText(cachedDate,1798,72+bitmapGlyphHeight*ratio+36,p);
         if(ambient>.01f){
             p.setTextSize(15);
             p.setColor(Color.argb(Math.round(75*ambient),185,210,221));
@@ -183,8 +188,15 @@ final class ClockScene {
             ink.setTextAlign(Paint.Align.CENTER);
             ink.setColor(Color.WHITE);
         }
-        Bitmap render(String value){
-            Bitmap result=Bitmap.createBitmap(width+6,height+6,Bitmap.Config.ARGB_8888);
+        Bitmap render(String value,Bitmap existing){
+            int targetW=width+6,targetH=height+6;
+            Bitmap result;
+            if(existing!=null&&!existing.isRecycled()&&existing.isMutable()&&existing.getWidth()==targetW&&existing.getHeight()==targetH){
+                result=existing;
+                result.eraseColor(Color.TRANSPARENT);
+            }else{
+                result=Bitmap.createBitmap(targetW,targetH,Bitmap.Config.ARGB_8888);
+            }
             Canvas canvas=new Canvas(result);
             canvas.translate(3+offsetX,3+offsetY);
             for(int i=0;i<5;i++){

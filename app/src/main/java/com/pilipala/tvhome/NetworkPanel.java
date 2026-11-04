@@ -48,15 +48,20 @@ final class NetworkPanel {
     }
     void close() {
         cancelPending();
+    }
+    void pause() {
+        scanning = false;
         if (registered) {
-            activity.unregisterReceiver(updates);
+            try {
+                activity.unregisterReceiver(updates);
+            } catch (IllegalArgumentException ignored) { }
             registered=false;
         }
     }
     void cancelPending() {
         settingsEpoch = -1;
         permissionEpoch = -1;
-        scanning = false;
+        pause();
     }
     private void toast(String text) {
         Toast.makeText(activity, text, Toast.LENGTH_LONG).show();

@@ -27,6 +27,7 @@ BUILD = ROOT / 'build'
 DIST = ROOT / 'dist'
 SOURCE = ROOT / 'app/src/main'
 VERSION = ET.parse(SOURCE / 'AndroidManifest.xml').getroot().get('{http://schemas.android.com/apk/res/android}versionName')
+OFFICIAL_SIGNER_SHA256 = '484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9'
 env = {**os.environ, 'JAVA_HOME': str(JDK), 'PATH': str(JDK / 'bin') + os.pathsep + os.environ.get('PATH', '')}
 
 def executable(directory, name):
@@ -37,7 +38,17 @@ def run(*args):
     subprocess.run([str(a) for a in args], check=True, cwd=ROOT, env=env)
 
 
-def build(restricted=False):
+def signer_sha256(apk):
+    out = subprocess.check_output(
+        [str(executable(JDK / 'bin', 'java')), '-jar', str(TOOLS / 'lib/apksigner.jar'), 'verify', '--print-certs', str(apk)],
+        cwd=ROOT, env=env, text=True, encoding='utf-8')
+    for line in out.splitlines():
+        if line.startswith('Signer #1 certificate SHA-256 digest:'):
+            return line.split(':', 1)[1].strip().lower()
+    raise RuntimeError('Unable to read APK signer certificate digest')
+
+
+def build(restricted=False, release=False):
     global BUILD
     BUILD = ROOT / 'build' / 'restricted' if restricted else ROOT / 'build'
     import shutil
@@ -84,12 +95,15 @@ def build(restricted=False):
         original = SOURCE / 'java/com/pilipala/tvhome/BuildEdition.java'
         edition.write_text(original.read_text(encoding='utf-8').replace('RESTRICTED = false', 'RESTRICTED = true'), encoding='utf-8')
         sources = [s for s in sources if s != original] + [edition]
-    run(executable(JDK/'bin','javac'), '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
+    run(executable(JDK/'bin','javac'), '-encoding', 'UTF-8', '--release', '8', '-Xlint:-options',
         '-classpath', ANDROID, '-d', BUILD / 'classes', *sources)
     classes = sorted((BUILD / 'classes').rglob('*.class'))
     classes_jar = BUILD / 'classes.jar'
     with zipfile.ZipFile(classes_jar, 'w', zipfile.ZIP_DEFLATED) as z:
-        for p in classes: z.write(p, p.relative_to(BUILD / 'classes').as_posix())
+        for p in classes:
+            info = zipfile.ZipInfo(p.relative_to(BUILD / 'classes').as_posix(), (2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, p.read_bytes())
     run(executable(JDK/'bin','java'), '-cp', TOOLS / 'lib/d8.jar', 'com.android.tools.r8.D8',
         '--min-api', '23', '--lib', ANDROID, '--output', BUILD / 'dex', classes_jar)
     unsigned = BUILD / 'unsigned.apk'
@@ -104,8 +118,11 @@ def build(restricted=False):
     env.setdefault('MARCOTV_STORE_PASSWORD','android')
     if env['MARCOTV_STORE_PASSWORD']=='android':print('WARNING: signing with the default development password. Back up the keystore offline and set MARCOTV_STORE_PASSWORD; see the signing section of the build docs.')
     if not keystore.exists():
+        if release or os.environ.get('MARCOTV_RELEASE') == '1':
+            raise RuntimeError('Release build requires the existing official signing key; refusing to generate a new keystore.')
         if os.environ.get('MARCOTV_KEYSTORE'):
             raise RuntimeError('Configured signing key does not exist')
+        print('WARNING: private/development.p12 not found; generating a local-only development key that CANNOT upgrade official releases.')
         run(executable(JDK/'bin','keytool'), '-genkeypair', '-keystore', keystore, '-storetype', 'PKCS12',
             '-alias', alias, '-storepass:env', 'MARCOTV_STORE_PASSWORD', '-keypass:env', 'MARCOTV_STORE_PASSWORD', '-keyalg', 'RSA',
             '-keysize', '2048', '-validity', '10000', '-dname', 'CN=Pilipala, OU=Marco TV')
@@ -113,14 +130,19 @@ def build(restricted=False):
     run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'sign', '--ks', keystore,
         '--ks-key-alias', alias, '--ks-pass', 'env:MARCOTV_STORE_PASSWORD', '--out', apk, BUILD / 'aligned.apk')
     run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'verify', '--verbose', apk)
+    cert = signer_sha256(apk)
+    if (release or os.environ.get('MARCOTV_RELEASE') == '1') and cert != OFFICIAL_SIGNER_SHA256:
+        raise RuntimeError(f'Release APK signer {cert} does not match official release signer {OFFICIAL_SIGNER_SHA256}')
     run(executable(TOOLS,'zipalign'), '-c', '4', apk)
     digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     (DIST / (apk.name + '.sha256')).write_text(f'{digest}  {apk.name}\n')
-    print(f'Built: {apk}\nSHA256: {digest}\nSize: {apk.stat().st_size} bytes')
+    print(f'Built: {apk}\nSHA256: {digest}\nSigner SHA256: {cert}\nSize: {apk.stat().st_size} bytes')
 
 
 if __name__ == '__main__':
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('--restricted', action='store_true', help='Build without HOME declaration for restricted firmware')
-    build(parser.parse_args().restricted)
+    parser.add_argument('--release', action='store_true', help='Require existing official release signing key and verify certificate digest')
+    args=parser.parse_args()
+    build(args.restricted, args.release)

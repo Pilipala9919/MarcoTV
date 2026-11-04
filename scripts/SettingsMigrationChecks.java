@@ -36,6 +36,41 @@ public final class SettingsMigrationChecks {
         check("new_backup_marker_blocks_remigration",SettingsCatalog.migration(Collections.singletonMap("main_v2","device|apps")).isEmpty());
         check("all_new_order_groups_are_backup_allowed",SettingsCatalog.ORDER_KEYS.containsAll(Arrays.asList("main_v2","appearance","apps","maintenance","task_style","health","diagnostics","playback","backup","wallpaper")));
         check("two_cards_with_same_label_have_distinct_pages",!SettingsCatalog.scope("card","fixture.one").equals(SettingsCatalog.scope("card","fixture.two")));
+        boolean specsValid=SettingsCatalog.INT_SPECS.size()>=26;
+        for(Map.Entry<String,int[]> entry:SettingsCatalog.INT_SPECS.entrySet()){
+            String k=entry.getKey();
+            int[] spec=entry.getValue();
+            int[] r=SettingsCatalog.range(k);
+            int def=SettingsCatalog.defaultValue(k,-999);
+            specsValid&=spec.length==3&&r[0]==spec[0]&&r[1]==spec[1]&&r[0]<=def&&def<=r[1]
+                    &&SettingsCatalog.HOME_KEYS.contains(k)&&SettingsCatalog.allowed("home",k)
+                    &&"i".equals(SettingsCatalog.expectedType("home",k));
+        }
+        check("all_integer_settings_have_valid_bounds_and_backup_allowlist",specsValid);
+        check("backup_allowlist_rejects_sensitive_and_unlisted_keys",
+                !SettingsCatalog.allowed("system_integration","adb_restore")
+                &&!SettingsCatalog.allowed("home","adb_restore")
+                &&!SettingsCatalog.allowed("home","wallpaper")
+                &&!SettingsCatalog.allowed("home","opened:")
+                &&SettingsCatalog.allowed("home","opened:com.example.tv")
+                &&"l".equals(SettingsCatalog.expectedType("home","opened:com.example.tv"))
+                &&"b".equals(SettingsCatalog.expectedType("home","ambient_enabled"))
+                &&"s".equals(SettingsCatalog.expectedType("home","tv_sort"))
+                &&SettingsCatalog.allowed("cards","favorites")
+                &&"set".equals(SettingsCatalog.expectedType("cards","favorites"))
+                &&SettingsCatalog.allowed("cards","cover:com.example.tv")
+                &&"s".equals(SettingsCatalog.expectedType("cards","cover:com.example.tv"))
+                &&!SettingsCatalog.allowed("cards","cover:")
+                &&!SettingsCatalog.allowed("menu_order","unknown_page"));
+        String validCover="cover-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.jpg";
+        check("backup_image_name_allowlist_blocks_traversal_and_bad_names",
+                SettingsCatalog.imageName("wallpaper-image")
+                &&SettingsCatalog.imageName(validCover)
+                &&!SettingsCatalog.imageName("../wallpaper-image")
+                &&!SettingsCatalog.imageName("images/"+validCover)
+                &&!SettingsCatalog.imageName(validCover.toUpperCase(Locale.ROOT))
+                &&!SettingsCatalog.imageName("cover-0123.jpg")
+                &&!SettingsCatalog.imageName("wallpaper-image.png"));
         System.out.println("OK "+passed+" settings migration checks");
     }
 }

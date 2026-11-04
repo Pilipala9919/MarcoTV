@@ -81,23 +81,43 @@ final class AppCatalog {
             try {
                 for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0)) {
                     if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
-                    if (!excluded.contains(r.activityInfo.packageName) && seen.add(r.activityInfo.packageName)) apps.tiles.add(applicationTile(r));
+                    if (r == null || r.activityInfo == null) continue;
+                    String id = r.activityInfo.packageName;
+                    if (!excluded.contains(id) && !seen.contains(id)) {
+                        try {
+                            apps.tiles.add(applicationTile(r));
+                            seen.add(id);
+                        } catch (Exception | OutOfMemoryError e) {
+                            Diagnostics.event("APP_TILE_FAILED");
+                        }
+                    }
                 }
                 for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
                     if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
+                    if (r == null || r.activityInfo == null) continue;
                     String id = r.activityInfo.packageName;
-                    if (!excluded.contains(id) && seen.add(id)) {
-                        Tile t = applicationTile(r);
-                        if (id.equals("com.xiaomi.mitv.tvplayer") || id.equals("com.mitv.tvplayer")) apps.tiles.add(t);
-                        else others.tiles.add(t);
+                    if (!excluded.contains(id) && !seen.contains(id)) {
+                        try {
+                            Tile t = applicationTile(r);
+                            seen.add(id);
+                            if (id.equals("com.xiaomi.mitv.tvplayer") || id.equals("com.mitv.tvplayer")) apps.tiles.add(t);
+                            else others.tiles.add(t);
+                        } catch (Exception | OutOfMemoryError e) {
+                            Diagnostics.event("APP_TILE_FAILED");
+                        }
                     }
                 }
                 String tvPlayer = "com.xiaomi.mitv.tvplayer";
                 if (!seen.contains(tvPlayer)) {
                     for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).setPackage(tvPlayer), 0)) {
-                        if (r.activityInfo.exported && seen.add(tvPlayer)) {
-                            apps.tiles.add(applicationTile(r));
-                            break;
+                        if (r != null && r.activityInfo != null && r.activityInfo.exported && !seen.contains(tvPlayer)) {
+                            try {
+                                apps.tiles.add(applicationTile(r));
+                                seen.add(tvPlayer);
+                                break;
+                            } catch (Exception | OutOfMemoryError e) {
+                                Diagnostics.event("APP_TILE_FAILED");
+                            }
                         }
                     }
                 }

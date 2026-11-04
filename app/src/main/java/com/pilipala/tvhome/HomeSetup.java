@@ -60,7 +60,7 @@ final class HomeSetup {
                 .remove("setup_pause_reason").remove("setup_native_seen").remove("setup_home_seen")
                 .remove("setup_home_deadline").remove("setup_accessibility_pending")
                 .remove("setup_boot_observed").remove("setup_boot_confirmed")
-                .putInt("setup_boot_armed", bootCount(c)).commit();
+                .putInt("setup_boot_armed", bootCount(c)).apply();
     }
     static void acceptNative(Context c) {
         if (!prefs(c).getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
@@ -69,21 +69,21 @@ final class HomeSetup {
     static void requestCompatibility(Context c) {
         begin(c);
         prefs(c).edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
-                .putBoolean("setup_accessibility_pending", true).commit();
+                .putBoolean("setup_accessibility_pending", true).apply();
     }
     static void finishCompatibilityConsent(Context c) {
         if (!prefs(c).getBoolean("setup_accessibility_pending", false)) return;
         boolean enabled = serviceEnabled(c);
         prefs(c).edit().remove("setup_accessibility_pending")
                 .putBoolean("home_compat", enabled)
-                .putBoolean("boot_home", enabled || SystemIntegration.homeIsOurs(c)).commit();
+                .putBoolean("boot_home", enabled || SystemIntegration.homeIsOurs(c)).apply();
     }
     static void pause(Context c, String reason) {
         prefs(c).edit().putBoolean("setup_paused", true).putString("setup_pause_reason", reason)
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
                 .putBoolean("managed_home", false).remove("setup_home_deadline")
                 .remove("setup_accessibility_pending").remove("setup_home_seen")
-                .remove("setup_boot_confirmed").commit();
+                .remove("setup_boot_confirmed").apply();
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
@@ -102,7 +102,7 @@ final class HomeSetup {
     static void armHomeTest(Context c) {
         prefs(c).edit().putInt("setup_home_boot", bootCount(c))
                 .putLong("setup_home_deadline", SystemClock.elapsedRealtime() + 90000)
-                .remove("setup_home_seen").commit();
+                .remove("setup_home_seen").apply();
     }
     static void observeHomeIntent(Context c, Intent i) {
         if (i == null || paused(c)) return;

@@ -27,6 +27,9 @@ final class NowPlaying {
     private boolean observing;
     private final Set<MediaSession.Token> hidden=new HashSet<>();
     private final Map<MediaSession.Token,Long> pausedSince=new HashMap<>();
+    private final Map<String,String> appLabels=new HashMap<>();
+    private final Map<String,Bitmap> appIcons=new HashMap<>();
+    private Bitmap lastRawArtwork,lastScaledArtwork;
     private MediaSession.Token preferred;
     private final Runnable expire=new Runnable(){
         public void run(){
@@ -139,8 +142,12 @@ final class NowPlaying {
                 score=rank;
             }
         }
+        Item prev=item;
         item=chosen==null?null:describe(chosen);
-        if(host.home!=null) {
+        boolean same=prev==item||(prev!=null&&item!=null&&prev.playing==item.playing
+                &&Objects.equals(prev.title,item.title)&&Objects.equals(prev.source,item.source)
+                &&prev.artwork==item.artwork&&prev.controller.getSessionToken().equals(item.controller.getSessionToken()));
+        if(host.home!=null&&!same) {
             if(host.home.row==-2) {
                 if(item==null) {
                     host.home.row=0;
@@ -156,26 +163,50 @@ final class NowPlaying {
         Item result=new Item();
         result.controller=controller;
         result.packageName=controller.getPackageName();
-        try {
-            result.source=String.valueOf(host.getPackageManager().getApplicationLabel(host.getPackageManager()
-                    .getApplicationInfo(result.packageName,0)));
+        String label=appLabels.get(result.packageName);
+        if(label==null) {
+            try {
+                label=String.valueOf(host.getPackageManager().getApplicationLabel(host.getPackageManager()
+                        .getApplicationInfo(result.packageName,0)));
+                if(appLabels.size()<32)appLabels.put(result.packageName,label);
+            }
+            catch(Exception ignored){
+                label=result.packageName;
+            }
         }
-        catch(Exception ignored){
-            result.source=result.packageName;
-        }
+        result.source=label;
         MediaMetadata data=controller.getMetadata();
         result.title=result.source;
         if(data!=null) {
             CharSequence title=data.getDescription().getTitle();
             if(title!=null&&title.length()>0)result.title=title.toString();
-            result.artwork=data.getDescription().getIconBitmap();
+            Bitmap raw=data.getDescription().getIconBitmap();
+            if(raw!=null&&!raw.isRecycled()) {
+                if(raw.getWidth()>192||raw.getHeight()>192) {
+                    if(raw!=lastRawArtwork||lastScaledArtwork==null||lastScaledArtwork.isRecycled()) {
+                        float scale=Math.min(192f/raw.getWidth(),192f/raw.getHeight());
+                        lastRawArtwork=raw;
+                        lastScaledArtwork=Bitmap.createScaledBitmap(raw,
+                                Math.max(1,Math.round(raw.getWidth()*scale)),
+                                Math.max(1,Math.round(raw.getHeight()*scale)),true);
+                    }
+                    result.artwork=lastScaledArtwork;
+                } else result.artwork=raw;
+            }
         }
-        if(result.artwork==null)try {
-            android.graphics.drawable.Drawable icon=host.getPackageManager().getApplicationIcon(result.packageName);
-            result.artwork=Bitmap.createBitmap(96,96,Bitmap.Config.ARGB_8888);
-            icon.setBounds(0,0,96,96);
-            icon.draw(new android.graphics.Canvas(result.artwork));
-        }catch(Exception ignored){}
+        if(result.artwork==null) {
+            Bitmap fallback=appIcons.get(result.packageName);
+            if(fallback==null||fallback.isRecycled()) {
+                try {
+                    android.graphics.drawable.Drawable icon=host.getPackageManager().getApplicationIcon(result.packageName);
+                    fallback=Bitmap.createBitmap(96,96,Bitmap.Config.ARGB_8888);
+                    icon.setBounds(0,0,96,96);
+                    icon.draw(new android.graphics.Canvas(fallback));
+                    if(appIcons.size()<32)appIcons.put(result.packageName,fallback);
+                }catch(Exception ignored){}
+            }
+            result.artwork=fallback;
+        }
         result.playing=priority(controller.getPlaybackState())==2;
         return result;
     }

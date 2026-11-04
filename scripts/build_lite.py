@@ -20,10 +20,12 @@ def build():
  for p in [ROOT/'LICENSE',ROOT/'NOTICE',*list((ROOT/'licenses').glob('*-OFL.txt'))]:shutil.copy2(p,ASSETS/'licenses'/p.name)
  run(executable(TOOLS,'aapt2'),'compile','--dir',SOURCE/'res','-o',BUILD/'resources.zip')
  run(executable(TOOLS,'aapt2'),'link','-o',BUILD/'resources.apk','--manifest',SOURCE/'AndroidManifest.xml','-I',SDK14,'-A',ASSETS,BUILD/'resources.zip')
- sources=list((SOURCE/'java').rglob('*.java'))+[ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in SHARED]
- run(executable(JDK/'bin','javac'),'-encoding','UTF-8','-source','8','-target','8','-Xlint:-options','-classpath',SDK14,'-d',BUILD/'classes',*sources)
+ sources=sorted(list((SOURCE/'java').rglob('*.java'))+[ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in SHARED])
+ run(executable(JDK/'bin','javac'),'-encoding','UTF-8','-source','8','-target','8','-bootclasspath',SDK14,'-extdirs','','-Xlint:-options','-classpath',SDK14,'-d',BUILD/'classes',*sources)
  with zipfile.ZipFile(BUILD/'classes.jar','w') as z:
-  for p in (BUILD/'classes').rglob('*.class'):z.write(p,p.relative_to(BUILD/'classes').as_posix())
+  for p in sorted((BUILD/'classes').rglob('*.class')):
+   info=zipfile.ZipInfo(p.relative_to(BUILD/'classes').as_posix(),(2026,1,1,0,0,0))
+   z.writestr(info,p.read_bytes())
  run(executable(JDK/'bin','java'),'-cp',TOOLS/'lib/d8.jar','com.android.tools.r8.D8','--min-api','14','--lib',SDK14,'--output',BUILD/'dex',BUILD/'classes.jar')
  with zipfile.ZipFile(BUILD/'resources.apk') as z,zipfile.ZipFile(BUILD/'unsigned.apk','w',zipfile.ZIP_DEFLATED) as out:
   for item in z.infolist():out.writestr(item,z.read(item.filename))
