@@ -60,7 +60,28 @@ final class HomeSetup {
                 .remove("setup_pause_reason").remove("setup_native_seen").remove("setup_home_seen")
                 .remove("setup_home_deadline").remove("setup_accessibility_pending")
                 .remove("setup_boot_observed").remove("setup_boot_confirmed")
+                .remove("setup_native_reset_pending")
                 .putInt("setup_boot_armed", bootCount(c)).apply();
+    }
+    /**
+     * Firmware on several TVs resets a third-party HOME during boot. That is not
+     * distinguishable from a user choice, so never re-apply HOME silently; instead keep
+     * boot opening on and ask once. Called only from BOOT_COMPLETED, before reconcile().
+     */
+    static boolean markNativeResetAtBoot(Context c) {
+        SharedPreferences p = prefs(c);
+        if (!unlocked(c) || paused(c) || !p.getBoolean("setup_requested", false)
+                || !p.getBoolean("setup_native_seen", false) || !p.getBoolean("boot_home", false)
+                || SystemIntegration.homeIsOurs(c)) return false;
+        p.edit().putBoolean("setup_native_reset_pending", true).apply();
+        Diagnostics.event("HOME_NATIVE_RESET_AT_BOOT");
+        return true;
+    }
+    static boolean nativeResetPending(Context c) {
+        return prefs(c).getBoolean("setup_native_reset_pending", false) && !paused(c);
+    }
+    static void clearNativeReset(Context c) {
+        prefs(c).edit().remove("setup_native_reset_pending").apply();
     }
     static void acceptNative(Context c) {
         if (!prefs(c).getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
@@ -83,7 +104,8 @@ final class HomeSetup {
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
                 .putBoolean("managed_home", false).remove("setup_home_deadline")
                 .remove("setup_accessibility_pending").remove("setup_home_seen")
-                .remove("setup_boot_confirmed").apply();
+                .remove("setup_boot_confirmed").remove("setup_native_reset_pending")
+                .remove("compat_seen_present").apply();
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
@@ -95,6 +117,11 @@ final class HomeSetup {
             return;
         }
         if (!p.getBoolean("setup_requested", false)) return;
+        // A boot-time reset waits for the user's answer instead of pausing silently.
+        if (p.getBoolean("setup_native_reset_pending", false)) {
+            if (SystemIntegration.homeIsOurs(c)) clearNativeReset(c);
+            return;
+        }
         if (p.getBoolean("setup_native_seen", false) && !SystemIntegration.homeIsOurs(c)) {
             pause(c, "默认桌面已变化；请确认是否继续使用 Marco TV。不会自动覆盖新的选择。");
         } else acceptNative(c);
@@ -137,6 +164,7 @@ final class HomeSetup {
         if (nativeHome || p.getBoolean("boot_home", false)) boot = "已配置，等待实际重启验证";
         if (p.contains("setup_boot_observed")) boot = "记录到重启后返回，等待你确认";
         if (p.contains("setup_boot_confirmed")) boot = "已确认一次重启返回；系统升级后仍需复核";
+        if (nativeResetPending(c)) boot = "本次开机时默认桌面被系统改回，等待你确认";
         if (paused(c)) boot = "已暂停自动恢复";
         return (BuildEdition.RESTRICTED ? "受限系统兼容版 · 无系统默认桌面入口\n" : "") + "桌面方式  ·  " + mode + "\nHome 返回  ·  " + (p.contains("setup_home_seen") ? "已记录返回" : "等待检查")
                 + "\n开机恢复  ·  " + boot

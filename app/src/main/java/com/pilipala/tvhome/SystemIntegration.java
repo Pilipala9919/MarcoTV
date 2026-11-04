@@ -191,6 +191,7 @@ final class SystemIntegration {
                     wanted.add(OWN_SERVICE);
                 }
                 writeServices(context, wanted);
+                p.edit().putBoolean("compat_seen_present", HomeSetup.serviceEnabled(context)).apply();
             }
             p.edit().remove("last_error").putLong("last_check", System.currentTimeMillis()).apply();
         } catch (RuntimeException e) {
@@ -219,6 +220,31 @@ final class SystemIntegration {
         Diagnostics.event("HOME_SERVICE_CHANGE_NEEDS_CONFIRMATION");
         Log.i(TAG, "Home service unavailable; recovery paused pending consent");
         return true;
+    }
+    /**
+     * BOOT_COMPLETED only, before reconcile(). Some firmware clears third-party
+     * accessibility services while booting. Restore only our own entry, only when the
+     * user consented to compatibility, recovery is not paused, and the previous session
+     * last saw the service present (a runtime removal pauses and clears that marker).
+     */
+    static boolean restoreCompatAfterBoot(Context context) {
+        SharedPreferences p = prefs(context);
+        if (!authorized(context) || !HomeSetup.unlocked(context) || HomeSetup.paused(context)
+                || !p.getBoolean("home_compat", false) || p.getBoolean("setup_accessibility_pending", false)
+                || !p.getBoolean("compat_seen_present", false) || HomeSetup.serviceEnabled(context)) return false;
+        try {
+            Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
+            for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
+            wanted.add(OWN_SERVICE);
+            writeServices(context, wanted);
+            boolean restored = HomeSetup.serviceEnabled(context);
+            if (restored) p.edit().putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。").apply();
+            Diagnostics.event(restored ? "HOME_SERVICE_RESTORED_AFTER_BOOT" : "HOME_SERVICE_BOOT_RESTORE_REJECTED");
+            return restored;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Boot restore of home service failed", e);
+            return false;
+        }
     }
     static void enableHome(Context context, boolean enabled) {
         if(BuildEdition.RESTRICTED)return;

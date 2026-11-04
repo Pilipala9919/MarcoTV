@@ -16,13 +16,20 @@ public final class BootReceiver extends BroadcastReceiver {
         SystemIntegration.prefs(context).edit().putString("last_boot_action", action)
                 .putLong("last_boot_time", System.currentTimeMillis()).apply();
         Diagnostics.event("BOOT_RECOVERY_REQUESTED");
-        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) HomeSetup.reconcile(context);
+        boolean nativeReset = false;
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            // Firmware boot resets must be handled before reconcile(), which would
+            // otherwise read them as an external change and switch boot opening off.
+            SystemIntegration.restoreCompatAfterBoot(context);
+            nativeReset = HomeSetup.markNativeResetAtBoot(context);
+            HomeSetup.reconcile(context);
+        }
         SystemIntegration.startRecovery(context);
         // Home preferences are credential-protected; ADB recovery can run before unlock.
         if (!Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) AmbientIntegration.configure(context);
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) SystemIntegration.refreshHomeService(context);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
-                && HomeSetup.shouldOpenAfterBoot(context, true)) {
+                && (nativeReset || HomeSetup.shouldOpenAfterBoot(context, true))) {
             try {
                 context.startActivity(SystemIntegration.homeIntent(context).putExtra("setup_boot_return", true));
             }

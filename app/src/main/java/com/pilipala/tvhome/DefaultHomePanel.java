@@ -12,6 +12,7 @@ final class DefaultHomePanel {
     boolean pending;
     boolean compatibilityPending;
     private boolean returnToHelp;
+    private boolean bootResetOffered;
     private int pendingEpoch;
     private LocalHomeAuthorizer authorizer;
     private final HomeDeviceGuide.ReturnGate guideReturn = new HomeDeviceGuide.ReturnGate();
@@ -81,6 +82,11 @@ final class DefaultHomePanel {
         help();
     }
     void resumed(){
+        if(!bootResetOffered&&HomeSetup.nativeResetPending(host)&&!host.dialogs.open()){
+            bootResetOffered=true;
+            host.handler.post(()->{if(host.foreground&&!host.dialogs.open())bootReset();});
+            return;
+        }
         if(guideReturn.take(host.menuEpoch,host.foreground)){
             host.handler.post(()->{
                 if(host.foreground&&host.menuEpoch==pendingEpoch&&host.isPage("home_device_guide"))runAutomatic(false);
@@ -100,6 +106,18 @@ final class DefaultHomePanel {
                 }
             });
         }
+    }
+    /** Offered once per launch after a boot-time HOME reset; never re-applies HOME by itself. */
+    void bootReset(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_boot_reset").setTitle("默认桌面被系统改回")
+                .setMessage("这次开机后，电视把默认桌面改回了"+(SystemIntegration.currentHome(host).isEmpty()?"其他桌面":"原厂桌面")
+                        +"。部分电视每次开机都会这样做，Marco TV 无法区分是系统重置还是你自己的选择，所以先来问你。\n\n"
+                        +"重新设置后，如果电视每次开机都会重置，建议改用 Home 兼容方式。")
+                .setItems(new String[]{"重新设为默认桌面","改用 Home 兼容方式","保持当前桌面，不再提醒"},(d,w)->{
+                    if(w==2){HomeSetup.pause(host,"你选择保持当前默认桌面。");SystemIntegration.startRecovery(host);host.exitMenus();return;}
+                    HomeSetup.clearNativeReset(host);
+                    if(w==0)start();else compatibility();
+                }).setNegativeButton("稍后",null).create());
     }
     void compatibility(){
         host.showDialog(new TvDialog.Builder(host).setPageId("home_compat_consent").setTitle("启用 Home 兼容")
