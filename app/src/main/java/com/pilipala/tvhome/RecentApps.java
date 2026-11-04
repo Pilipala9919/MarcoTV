@@ -493,21 +493,81 @@ final class RecentApps {
     }
     void recovery(){
         host.showDialog(new TvDialog.Builder(host).setPageId("task_recovery").setTitle("最近任务连接")
-                .setMessage("完整任务列表需要系统任务服务。电视重启、应用更新或系统清理后，服务可能断开；这不代表没有后台任务。\n\n重新连接：电脑打开安装说明中的“启动任务服务”工具，选择电视并完成授权。随后回到这里重新检测。")
-                .setItems(new String[]{"重新检测连接","打开系统最近任务","Home 按键兼容设置","查看状态中心"},(d,w)->{
-            if(w==0){
+                .setMessage("完整任务列表需要系统任务服务。电视重启、应用更新或系统清理后，服务可能断开；这不代表没有后台任务。\n\n本机已开启网络调试（5555 端口）时，可直接选择「本机一键启动任务服务」；也可使用电脑启动工具后重新检测。")
+                .setItems(new String[]{"本机一键启动任务服务","重新检测连接","打开系统最近任务","Home 按键兼容设置","查看状态中心"},(d,w)->{
+            if(w==0)reconnectBridge();
+            else if(w==1){
                 host.exitMenus();
                 load();
             }
-            else if(w==1){
+            else if(w==2){
                 if(HomeKeyService.openSystemRecents()){
                     close();
                     host.exitMenus();
                 }else host.toast("系统未提供此入口，请检查无障碍服务或使用原厂 Home 按键模式");
             }
-            else if(w==2)SystemIntegration.homeGestures(host,host::showDialog);
+            else if(w==3)SystemIntegration.homeGestures(host,host::showDialog);
             else host.health.status();
         }).setNegativeButton("返回",null).create());
+    }
+    void reconnectBridge(){
+        final boolean[] cancelled={false};
+        final LocalAdbWire[] activeWire={null};
+        TvDialog progress=new TvDialog.Builder(host).setPageId("task_bridge_reconnect").setTitle("正在启动任务服务")
+                .setMessage("正在通过本机调试接口（127.0.0.1:5555）启动任务辅助服务。\n若电视弹出调试授权提示，请用遥控器选择允许。")
+                .setNegativeButton("取消",null).create();
+        progress.onLeave(()->{
+            cancelled[0]=true;
+            if(activeWire[0]!=null)activeWire[0].close();
+        });
+        host.showDialog(progress);
+        host.taskCommands.execute(()->{
+            String failure=null;
+            try(LocalAdbWire wire=new LocalAdbWire()){
+                activeWire[0]=wire;
+                java.io.File folder=new java.io.File(host.getNoBackupFilesDir(),"home-setup");
+                if(!folder.isDirectory()&&!folder.mkdirs())throw new java.io.IOException("无法读取本机调试密钥目录");
+                wire.connect("127.0.0.1",5555,LocalAdbWire.key(folder),msg->{});
+                if(cancelled[0])return;
+                HomeShellSetup shell=new HomeShellSetup(wire::shell,android.os.Process.myUid()/100000);
+                shell.authenticate();
+                shell.startTaskBridge(host.getApplicationInfo().sourceDir,android.os.Process.myUid());
+                boolean connected=false;
+                for(int i=0;i<25&&!cancelled[0];i++){
+                    Thread.sleep(200);
+                    try{
+                        if(TaskBridgeClient.configure(host).optBoolean("ok",false)){
+                            connected=true;
+                            break;
+                        }
+                    }catch(Exception waiting){}
+                }
+                if(!connected)failure="启动命令已发送，但服务尚未响应。请稍后选择「重新检测连接」查看。";
+                else Diagnostics.event("TASK_BRIDGE_LOCAL_STARTED");
+            }catch(Exception e){
+                failure="未能通过本机调试启动任务服务（"+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage())+"）。\n请确认电视已开启网络调试（5555 端口），或使用电脑启动工具。";
+                Diagnostics.event("TASK_BRIDGE_LOCAL_START_FAILED");
+            }finally{
+                activeWire[0]=null;
+            }
+            final String err=failure;
+            host.handler.post(()->{
+                if(cancelled[0]||host.isDestroyed()||!host.isPage("task_bridge_reconnect"))return;
+                if(err==null){
+                    host.exitMenus();
+                    host.toast("任务辅助服务已启动");
+                    load();
+                }else{
+                    host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("task_bridge_reconnect_result")
+                            .setTitle("任务服务尚未连接").setMessage(err)
+                            .setItems(new String[]{"重试本机启动","重新检测连接","返回恢复选项"},(d,w)->{
+                                if(w==0)reconnectBridge();
+                                else if(w==1){host.exitMenus();load();}
+                                else recovery();
+                            }).setNegativeButton("返回",null).create());
+                }
+            });
+        });
     }
     void settings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("recents").setTitle("最近任务")

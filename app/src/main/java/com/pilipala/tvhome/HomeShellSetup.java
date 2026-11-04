@@ -55,6 +55,25 @@ final class HomeShellSetup {
         return name != null && name.matches("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+/[A-Za-z_.$][A-Za-z0-9_.$]*");
     }
 
+    static boolean validApkPath(String path) {
+        return path != null && path.startsWith("/data/app/") && path.endsWith(".apk")
+                && !path.contains("..") && path.matches("/data/app/[A-Za-z0-9_./=-]+\\.apk");
+    }
+
+    void startTaskBridge(String apkPath, int appUid) throws Exception {
+        if (!authenticated) throw new IOException("Authorization required");
+        if (!validApkPath(apkPath) || appUid <= 0) throw new IllegalArgumentException("Bridge arguments");
+        for (String token : shell.run("pidof marcotv-task-bridge 2>/dev/null").split("\\s+")) {
+            if (!token.matches("[0-9]+")) continue;
+            String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null");
+            if (cmdline.contains("com.pilipala.tvhome.TaskBridgeServer") || cmdline.trim().equals("marcotv-task-bridge"))
+                shell.run("kill " + token + " 2>/dev/null");
+        }
+        shell.run("CLASSPATH='" + apkPath + "' app_process /system/bin --nice-name=marcotv-task-bridge "
+                + "com.pilipala.tvhome.TaskBridgeServer " + appUid + " " + user
+                + " </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1 &");
+    }
+
     static String brand(String manufacturer, String brand) {
         String m = manufacturer == null ? "" : manufacturer.trim().toLowerCase(Locale.ROOT);
         String b = brand == null ? "" : brand.trim().toLowerCase(Locale.ROOT);

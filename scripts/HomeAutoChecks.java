@@ -119,6 +119,12 @@ public final class HomeAutoChecks {
         check("unauthed_runner_never_calls_shell",commands.isEmpty());
         shell.authenticate();shell.selectHome("com.vendor/.Home$Inner");
         check("component_dollar_is_quoted",commands.get(commands.size()-1).endsWith("'com.vendor/.Home$Inner'"));
+        check("apk_path_validation",HomeShellSetup.validApkPath("/data/app/com.pilipala.tvhome-1A_b==/base.apk")
+                &&!HomeShellSetup.validApkPath("/data/local/tmp/base.apk")
+                &&!HomeShellSetup.validApkPath("/data/app/../base.apk")
+                &&!HomeShellSetup.validApkPath("/data/app/com.pilipala.tvhome/base.apk;id"));
+        shell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk",10059);
+        check("bridge_start_command_issued",commands.get(commands.size()-1).contains("com.pilipala.tvhome.TaskBridgeServer 10059 0"));
         System.out.println("OK "+passed+" automatic HOME execution checks (simulated firmware, not device proof)");
     }
 }
