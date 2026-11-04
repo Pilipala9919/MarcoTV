@@ -216,6 +216,7 @@ public final class MainActivity extends Activity {
             home.setIdle(true);
         }
         dialogs.resume();
+        if(network!=null)network.resume();
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
         if(updates!=null)updates.resume();

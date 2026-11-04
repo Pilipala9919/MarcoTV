@@ -27,14 +27,14 @@ final class NetworkPanel {
     private int settingsEpoch = -1, permissionEpoch = -1;
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            if(WifiManager.WIFI_STATE_CHANGED_ACTION.equals(i.getAction())&&visible!=null&&visible.isShowing()&&visible.pageKey()
-                    .equals("wifi_popover")){
+            if(WifiManager.WIFI_STATE_CHANGED_ACTION.equals(i.getAction())&&(activity.dialogs.isPage("wifi_popover")||(visible!=null&&visible.isShowing()&&visible.pageKey()
+                    .equals("wifi_popover")))){
                 show();
                 return;
             }
             if (scanning && WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(i.getAction())) {
                 scanning = false;
-                if (visible != null && visible.isShowing()) {
+                if (activity.dialogs.isPage("wifi_popover") || (visible != null && visible.isShowing())) {
                     boolean fresh = i.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false);
                     show(fresh ? "附近的网络" : "上次扫描结果；稍后可再次刷新");
                 }
@@ -48,6 +48,19 @@ final class NetworkPanel {
     }
     void close() {
         cancelPending();
+    }
+    private void registerReceiverIfNeeded() {
+        if (wifi != null && !registered && !activity.isDestroyed() && !activity.isFinishing()) {
+            IntentFilter filter=new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+            filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+            activity.registerReceiver(updates,filter);
+            registered=true;
+        }
+    }
+    void resume() {
+        if (activity.dialogs.isPage("wifi_popover") || (visible != null && visible.isShowing())) {
+            registerReceiverIfNeeded();
+        }
     }
     void pause() {
         scanning = false;
@@ -95,12 +108,7 @@ final class NetworkPanel {
                     .setNegativeButton("返回",null).create());
             return;
         }
-        if (!registered) {
-            IntentFilter filter=new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
-            filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
-            activity.registerReceiver(updates,filter);
-            registered=true;
-        }
+        registerReceiverIfNeeded();
         final ArrayList<ScanResult> networks = new ArrayList<>();
         boolean permitted=activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;
         if (permitted) try {

@@ -20,7 +20,8 @@ final class PhoneHttp implements AutoCloseable {
         final Map<String,String> headers=new HashMap<>();
         File body;
         String header(String name){
-            return headers.getOrDefault(name, "");
+            String value=headers.get(name);
+            return value==null?"":value;
         }
         String text() throws IOException {
             if(length>65536)throw new IOException("body limit");
@@ -112,7 +113,8 @@ final class PhoneHttp implements AutoCloseable {
     private boolean acquireIp(String ip){
         if(ip.isEmpty())return true;
         synchronized(activeByIp){
-            int current=activeByIp.getOrDefault(ip,0);
+            Integer count=activeByIp.get(ip);
+            int current=count==null?0:count;
             if(current>=MAX_PER_IP)return false;
             activeByIp.put(ip,current+1);
             return true;
@@ -121,7 +123,8 @@ final class PhoneHttp implements AutoCloseable {
     private void releaseIp(String ip){
         if(ip.isEmpty())return;
         synchronized(activeByIp){
-            int current=activeByIp.getOrDefault(ip,0);
+            Integer count=activeByIp.get(ip);
+            int current=count==null?0:count;
             if(current<=1)activeByIp.remove(ip);
             else activeByIp.put(ip,current-1);
         }

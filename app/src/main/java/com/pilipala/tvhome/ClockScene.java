@@ -23,6 +23,7 @@ final class ClockScene {
     private final Date nowDate=new Date();
     private Bitmap clockBitmap;
     private String cachedTime="",cachedDate="";
+    private long cachedDay=Long.MIN_VALUE;
     private int cachedStyle=-1,cachedTilt=-1,bitmapGlyphHeight;
     private Layout layout;
     private int layoutStyle=-1,layoutTilt=-1;
@@ -97,8 +98,11 @@ final class ClockScene {
             date.setTimeZone(currentZone);
             cachedTime="";
             cachedDate="";
+            cachedDay=Long.MIN_VALUE;
         }
-        nowDate.setTime(System.currentTimeMillis());
+        long now=System.currentTimeMillis();
+        long day=(now+currentZone.getOffset(now))/86400000L;
+        nowDate.setTime(now);
         String shown=time.format(nowDate);
         Layout glyphs=layout(prefs);
         int style=style(prefs),tilt=tilt(prefs,style);
@@ -109,10 +113,12 @@ final class ClockScene {
             bitmapGlyphHeight=glyphs.height;
             cachedTime=shown;
             cachedDate=date.format(nowDate);
+            cachedDay=day;
             cachedStyle=style;
             cachedTilt=tilt;
-        }else if(cachedDate.isEmpty()){
+        }else if(day!=cachedDay||cachedDate.isEmpty()){
             cachedDate=date.format(nowDate);
+            cachedDay=day;
         }
         float ratio=size(prefs,ambient)/280;
         int glow=prefs.getInt("ambient_clock_brightness",100);

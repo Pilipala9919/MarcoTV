@@ -29,7 +29,8 @@ final class NowPlaying {
     private final Map<MediaSession.Token,Long> pausedSince=new HashMap<>();
     private final Map<String,String> appLabels=new HashMap<>();
     private final Map<String,Bitmap> appIcons=new HashMap<>();
-    private Bitmap lastRawArtwork,lastScaledArtwork;
+    private int lastRawId,lastRawGen,lastRawWidth,lastRawHeight;
+    private Bitmap lastScaledArtwork;
     private MediaSession.Token preferred;
     private final Runnable expire=new Runnable(){
         public void run(){
@@ -143,7 +144,12 @@ final class NowPlaying {
             }
         }
         Item prev=item;
-        item=chosen==null?null:describe(chosen);
+        item=chosen==null?null:describe(chosen,true);
+        if(item==null||item.artwork!=lastScaledArtwork){
+            lastScaledArtwork=null;
+            lastRawId=0;
+            lastRawGen=0;
+        }
         boolean same=prev==item||(prev!=null&&item!=null&&prev.playing==item.playing
                 &&Objects.equals(prev.title,item.title)&&Objects.equals(prev.source,item.source)
                 &&prev.artwork==item.artwork&&prev.controller.getSessionToken().equals(item.controller.getSessionToken()));
@@ -159,7 +165,7 @@ final class NowPlaying {
             host.home.invalidate();
         }
     }
-    private Item describe(MediaController controller) {
+    private Item describe(MediaController controller,boolean withArtwork) {
         Item result=new Item();
         result.controller=controller;
         result.packageName=controller.getPackageName();
@@ -180,21 +186,28 @@ final class NowPlaying {
         if(data!=null) {
             CharSequence title=data.getDescription().getTitle();
             if(title!=null&&title.length()>0)result.title=title.toString();
-            Bitmap raw=data.getDescription().getIconBitmap();
-            if(raw!=null&&!raw.isRecycled()) {
-                if(raw.getWidth()>192||raw.getHeight()>192) {
-                    if(raw!=lastRawArtwork||lastScaledArtwork==null||lastScaledArtwork.isRecycled()) {
-                        float scale=Math.min(192f/raw.getWidth(),192f/raw.getHeight());
-                        lastRawArtwork=raw;
-                        lastScaledArtwork=Bitmap.createScaledBitmap(raw,
-                                Math.max(1,Math.round(raw.getWidth()*scale)),
-                                Math.max(1,Math.round(raw.getHeight()*scale)),true);
-                    }
-                    result.artwork=lastScaledArtwork;
-                } else result.artwork=raw;
+            if(withArtwork) {
+                Bitmap raw=data.getDescription().getIconBitmap();
+                if(raw!=null&&!raw.isRecycled()) {
+                    if(raw.getWidth()>192||raw.getHeight()>192) {
+                        int rawId=System.identityHashCode(raw),rawGen=raw.getGenerationId();
+                        if(rawId!=lastRawId||rawGen!=lastRawGen||raw.getWidth()!=lastRawWidth||raw.getHeight()!=lastRawHeight
+                                ||lastScaledArtwork==null||lastScaledArtwork.isRecycled()) {
+                            float scale=Math.min(192f/raw.getWidth(),192f/raw.getHeight());
+                            lastRawId=rawId;
+                            lastRawGen=rawGen;
+                            lastRawWidth=raw.getWidth();
+                            lastRawHeight=raw.getHeight();
+                            lastScaledArtwork=Bitmap.createScaledBitmap(raw,
+                                    Math.max(1,Math.round(raw.getWidth()*scale)),
+                                    Math.max(1,Math.round(raw.getHeight()*scale)),true);
+                        }
+                        result.artwork=lastScaledArtwork;
+                    } else result.artwork=raw;
+                }
             }
         }
-        if(result.artwork==null) {
+        if(withArtwork&&result.artwork==null) {
             Bitmap fallback=appIcons.get(result.packageName);
             if(fallback==null||fallback.isRecycled()) {
                 try {
@@ -217,6 +230,10 @@ final class NowPlaying {
         for(MediaController c:controllers)c.unregisterCallback(callback);
         controllers.clear();
         item=null;
+        lastScaledArtwork=null;
+        lastRawId=0;
+        lastRawGen=0;
+        appIcons.clear();
         if(host.home!=null)host.home.invalidate();
     }
     void settings() {
@@ -283,7 +300,7 @@ final class NowPlaying {
         String[] names=new String[active.size()+1];
         names[0]="自动选择 · 正在播放优先";
         for(int i=0;i<active.size();i++){
-            Item entry=describe(active.get(i));
+            Item entry=describe(active.get(i),false);
             names[i+1]=entry.source+" · "+(entry.playing?"播放中":"已暂停")+"\n"+entry.title;
         }
         host.showDialog(new TvDialog.Builder(host).setTitle("选择播放来源").setMessage("选择来源只改变桌面展示，不会停止其他播放器。暂时隐藏仅在本次 Marco TV 进程中保留。")
