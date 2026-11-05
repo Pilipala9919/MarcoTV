@@ -1,0 +1,169 @@
+{
+  "started_utc": "2026-11-05T11:06:20.069091+00:00",
+  "kind": "physical-TV-TLS-diagnostic-NOT-pairing",
+  "device": {
+    "ro.product.model": "MiTV-ASTP0",
+    "ro.build.version.release": "9",
+    "ro.build.version.sdk": "28",
+    "ro.build.display.id": "22.8.30.1385"
+  },
+  "checks": [
+    {
+      "test": "trusted_handshake_0",
+      "passed": true,
+      "tls": "TLSv1.2",
+      "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256",
+      "application_bytes_sent": 0
+    },
+    {
+      "test": "bad_pin",
+      "passed": true,
+      "application_bytes_sent": 0
+    },
+    {
+      "test": "untrusted_real_server_certificate",
+      "passed": true,
+      "application_bytes_sent": 0
+    },
+    {
+      "test": "wrong_device_identity",
+      "passed": true,
+      "application_bytes_sent": 0
+    },
+    {
+      "test": "trusted_handshake_1",
+      "passed": true,
+      "tls": "TLSv1.2",
+      "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256",
+      "application_bytes_sent": 0
+    },
+    {
+      "test": "keystore_identity_survives_process_restart",
+      "passed": true
+    }
+  ],
+  "client_runtime": "3.13.13 (tags/v3.13.13:01104ce, Apr  7 2026, 19:25:48) [MSC v.1944 64 bit (AMD64)]",
+  "openssl": "OpenSSL 3.0.19 27 Jan 2026",
+  "approval": "NOT_RUN_USER_UNAVAILABLE",
+  "session": "NOT_VERIFIED",
+  "source_sha256": {
+    "security-spike/AndroidManifest.xml": "80147a7f1a43424e202fdd38736a5759c2aa7e85f71662bd80dee4ee48efc960",
+    "security-spike/src/com/pilipala/remoteprobe/DeviceIdentity.java": "a453300a5be8cfbf7a8f2b1abc3336799918882b4bbce183bee992828dbcc992",
+    "security-spike/src/com/pilipala/remoteprobe/ProbeActivity.java": "03a0a092750e49e042ae4cefccd8d84746f98ea2ead603d6d93b3635cafe4270",
+    "security-spike/src/com/pilipala/remoteprobe/ProbeServer.java": "78b509252e4be505d6542324d6581a75615c1cab8580766d24e56dc0223d68fd",
+    "security-spike/src/com/pilipala/remoteprobe/SessionPolicy.java": "a62fb2bcc684f2cdae52871bd9ec8b614166b22b35bf65cd1e558c8451eb898b",
+    "security-spike/tests/host/android/os/SystemClock.java": "95c07661d21e98fa8b50524303ed45998a5e921fb6d6b89e1d80f8564baa8be1",
+    "security-spike/tests/host/com/pilipala/remoteprobe/DeviceIdentity.java": "0c91ed8a1a0448053f6031f1285cd491dbd84fba0aae03ef27176a82a3ef0814",
+    "security-spike/tests/host/com/pilipala/remoteprobe/TransportFixture.java": "72dfde0c8d00c7d2220860ff76e0a40d90e0afa6f94c86aa1b9d63fa2b8f0aa0",
+    "security-spike/tests/SessionPolicyChecks.java": "53f46cb9c8c401f328a950463881dd14c85cb57d4a1bb4537ce279baa174292f",
+    "security-spike/tests/test_client.py": "c80ce3a3eed4207be8a32419ff1ccdf5e27094a0524be6cd049d43c1e226d4f2",
+    "security-spike/tests/test_transport.py": "61a3dd9671b20b971d7c528a6003673ce93526b054d124c94585368d230543d0",
+    "security-spike/tools/build.py": "e101068043aac098922022717c2daf7f9d25e8353e4af0ef28bc30cd0ab7f0a2",
+    "security-spike/tools/client.py": "0f1847800d0aed04e555944cde709e0ba005ea5362268cc02795c5dd6f9e706b",
+    "security-spike/tools/probe_device.py": "7e4da6200d2deefc20edde2e140dbcfa10e4ddcece7728b0483c53ab90eb159d",
+    "security-spike/tools/test_policy.py": "e7a02eac94a6b5e5cf210abafd36be125178ed32a5adf7041c9891e292b64901"
+  },
+  "apk_sha256": "4fc286775712be27dbd2368bd60c1d0087ce0a16f2328cf366ec9f9b429d300f",
+  "installed_apk_sha256": "4fc286775712be27dbd2368bd60c1d0087ce0a16f2328cf366ec9f9b429d300f",
+  "diagnostic_passed": true,
+  "events": [
+    "1793875276526 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875311676 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875311700 DIAGNOSTIC_STARTED",
+    "1793875311740 LISTENER_CLOSED",
+    "1793875349494 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875349519 DIAGNOSTIC_STARTED",
+    "1793875350110 CONNECTION_CLOSED SSLHandshakeException",
+    "1793875389974 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875389996 DIAGNOSTIC_STARTED",
+    "1793875406283 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875406288 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875450132 LISTENER_CLOSED",
+    "1793875587411 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875587435 DIAGNOSTIC_STARTED",
+    "1793875587784 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875587789 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875587843 CONNECTION_CLOSED SSLHandshakeException",
+    "1793875587888 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875587892 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875588656 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875588680 DIAGNOSTIC_STARTED",
+    "1793875589031 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875589037 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875775151 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875775174 DIAGNOSTIC_STARTED",
+    "1793875775538 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875775543 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875775591 CONNECTION_CLOSED SSLHandshakeException",
+    "1793875775640 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875775645 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793875776418 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793875776441 DIAGNOSTIC_STARTED",
+    "1793875776771 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793875776777 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876747340 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793876747363 DIAGNOSTIC_STARTED",
+    "1793876747742 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876747748 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876747793 CONNECTION_CLOSED SSLHandshakeException",
+    "1793876747840 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876747844 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876748618 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793876748640 DIAGNOSTIC_STARTED",
+    "1793876748981 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876748986 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876783886 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793876783909 DIAGNOSTIC_STARTED",
+    "1793876784275 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876784280 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876784335 CONNECTION_CLOSED SSLHandshakeException",
+    "1793876784384 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876784387 DIAGNOSTIC_NO_APPLICATION_DATA",
+    "1793876785159 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+    "1793876785182 DIAGNOSTIC_STARTED",
+    "1793876785538 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "1793876785543 DIAGNOSTIC_NO_APPLICATION_DATA"
+  ],
+  "probe_force_stopped": true,
+  "probe_process_absent": true,
+  "diagnostic_port_closed_after_stop": true,
+  "tests": {
+    "policy": {
+      "scenarios": 24,
+      "assertions": 126,
+      "passed": true
+    },
+    "windows_certificate_tests": {
+      "tests": 11,
+      "passed": true,
+      "evidence": "host_loopback_synthetic_certificates"
+    },
+    "java_transport_tests": {
+      "tests": 8,
+      "passed": true,
+      "evidence": "host_TLS_automated_fixture_approval_NOT_TV"
+    },
+    "existing_offline_suites": {
+      "suites": 17,
+      "passed": true,
+      "seconds": 25.47
+    }
+  },
+  "validation_log_sha256": {
+    "0": "0b1c6bef3fee577800fd5256672b14c5c290cabd4d037328f50b8a979c24eb29",
+    "1": "cd3a390019618115a259c33aa1afb8da024fc29b7bd1c43bf27db0ef49bb40a3",
+    "2": "4c5e389db0b5eaef47789e400d8b15546cd597f1b6044028f069ce09b8cbdd01",
+    "3": "c3c7ab96c0e496c02c0f7f41190175ab700781bc19438f4e6241bf1d161e40e2"
+  },
+  "initial_keystore_failure": {
+    "observed": "InvalidKeyException: Keystore operation failed; caused by KeyStoreException: Incompatible digest",
+    "resolution": "Permit DIGEST_NONE for Android 9 Conscrypt raw ECDSA TLS signing; new isolated test alias",
+    "certificate_validation_disabled": false
+  },
+  "security_gate": {
+    "physical_tv_approval": "NOT_RUN_USER_UNAVAILABLE",
+    "approved_fake_execution": "NOT_VERIFIED_ON_TV",
+    "local_tv_revocation": "NOT_VERIFIED_ON_TV",
+    "g1_b2_allowed": false
+  }
+}

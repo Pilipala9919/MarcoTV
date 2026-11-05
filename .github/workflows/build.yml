@@ -48,6 +48,10 @@ jobs:
           python scripts/test_feedback_transport.py
       - name: Motion checks
         run: python scripts/test_motion.py
+      - name: Isolated TLS spike policy and Android build (no APK upload)
+        run: |
+          python security-spike/tools/test_policy.py
+          python security-spike/tools/build.py
       - name: Native card focus and cancellation checks
         run: python scripts/test_marco_focus.py
       - name: Interrupted motion lifecycle checks
