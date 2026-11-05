@@ -1,0 +1,1186 @@
+{
+  "kind": "real-TV-human-approval-and-LAN-fake-executor",
+  "date": "2026-11-06 Asia/Shanghai",
+  "device": {
+    "model": "MiTV-ASTP0",
+    "android": "9",
+    "api": 28,
+    "firmware": "22.8.30.1385"
+  },
+  "final_code_commit": "943580c894ca1083d276ad1ddbf72ac37c5c8cbe",
+  "cases": [
+    {
+      "id": "01b-deny",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "utc": "2026-11-05T15:53:27.045271+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T15:53:27.222317+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T15:53:27.242292+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T15:53:55.606803+00:00",
+          "event": "not_granted",
+          "status": "DENIED_OR_EXPIRED"
+        },
+        {
+          "utc": "2026-11-05T15:53:56.425958+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894008862 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894008881 PENDING",
+        "1793894037246 LOCAL_DENY",
+        "1793894037251 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "5e8cd4a8ea83c07a2cf94c07eacbe331373a43180dfd84c41ba463cf0aef825b",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "02-approve-revoke",
+      "classification": "failed_crash_during_revoke",
+      "client_events": [
+        {
+          "utc": "2026-11-05T15:54:41.961140+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T15:55:33.693807+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T15:55:33.715713+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T15:55:47.041160+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T15:55:47.070563+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T15:55:47.103426+00:00",
+          "event": "step_response",
+          "status": "FAKE_APPLIED 1"
+        },
+        {
+          "utc": "2026-11-05T15:55:52.122624+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "utc": "2026-11-05T15:55:57.147553+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "utc": "2026-11-05T15:56:02.148337+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "utc": "2026-11-05T15:56:02.964778+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894135145 LOCAL_PAIR_WINDOW_OPENED",
+        "1793894135341 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894135360 PENDING",
+        "1793894148625 LOCAL_APPROVE",
+        "1793894148689 SESSION_GRANTED",
+        "1793894148718 SNAPSHOT",
+        "1793894148751 FAKE_APPLIED",
+        "1793894153770 PONG",
+        "1793894158796 PONG",
+        "1793894161221 CONNECTION_CLOSED SocketException",
+        "1793894161221 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "390098912a380b7880e5cd263899e683ec5a791378f8fc889ff6a5c2ea65d625",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "03-replay",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "utc": "2026-11-05T15:56:35.641530+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T15:58:37.569924+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T15:58:37.591821+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T15:58:39.101414+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T15:58:39.141360+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T15:58:39.176311+00:00",
+          "event": "step_response",
+          "status": "REPLAY"
+        },
+        {
+          "utc": "2026-11-05T15:58:40.023436+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894268237 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793894318556 LOCAL_PAIR_WINDOW_OPENED",
+        "1793894319229 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894319249 PENDING",
+        "1793894320757 LOCAL_APPROVE",
+        "1793894320768 SESSION_GRANTED",
+        "1793894320799 SNAPSHOT",
+        "1793894320834 REPLAY",
+        "1793894320837 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "bce7808925b34fd84cadb8a0c42118518d1eeb7c026b16c8ad77b26f7fa8d67e",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "04-stale",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "utc": "2026-11-05T15:59:26.812507+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T16:01:56.962522+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T16:01:56.985506+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T16:01:58.490521+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T16:01:58.522500+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T16:01:59.759133+00:00",
+          "event": "step_response",
+          "status": "STALE_CHALLENGE"
+        },
+        {
+          "utc": "2026-11-05T16:01:59.775902+00:00",
+          "event": "close_response",
+          "status": "CLOSED"
+        },
+        {
+          "utc": "2026-11-05T16:02:00.584807+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894514606 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793894518112 LOCAL_PAIR_WINDOW_OPENED",
+        "1793894518633 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894518655 PENDING",
+        "1793894520096 LOCAL_APPROVE",
+        "1793894520160 SESSION_GRANTED",
+        "1793894520189 SNAPSHOT",
+        "1793894521428 STALE_CHALLENGE",
+        "1793894521445 CLOSED",
+        "1793894521449 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "34c190a1178f8a6ab4895cb0ce89ec9de36f9b754ee332971fb185d711a9a35c",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "05-idle",
+      "classification": "interrupted_not_idle_timeout_proof",
+      "client_events": [
+        {
+          "utc": "2026-11-05T16:02:00.895544+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T16:02:07.222783+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T16:02:07.239342+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T16:02:09.646861+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T16:02:09.683231+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T16:02:25.684415+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "utc": "2026-11-05T16:02:26.491293+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894528482 LOCAL_PAIR_WINDOW_OPENED",
+        "1793894528893 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894528909 PENDING",
+        "1793894531282 LOCAL_APPROVE",
+        "1793894531317 SESSION_GRANTED",
+        "1793894531353 SNAPSHOT",
+        "1793894539223 CONNECTION_CLOSED SocketException",
+        "1793894539224 LISTENER_CLOSED",
+        "1793894544775 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793894546398 LOCAL_PAIR_WINDOW_OPENED"
+      ],
+      "raw_sha256": "885daaaf9c2ceaae5671fd878f06685b2f663fa81f98a99921d87ea92eaf85f3",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "06-disconnect",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "utc": "2026-11-05T16:02:26.782475+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T16:02:26.957084+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T16:02:26.974459+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T16:02:29.483711+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T16:02:29.516724+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T16:02:29.517266+00:00",
+          "event": "client_disconnect"
+        },
+        {
+          "utc": "2026-11-05T16:02:30.312894+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894548629 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894548646 PENDING",
+        "1793894551091 LOCAL_APPROVE",
+        "1793894551155 SESSION_GRANTED",
+        "1793894551188 SNAPSHOT",
+        "1793894551194 CONNECTION_CLOSED EOFException",
+        "1793894551196 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "dd7e97e1223d09b0dc8f416316924a85d99c0edeb6ce4c4dda8f1b917950f59b",
+      "source_commit": "fa268c2830e40a59acb7b0600f63bfe5a710decf"
+    },
+    {
+      "id": "07-local-button-revoke",
+      "classification": "failed_crash_during_revoke",
+      "client_events": [
+        {
+          "utc": "2026-11-05T16:05:32.660545+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T16:06:04.165703+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T16:06:04.182139+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T16:06:07.219833+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T16:06:07.257023+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T16:06:07.292451+00:00",
+          "event": "step_response",
+          "status": "FAKE_APPLIED 1"
+        },
+        {
+          "utc": "2026-11-05T16:06:12.293570+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "utc": "2026-11-05T16:06:13.109781+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894734713 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793894765371 LOCAL_PAIR_WINDOW_OPENED",
+        "1793894765850 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793894765866 PENDING",
+        "1793894768896 LOCAL_APPROVE",
+        "1793894768904 SESSION_GRANTED",
+        "1793894768941 SNAPSHOT",
+        "1793894768976 FAKE_APPLIED",
+        "1793894771728 LOCAL_REVOKE_REQUEST",
+        "1793894771735 CONNECTION_CLOSED SocketException",
+        "1793894771736 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "f34285d10188fd760c07e75b795c76dcca7df64bfde76aa3b5d6a0cd66e246f0",
+      "source_commit": null,
+      "source_note": "temporary logging-only build before the fix; failed and superseded"
+    },
+    {
+      "id": "08-fixed-local-revoke",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "utc": "2026-11-05T16:08:34.066902+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "utc": "2026-11-05T16:12:13.698176+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "utc": "2026-11-05T16:12:13.723055+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "utc": "2026-11-05T16:12:15.220528+00:00",
+          "event": "granted"
+        },
+        {
+          "utc": "2026-11-05T16:12:15.257687+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "utc": "2026-11-05T16:12:15.295618+00:00",
+          "event": "step_response",
+          "status": "FAKE_APPLIED 1"
+        },
+        {
+          "utc": "2026-11-05T16:12:20.296882+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "utc": "2026-11-05T16:12:21.112929+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793894916097 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793894976425 LIFECYCLE_PAUSE",
+        "1793895134817 LOCAL_PAIR_WINDOW_OPENED",
+        "1793895135404 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793895135420 PENDING",
+        "1793895136921 LOCAL_APPROVE",
+        "1793895136926 SESSION_GRANTED",
+        "1793895136963 SNAPSHOT",
+        "1793895137001 FAKE_APPLIED",
+        "1793895138496 LOCAL_REVOKE_REQUEST",
+        "1793895138503 LOCAL_REVOKE",
+        "1793895138506 CONNECTION_CLOSED SocketException",
+        "1793895138507 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "c184ce272dddda1aab63bfd77fd570403e5cb4189010311616ec7de67d8d3e49",
+      "source_commit": "b704b2a701f3ab02676e2cd001dcdec1304ae030"
+    },
+    {
+      "id": "09-fixed-idle",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "monotonic": 1646568.5412468,
+          "utc": "2026-11-05T16:13:22.247522+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "monotonic": 1646736.0168188,
+          "utc": "2026-11-05T16:16:09.723095+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "monotonic": 1646736.0403786,
+          "utc": "2026-11-05T16:16:09.746654+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "monotonic": 1646737.3452413,
+          "utc": "2026-11-05T16:16:11.051517+00:00",
+          "event": "granted"
+        },
+        {
+          "monotonic": 1646737.3790419,
+          "utc": "2026-11-05T16:16:11.085317+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "monotonic": 1646753.3802422,
+          "utc": "2026-11-05T16:16:27.086517+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "monotonic": 1646754.2035993,
+          "utc": "2026-11-05T16:16:27.909875+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793895371250 LOCAL_PAIR_WINDOW_OPENED",
+        "1793895371444 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793895371466 PENDING",
+        "1793895372759 LOCAL_APPROVE",
+        "1793895372770 SESSION_GRANTED",
+        "1793895372804 SNAPSHOT",
+        "1793895387821 CONNECTION_CLOSED SocketTimeoutException",
+        "1793895387823 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "1779c14211cc7ab6fa73b45336b2471b8d0596b82dc7b98f0b49866bc63f2374",
+      "source_commit": "b704b2a701f3ab02676e2cd001dcdec1304ae030"
+    },
+    {
+      "id": "10-fixed-absolute",
+      "classification": "passed_pause_cancellation_not_absolute_timeout",
+      "client_events": [
+        {
+          "monotonic": 1646754.5465684,
+          "utc": "2026-11-05T16:16:28.252844+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "monotonic": 1646764.5503219,
+          "utc": "2026-11-05T16:16:38.256611+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "monotonic": 1646764.5677799,
+          "utc": "2026-11-05T16:16:38.274055+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "monotonic": 1646766.07282,
+          "utc": "2026-11-05T16:16:39.779095+00:00",
+          "event": "granted"
+        },
+        {
+          "monotonic": 1646766.1111843,
+          "utc": "2026-11-05T16:16:39.817460+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "monotonic": 1646766.1460178,
+          "utc": "2026-11-05T16:16:39.852296+00:00",
+          "event": "step_response",
+          "status": "FAKE_APPLIED 1"
+        },
+        {
+          "monotonic": 1646771.1715584,
+          "utc": "2026-11-05T16:16:44.877836+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646776.1970729,
+          "utc": "2026-11-05T16:16:49.903350+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646781.2281322,
+          "utc": "2026-11-05T16:16:54.934408+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646786.2477477,
+          "utc": "2026-11-05T16:16:59.954024+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646791.2629009,
+          "utc": "2026-11-05T16:17:04.969177+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646796.287496,
+          "utc": "2026-11-05T16:17:09.993774+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646801.3129437,
+          "utc": "2026-11-05T16:17:15.019222+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646806.3697461,
+          "utc": "2026-11-05T16:17:20.076023+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646811.3913516,
+          "utc": "2026-11-05T16:17:25.097628+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646816.4061937,
+          "utc": "2026-11-05T16:17:30.112476+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646821.426053,
+          "utc": "2026-11-05T16:17:35.132329+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1646826.4272676,
+          "utc": "2026-11-05T16:17:40.133543+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "monotonic": 1646827.2764448,
+          "utc": "2026-11-05T16:17:40.982720+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793895399634 LOCAL_PAIR_WINDOW_OPENED",
+        "1793895399978 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793895399995 PENDING",
+        "1793895401475 LOCAL_APPROVE",
+        "1793895401500 SESSION_GRANTED",
+        "1793895401537 SNAPSHOT",
+        "1793895401573 FAKE_APPLIED",
+        "1793895406599 PONG",
+        "1793895411625 PONG",
+        "1793895416656 PONG",
+        "1793895421676 PONG",
+        "1793895426692 PONG",
+        "1793895431716 PONG",
+        "1793895436742 PONG",
+        "1793895441794 PONG",
+        "1793895446821 PONG",
+        "1793895451836 PONG",
+        "1793895456856 PONG",
+        "1793895461671 LIFECYCLE_PAUSE",
+        "1793895461689 CONNECTION_CLOSED SocketException",
+        "1793895461691 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "3e25379b9d98d2ebad26b3515a6d9f32b899036dabb4833f465c3a46e6a6aa2a",
+      "source_commit": "b704b2a701f3ab02676e2cd001dcdec1304ae030"
+    },
+    {
+      "id": "11-fixed-absolute-awake",
+      "classification": "observed_pass",
+      "client_events": [
+        {
+          "monotonic": 1646997.9231664,
+          "utc": "2026-11-05T16:20:31.629441+00:00",
+          "event": "waiting_for_local_tv_pair_window"
+        },
+        {
+          "monotonic": 1647034.3918121,
+          "utc": "2026-11-05T16:21:08.098088+00:00",
+          "event": "certificate_verified",
+          "tls": "TLSv1.2",
+          "cipher": "ECDHE-ECDSA-AES128-GCM-SHA256"
+        },
+        {
+          "monotonic": 1647034.4286839,
+          "utc": "2026-11-05T16:21:08.134960+00:00",
+          "event": "pair_response",
+          "status": "PENDING"
+        },
+        {
+          "monotonic": 1647036.1680868,
+          "utc": "2026-11-05T16:21:09.874363+00:00",
+          "event": "granted"
+        },
+        {
+          "monotonic": 1647036.2029005,
+          "utc": "2026-11-05T16:21:09.909176+00:00",
+          "event": "snapshot",
+          "fake_count": 0
+        },
+        {
+          "monotonic": 1647036.2540533,
+          "utc": "2026-11-05T16:21:09.960340+00:00",
+          "event": "step_response",
+          "status": "FAKE_APPLIED 1"
+        },
+        {
+          "monotonic": 1647041.2802011,
+          "utc": "2026-11-05T16:21:14.986478+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647046.3060482,
+          "utc": "2026-11-05T16:21:20.012324+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647051.3290801,
+          "utc": "2026-11-05T16:21:25.035356+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647056.345413,
+          "utc": "2026-11-05T16:21:30.051690+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647061.3677889,
+          "utc": "2026-11-05T16:21:35.074065+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647066.3852979,
+          "utc": "2026-11-05T16:21:40.091575+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647071.4042954,
+          "utc": "2026-11-05T16:21:45.110572+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647076.4195675,
+          "utc": "2026-11-05T16:21:50.125844+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647081.4457545,
+          "utc": "2026-11-05T16:21:55.152031+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647086.4604374,
+          "utc": "2026-11-05T16:22:00.166715+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647091.4799229,
+          "utc": "2026-11-05T16:22:05.186200+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647096.5035198,
+          "utc": "2026-11-05T16:22:10.209797+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647101.5266532,
+          "utc": "2026-11-05T16:22:15.232930+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647106.5400493,
+          "utc": "2026-11-05T16:22:20.246327+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647111.5621471,
+          "utc": "2026-11-05T16:22:25.268424+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647116.5849645,
+          "utc": "2026-11-05T16:22:30.291246+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647121.6081464,
+          "utc": "2026-11-05T16:22:35.314423+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647126.6331915,
+          "utc": "2026-11-05T16:22:40.339468+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647131.6633557,
+          "utc": "2026-11-05T16:22:45.369633+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647136.68395,
+          "utc": "2026-11-05T16:22:50.390227+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647141.7040035,
+          "utc": "2026-11-05T16:22:55.410280+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647146.7197557,
+          "utc": "2026-11-05T16:23:00.426033+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647151.7381747,
+          "utc": "2026-11-05T16:23:05.444451+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647156.7544443,
+          "utc": "2026-11-05T16:23:10.460720+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647161.7700738,
+          "utc": "2026-11-05T16:23:15.476350+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647166.7821102,
+          "utc": "2026-11-05T16:23:20.488410+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647171.7977157,
+          "utc": "2026-11-05T16:23:25.503993+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647176.8089712,
+          "utc": "2026-11-05T16:23:30.515249+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647181.8220741,
+          "utc": "2026-11-05T16:23:35.528352+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647186.8326033,
+          "utc": "2026-11-05T16:23:40.538880+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647191.9329574,
+          "utc": "2026-11-05T16:23:45.639234+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647196.9435903,
+          "utc": "2026-11-05T16:23:50.649867+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647201.9537378,
+          "utc": "2026-11-05T16:23:55.660014+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647206.9623091,
+          "utc": "2026-11-05T16:24:00.668586+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647211.9831741,
+          "utc": "2026-11-05T16:24:05.689451+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647216.9911663,
+          "utc": "2026-11-05T16:24:10.697444+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647222.0000566,
+          "utc": "2026-11-05T16:24:15.706333+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647227.0097207,
+          "utc": "2026-11-05T16:24:20.716002+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647232.0210866,
+          "utc": "2026-11-05T16:24:25.727364+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647237.0315511,
+          "utc": "2026-11-05T16:24:30.737829+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647242.0417617,
+          "utc": "2026-11-05T16:24:35.748038+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647247.0704859,
+          "utc": "2026-11-05T16:24:40.776764+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647252.0784453,
+          "utc": "2026-11-05T16:24:45.784722+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647257.0913225,
+          "utc": "2026-11-05T16:24:50.797600+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647262.10134,
+          "utc": "2026-11-05T16:24:55.807617+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647267.1108942,
+          "utc": "2026-11-05T16:25:00.817177+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647272.1207565,
+          "utc": "2026-11-05T16:25:05.827037+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647277.1291915,
+          "utc": "2026-11-05T16:25:10.835468+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647282.1364667,
+          "utc": "2026-11-05T16:25:15.842749+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647287.1452167,
+          "utc": "2026-11-05T16:25:20.851493+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647292.1539164,
+          "utc": "2026-11-05T16:25:25.860193+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647297.161308,
+          "utc": "2026-11-05T16:25:30.867589+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647302.1759716,
+          "utc": "2026-11-05T16:25:35.882249+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647307.185242,
+          "utc": "2026-11-05T16:25:40.891518+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647312.1938444,
+          "utc": "2026-11-05T16:25:45.900121+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647317.2021419,
+          "utc": "2026-11-05T16:25:50.908419+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647322.2141987,
+          "utc": "2026-11-05T16:25:55.920475+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647327.2232588,
+          "utc": "2026-11-05T16:26:00.929536+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647332.2341724,
+          "utc": "2026-11-05T16:26:05.940449+00:00",
+          "event": "heartbeat",
+          "status": "PONG"
+        },
+        {
+          "monotonic": 1647337.2358101,
+          "utc": "2026-11-05T16:26:10.942086+00:00",
+          "event": "connection_ended",
+          "error": "EOFError"
+        },
+        {
+          "monotonic": 1647338.0631668,
+          "utc": "2026-11-05T16:26:11.769441+00:00",
+          "event": "capture_complete"
+        }
+      ],
+      "tv_events": [
+        "1793895633681 KEYSTORE_OK nonexportable=true hardwareBacked=true",
+        "1793895669564 LOCAL_PAIR_WINDOW_OPENED",
+        "1793895669837 TLS_OK TLSv1.2 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "1793895669871 PENDING",
+        "1793895671594 LOCAL_APPROVE",
+        "1793895671610 SESSION_GRANTED",
+        "1793895671645 SNAPSHOT",
+        "1793895671697 FAKE_APPLIED",
+        "1793895676726 PONG",
+        "1793895681749 PONG",
+        "1793895686772 PONG",
+        "1793895691789 PONG",
+        "1793895696812 PONG",
+        "1793895701829 PONG",
+        "1793895706849 PONG",
+        "1793895711864 PONG",
+        "1793895716891 PONG",
+        "1793895721906 PONG",
+        "1793895726926 PONG",
+        "1793895731950 PONG",
+        "1793895736973 PONG",
+        "1793895741987 PONG",
+        "1793895747009 PONG",
+        "1793895752032 PONG",
+        "1793895757056 PONG",
+        "1793895762081 PONG",
+        "1793895767111 PONG",
+        "1793895772130 PONG",
+        "1793895777153 PONG",
+        "1793895782169 PONG",
+        "1793895787185 PONG",
+        "1793895792204 PONG",
+        "1793895797217 PONG",
+        "1793895802232 PONG",
+        "1793895807248 PONG",
+        "1793895812260 PONG",
+        "1793895817273 PONG",
+        "1793895822284 PONG",
+        "1793895827330 PONG",
+        "1793895832395 PONG",
+        "1793895837406 PONG",
+        "1793895842415 PONG",
+        "1793895847436 PONG",
+        "1793895852444 PONG",
+        "1793895857453 PONG",
+        "1793895862462 PONG",
+        "1793895867475 PONG",
+        "1793895872486 PONG",
+        "1793895877496 PONG",
+        "1793895882522 PONG",
+        "1793895887533 PONG",
+        "1793895892547 PONG",
+        "1793895897557 PONG",
+        "1793895902567 PONG",
+        "1793895907577 PONG",
+        "1793895912585 PONG",
+        "1793895917593 PONG",
+        "1793895922602 PONG",
+        "1793895927611 PONG",
+        "1793895932619 PONG",
+        "1793895937634 PONG",
+        "1793895942643 PONG",
+        "1793895947652 PONG",
+        "1793895952661 PONG",
+        "1793895957669 PONG",
+        "1793895962683 PONG",
+        "1793895967694 PONG",
+        "1793895971648 CONNECTION_CLOSED SocketException",
+        "1793895971650 LISTENER_CLOSED"
+      ],
+      "raw_sha256": "a38bbd04c896d6188e31eda62142545ba02ecd54c5c924b21a39c19fbfe3d5df",
+      "client_observed_session_seconds": 301.068,
+      "successful_heartbeats": 59,
+      "source_commit": "943580c894ca1083d276ad1ddbf72ac37c5c8cbe"
+    }
+  ],
+  "user_confirmation": {
+    "denied": "user selected TV deny",
+    "approved_fake_and_revoke": "user saw fake count 1 and after fixed build confirmed page remains",
+    "absolute": "user approved final session and left page unchanged"
+  },
+  "crash": {
+    "exception": "android.os.NetworkOnMainThreadException",
+    "chain": [
+      "ConscryptFileDescriptorSocket.close",
+      "ProbeServer.close",
+      "ProbeActivity.stop",
+      "TV button onClick"
+    ],
+    "pre_fix_log_sha256": "b2747bfbe5d708888467fb8bb9d582ed1d80f65efb14aba02bbc9640bb2b0e56",
+    "fix": "synchronous authorization revocation then single background TLS-close worker"
+  },
+  "gate": {
+    "technical_checks": "passed in scoped physical spike",
+    "user_review": "pending",
+    "homeview_integration": "not_started"
+  },
+  "source_sha256": {
+    "security-spike/src/com/pilipala/remoteprobe/BackgroundClose.java": "1b570954df4cf15651e065cebbd8a12ba885f6fecb1663595b86e591a0927d29",
+    "security-spike/src/com/pilipala/remoteprobe/DeviceIdentity.java": "a453300a5be8cfbf7a8f2b1abc3336799918882b4bbce183bee992828dbcc992",
+    "security-spike/src/com/pilipala/remoteprobe/ProbeActivity.java": "30af582ed0549ac2abc370fe01c6c0c01cc2b1905507e578b581bc456a57c596",
+    "security-spike/src/com/pilipala/remoteprobe/ProbeServer.java": "bc503f6e20da1fbffe6261a367423604430752ec70d1df3fabcf20dd8fd2ef1c",
+    "security-spike/src/com/pilipala/remoteprobe/SessionPolicy.java": "a62fb2bcc684f2cdae52871bd9ec8b614166b22b35bf65cd1e558c8451eb898b"
+  },
+  "apk_sha256": "d85a1fe9cede1d89a114647e17599194977b3baf50a779bc0781d1569e26a92f",
+  "test_summary": {
+    "policy_scenarios": 24,
+    "policy_assertions": 126,
+    "close_regression": "passed: sync revoke/off-caller I/O/32 racing callers/idempotent cleanup",
+    "host_transport_tests": 8,
+    "existing_offline_suites": 17,
+    "existing_offline_seconds": 29.77,
+    "host_client_tests": 11,
+    "provenance": "Policy/close/transport and 17 offline suites rerun after b704b2a fix. Final 943580c changes only scoped screen-on flag; Android build and case11 tested on that revision. See report for CI."
+  },
+  "post_run": {
+    "observed_utc": "2026-11-05T16:29:15.969527+00:00",
+    "installed_apk_sha256": "d85a1fe9cede1d89a114647e17599194977b3baf50a779bc0781d1569e26a92f",
+    "matches_local_apk": true,
+    "new_fatal_exceptions_in_retained_crash_buffer_after_fixed_revoke_case": 0,
+    "foreground_component_after_expiry": "com.mitv.screensaver/.RenderActivity",
+    "tv_events_from_listener_close": [
+      "1793895971650 LISTENER_CLOSED",
+      "1793896031989 LIFECYCLE_PAUSE"
+    ],
+    "interpretation": "Screensaver observed after expiry; no pause/revoke during the final approved session. No claim of independent window-flag measurement."
+  }
+}
