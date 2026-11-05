@@ -8,6 +8,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITES = [
+    'test_marco_focus.py',
     'test_home_setup.py',
     'test_home_auto.py',
     'test_home_guide.py',

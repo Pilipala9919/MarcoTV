@@ -88,3 +88,6 @@ CLAUDE.md
 !scripts/AmbientWeatherChecks.java
 !scripts/test_ambient_weather.py
 !scripts/test_offline.py
+!scripts/test_marco_focus.py
+!scripts/MarcoFocusChecks.java
+!scripts/test_marco_focus_device.py
