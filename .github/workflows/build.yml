@@ -48,6 +48,8 @@ jobs:
           python scripts/test_feedback_transport.py
       - name: Motion checks
         run: python scripts/test_motion.py
+      - name: Native card focus and cancellation checks
+        run: python scripts/test_marco_focus.py
       - name: Interrupted motion lifecycle checks
         run: python scripts/test_motion_lifecycle.py
       - name: Visual transaction and loading queue checks
@@ -73,6 +75,8 @@ jobs:
       - name: Package source
         run: python scripts/package.py
       - uses: actions/upload-artifact@v4
+        # Automatic validation must not distribute APKs. Manual runs may archive them.
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: MarcoTV-CI-development-build
           path: dist/*

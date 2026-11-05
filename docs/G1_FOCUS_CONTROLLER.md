@@ -9,6 +9,7 @@
 - [MarcoFocusController.java](../app/src/main/java/com/pilipala/tvhome/MarcoFocusController.java)：原创 Java 8，GPL-3.0-only。只导入 `java.util.EnumSet`，无 Android KeyEvent、网络、包启动或输入注入依赖。
 - [MarcoFocusChecks.java](../scripts/MarcoFocusChecks.java)：直接编译并执行上述生产类，不使用另写的模拟控制器。
 - [test_marco_focus.py](../scripts/test_marco_focus.py)：Windows/JVM 测试入口；已加入 [test_offline.py](../scripts/test_offline.py) 和公共源码打包清单。
+- [CI 工作流](../.github/workflows/build.yml) 新增相同测试；自动 push/PR 只构建检查，不上传 APK 产物。产物归档仅允许手动触发，当前未触发。
 - [test_marco_focus_device.py](../scripts/test_marco_focus_device.py)：同一类及测试编译成 DEX，在已授权设备的独立 `app_process` 中运行。**不是 HomeView 集成，也不是 LAN 客户端。**
 
 当前实际调用链只有 `MarcoFocusChecks → MarcoFocusController → Result/Snapshot`。应用构建会包含该类，但没有生产调用者；没有改动 [HomeView.java](../app/src/main/java/com/pilipala/tvhome/HomeView.java)、[MainActivity.java](../app/src/main/java/com/pilipala/tvhome/MainActivity.java)、PhoneManager/PhoneHttp 或 Manifest。
