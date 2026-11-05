@@ -47,6 +47,8 @@ ACTIVE 发放独立 256-bit session ID，但服务端还检查**内部连接标�
 
 单 listener、同时一个握手/连接、TCP backlog=1，无应用工作队列；握手最多 5 秒，首次 frame 总期限 5 秒，后续 frame 总期限 15 秒。单 frame 最多 4096 个 ASCII 可打印字符 + LF，拒绝 CR/非 ASCII、控制字符与超长帧。每秒最多 10 个认证 frame（包含 PING/快照）；超限撤销。此限制是 spike 的资源上界，仍可能被同网攻击者短时间占用唯一连接造成拒绝服务，不声称完成产品级 DoS 防护。
 
+为单独检验5分钟绝对期限，验证包只在电视本机明确批准后设置 Activity 的 FLAG_KEEP_SCREEN_ON；stop/暂停/撤销/到期清除，未改变系统屏保设置或增加权限。Android官方说明该窗口标记可防止TV在当前前台页面进入Ambient Mode：[保持屏幕亮起](https://developer.android.com/develop/background-work/background-tasks/awake/screen-on)。这一测试便利措施不带入尚未实施的HomeView适配器。
+
 ## 线协议与假执行器
 
 ```text

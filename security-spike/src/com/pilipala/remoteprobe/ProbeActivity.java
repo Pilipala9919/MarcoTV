@@ -81,7 +81,12 @@ public final class ProbeActivity extends Activity {
                                 .setTitle("批准此连接进行假输入测试？")
                                 .setMessage("来源：" + peer + "\n仅限假输入计数，最长 5 分钟；不会移动桌面。")
                                 .setNegativeButton("拒绝", (d,w) -> { current.revoke(); event("LOCAL_DENY"); })
-                                .setPositiveButton("批准", (d,w) -> event(current.approve(connection) ? "LOCAL_APPROVE" : "APPROVAL_EXPIRED"))
+                                .setPositiveButton("批准", (d,w) -> {
+                                    boolean approved = current.approve(connection);
+                                    // Only this foreground, explicitly approved, bounded test session.
+                                    if (approved) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                                    event(approved ? "LOCAL_APPROVE" : "APPROVAL_EXPIRED");
+                                })
                                 .setOnCancelListener(d -> { current.revoke(); event("LOCAL_DENY"); }).create();
                         approval.show();
                         approval.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
@@ -101,6 +106,7 @@ public final class ProbeActivity extends Activity {
     }
     private void stop() {
         policy.revoke();
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (server != null) { server.close(); server = null; }
         if (approval != null) { approval.dismiss(); approval = null; }
         deleteFile("pairing.json"); deleteFile("diagnostic.json");
