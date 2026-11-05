@@ -14,6 +14,7 @@ final class ProbeServer implements AutoCloseable {
     private final SSLServerSocket listener;
     private volatile SSLSocket socket;
     private volatile boolean closed;
+    private final BackgroundClose closer;
     private final boolean diagnostic;
     private final long end;
     ProbeServer(DeviceIdentity identity, InetAddress bind, SessionPolicy policy, Observer observer, boolean diagnostic) throws Exception {
@@ -24,6 +25,12 @@ final class ProbeServer implements AutoCloseable {
         listener.setEnabledCipherSuites(new String[]{"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"});
         listener.setSoTimeout(1000);
         end = android.os.SystemClock.elapsedRealtime() + (diagnostic ? 60_000 : 450_000);
+        closer = new BackgroundClose(() -> { closed = true; policy.revoke(); }, () -> {
+            try { listener.close(); } catch (IOException ignored) { }
+            SSLSocket current = socket;
+            if (current != null) try { current.close(); } catch (IOException ignored) { }
+            observer.event("LISTENER_CLOSED");
+        });
     }
     int port() { return listener.getLocalPort(); }
     void start() { new Thread(this::serve, "marco-tls-spike").start(); }
@@ -71,7 +78,7 @@ final class ProbeServer implements AutoCloseable {
             }
         } catch (Exception error) {
             if (!closed) observer.event("SERVER_ERROR " + error.getClass().getSimpleName());
-        } finally { close(); observer.event("LISTENER_CLOSED"); }
+        } finally { close(); }
     }
     private static String read(SSLSocket socket, int totalMillis) throws IOException {
         long deadline = android.os.SystemClock.elapsedRealtime() + totalMillis;
@@ -93,9 +100,8 @@ final class ProbeServer implements AutoCloseable {
         socket.getOutputStream().flush();
     }
     @Override public void close() {
-        closed = true; policy.revoke();
-        try { listener.close(); } catch (IOException ignored) { }
-        SSLSocket current = socket;
-        if (current != null) try { current.close(); } catch (IOException ignored) { }
+        // Authorization is invalidated synchronously. TLS close_notify can perform
+        // network I/O even in close(), so it must never run on the Android UI thread.
+        closer.request();
     }
 }

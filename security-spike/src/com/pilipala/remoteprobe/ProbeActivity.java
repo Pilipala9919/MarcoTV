@@ -43,7 +43,7 @@ public final class ProbeActivity extends Activity {
         Button revoke = new Button(this); revoke.setText("拒绝 / 撤销全部临时凭据并关闭"); layout.addView(revoke);
         pairing = new TextView(this); pairing.setTextSize(15); layout.addView(pairing);
         status = new TextView(this); status.setTextSize(17); layout.addView(status);
-        open.setOnClickListener(v -> start(false)); revoke.setOnClickListener(v -> { stop(); event("LOCAL_REVOKE"); });
+        open.setOnClickListener(v -> start(false)); revoke.setOnClickListener(v -> { event("LOCAL_REVOKE_REQUEST"); stop(); event("LOCAL_REVOKE"); });
         try {
             identity = new DeviceIdentity();
             for (NetworkInterface nic : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -119,7 +119,7 @@ public final class ProbeActivity extends Activity {
         if (identity != null && getIntent().getBooleanExtra("tls_diagnostic", false)) {
             getIntent().removeExtra("tls_diagnostic"); start(true);
         } }
-    @Override protected void onPause() { resumed = false;
+    @Override protected void onPause() { resumed = false; event("LIFECYCLE_PAUSE");
         if (!diagnosticMode) { timer.removeCallbacks(tick); stop(); }
         // Handshake-only diagnostics may finish their 60s bound without interactive approval.
         super.onPause(); }

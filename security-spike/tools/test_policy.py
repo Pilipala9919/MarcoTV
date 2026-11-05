@@ -11,5 +11,9 @@ out = root/'build/security-policy'; out.mkdir(parents=True, exist_ok=True)
 suffix = '.exe' if os.name == 'nt' else ''
 subprocess.run([str(jdk/('bin/javac'+suffix)), '--release', '8', '-encoding', 'UTF-8', '-d', str(out),
                 str(root/'security-spike/src/com/pilipala/remoteprobe/SessionPolicy.java'),
+                str(root/'security-spike/src/com/pilipala/remoteprobe/BackgroundClose.java'),
+                str(root/'security-spike/tests/BackgroundCloseChecks.java'),
                 str(root/'security-spike/tests/SessionPolicyChecks.java')], check=True)
 subprocess.run([str(jdk/('bin/java'+suffix)), '-cp', str(out), 'com.pilipala.remoteprobe.SessionPolicyChecks'], check=True)
+
+subprocess.run([str(jdk/('bin/java'+suffix)), '-cp', str(out), 'com.pilipala.remoteprobe.BackgroundCloseChecks'], check=True)

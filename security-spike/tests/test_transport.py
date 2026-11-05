@@ -26,7 +26,7 @@ class TransportTests(unittest.TestCase):
     def setUpClass(cls):
         cls.host=os.environ['MARCO_TEST_BIND'];OUT.mkdir(parents=True,exist_ok=True)
         sources=list((ROOT/'security-spike/tests/host').rglob('*.java'))
-        sources += [ROOT/'security-spike/src/com/pilipala/remoteprobe'/name for name in ('ProbeServer.java','SessionPolicy.java')]
+        sources += [ROOT/'security-spike/src/com/pilipala/remoteprobe'/name for name in ('ProbeServer.java','SessionPolicy.java','BackgroundClose.java')]
         subprocess.run([str(JDK/('bin/javac'+SUFFIX)),'--release','8','-encoding','UTF-8','-d',str(OUT),*map(str,sources)],check=True)
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)

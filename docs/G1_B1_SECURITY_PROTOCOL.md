@@ -1,6 +1,6 @@
 # G1-B1：安全通信与配对验证协议
 
-日期：2026-11-05。实现范围为独立验证包 `com.pilipala.remoteprobe`，不是 Marco TV 的生产远控接口。**只连接假输入计数器，不调用 MarcoFocusController/HomeView。** 当前设备 TLS 可行性已实测；人工电视批准、批准后假输入及主动撤销尚未真机验收，见 [验证报告](G1_B1_REPORT.md)。未经本阶段验收不得进入 G1-B2。
+日期：2026-11-05。实现范围为独立验证包 `com.pilipala.remoteprobe`，不是 Marco TV 的生产远控接口。**只连接假输入计数器，不调用 MarcoFocusController/HomeView。** 当前设备 TLS 可行性及人工配对补测状态见 [验证报告](G1_B1_REPORT.md)；早期只验证握手，不代表完整会话已验证。未经本阶段验收不得进入 G1-B2。
 
 ## 信任边界与实现来源
 
@@ -43,7 +43,7 @@ WINDOW/PENDING --拒绝/到期/暂停--> CLOSED
 
 ACTIVE 发放独立 256-bit session ID，但服务端还检查**内部连接标识**；它不是可跨连接使用的长期 bearer credential。断线不重连恢复、不保存持久客户端凭据。再次连接需要新的电视配对窗口/票据/批准。即使 TLS 层恢复加密会话，也不能恢复应用授权。
 
-会话绝对期限 5 分钟，15 秒无认证帧关闭；客户端维持会话可每 5 秒 PING。电视“拒绝/撤销”按钮同步撤销 policy 并关闭 listener/current socket；Activity 暂停也停止配对和会话。定时器周期 500ms 清理闲置 socket，但每次执行/批准都同步校验截止时间，因此不会把定时器延迟当作授权延长。
+会话绝对期限 5 分钟，15 秒无认证帧关闭；客户端维持会话可每 5 秒 PING。电视“拒绝/撤销”按钮同步撤销 policy，再由独立后台线程关闭 listener/current socket；Activity 暂停也走同一流程。Android9 的 TLS close_notify 会执行网络 I/O，不能从 UI 线程直接调用 SSLSocket.close()。本轮人工真机补测发现并修复了该问题；BackgroundClose 的回归测试检查即时撤权、后台 I/O 与并发幂等。定时器周期 500ms 清理闲置 socket，但每次执行/批准都同步校验截止时间，因此不会把定时器延迟当作授权延长。
 
 单 listener、同时一个握手/连接、TCP backlog=1，无应用工作队列；握手最多 5 秒，首次 frame 总期限 5 秒，后续 frame 总期限 15 秒。单 frame 最多 4096 个 ASCII 可打印字符 + LF，拒绝 CR/非 ASCII、控制字符与超长帧。每秒最多 10 个认证 frame（包含 PING/快照）；超限撤销。此限制是 spike 的资源上界，仍可能被同网攻击者短时间占用唯一连接造成拒绝服务，不声称完成产品级 DoS 防护。
 
