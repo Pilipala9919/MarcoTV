@@ -32,6 +32,10 @@ python remote/marco_remote.py STATE RIGHT STATE CLOSE
 python remote/tests/device_witness.py --adb $adb --serial $serial
 ```
 
+[故障采集工具](../remote/tests/device_faults.py) 的每个模式都需要新扫码和电视批准。例：`python remote/tests/device_faults.py replay --adb $adb --serial $serial`。local 模式在 NOW 后 700ms 内用实体遥控按一次方向键，保留旧 challenge 的响应。replay 重发已使用的 seq。stale 和 idle 分别等待挑战与空闲截止。revoke 用遥控器打开设置，sleep 用物理电源键。recreate 仅对并排测试包清空任务并启动新 Activity，记录进程是否保持；需核对系统 Activity 销毁/创建事件，不涵盖保存状态恢复的所有生命周期。network 需在电视 UI 外中断电视网络，例如拔出网线；恢复网络后再取电视日志。Windows 超时只表示客户端观察到失联，不能单独证明电视已撤权。
+
+撤销/休眠/重建/断网前后分别记录 Windows 时间、电视 `MarcoFocus` 日志、对应包的 Activity 和 crash buffer 时间窗。仅收集相关片段，不清空全设备日志。重建或重新联网后应需重新本地配对；再次完成有效 RIGHT 前不得沿用旧凭据。所有模式的结果文件默认写入本地忽略目录。
+
 ## 证据与验收矩阵（2026-11-06）
 
 C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次真实电视观测。安装记录及 APK SHA-256 见[设备证据](evidence/g1-b2-install-20261106.json)。
