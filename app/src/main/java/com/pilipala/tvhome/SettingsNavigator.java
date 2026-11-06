@@ -31,7 +31,10 @@ final class SettingsNavigator {
                 .setOrder("main_v2",java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_IDS,1,SettingsCatalog.ROOT_IDS.length))
                 .setItems(java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_LABELS,1,SettingsCatalog.ROOT_LABELS.length),(d,w)->host.handler.post(()->{
             openCategory(w+1);
-        })).setNegativeButton("返回桌面",null).create();
+        })).setPositiveButton("安全卡片遥控", (d,w) -> {
+            host.exitMenus();
+            host.focusRemote.settings();
+        }).setNegativeButton("返回桌面",null).create();
     }
     void openCategory(int index){
         switch(index){
