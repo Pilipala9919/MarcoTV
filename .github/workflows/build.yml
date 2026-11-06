@@ -52,6 +52,13 @@ jobs:
         run: |
           python security-spike/tools/test_policy.py
           python security-spike/tools/build.py
+      - name: Authenticated HomeView protocol and side-by-side build
+        run: |
+          python -m pip install --only-binary=:all: cryptography==50.0.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python remote/tests/check.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/build.py --focus-lab
       - name: Native card focus and cancellation checks
         run: python scripts/test_marco_focus.py
       - name: Interrupted motion lifecycle checks

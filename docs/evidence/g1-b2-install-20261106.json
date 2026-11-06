@@ -1,0 +1,30 @@
+{
+  "date_utc": "2026-11-06T02:26:02.375917+00:00",
+  "model": "MiTV-ASTP0",
+  "api": "28",
+  "stage": "B2 physical installation and launch; authorized RIGHT pending",
+  "apk_sha256": "8d42859890b23b9ac6a262a5a8eb2016506df898abfb14d10f159400b4288cc1",
+  "installed_matches_local": true,
+  "stable_apk_sha256_observed": "b9dfb6e41d68fb50dd76b3386ff53550366addc2ced9eeb861f66445f4d34263",
+  "packages_and_uids": {
+    "com.pilipala.tvhome.focuslab": "10040",
+    "com.pilipala.tvhome": "10059",
+    "com.pilipala.remoteprobe": "10039"
+  },
+  "activity": "com.pilipala.tvhome.focuslab/com.pilipala.tvhome.MainActivity",
+  "process_observed": true,
+  "wakefulness": "Asleep",
+  "listening_tcp_sockets_for_lab_uid_at_sample": 0,
+  "dex_checks": "HomeView, controller, production transport present; independent probe, fake result, fixture and debug bootstrap strings absent",
+  "physical_authorized_RIGHT": "not_measured",
+  "visual_proof": null,
+  "unauthorized_task_replacement": {
+    "process_survived": true,
+    "same_uid_listener_count_after": 0,
+    "activity_event_types": [
+      "am_create_activity",
+      "am_destroy_activity"
+    ],
+    "scope": "replace task with NEW_TASK|CLEAR_TASK while already asleep and without a grant"
+  }
+}

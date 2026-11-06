@@ -6,7 +6,7 @@ import java.util.EnumSet;
 
 /**
  * G1 domain slice. Own-card focus only; no Android events, sockets or authentication.
- * NOT wired to HomeView yet. The future adapter must call every method on the UI
+ * The HomeView adapter calls each method on the UI
  * thread, mirror local/layout/lifecycle events, and apply a MOVED result atomically
  * to HomeView before yielding that thread. An internal result is not a rendered ACK.
  *
@@ -168,6 +168,13 @@ final class MarcoFocusController {
     }
 
     /** Recheck at execution, immediately before mutating focus on the owning thread. */
+    Command prepareUntil(Snapshot expected, Direction direction, long end) {
+        checkAlive();
+        if (expected == null || expected.owner != this || direction == null ||
+                end > now() + MAX_COMMAND_MS) throw new IllegalArgumentException("invalid grant");
+        return new Command(expected, direction, end);
+    }
+
     Result execute(Command command) {
         checkThread();
         if (command == null) throw new IllegalArgumentException("command required");

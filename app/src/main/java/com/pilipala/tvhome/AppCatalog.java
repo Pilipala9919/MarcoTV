@@ -221,6 +221,7 @@ final class AppCatalog {
                         }
                         host.focusAfterLoad=null;
                     }
+                    host.home.remoteLayoutChanged();
                     host.home.ensureVisible();
                     host.home.animateFocus();
                     host.home.describeFocus();
@@ -261,6 +262,7 @@ final class AppCatalog {
             AppOrder.sort(r.tiles,host.preferences,host.cards);
             for(int i=0;i<r.tiles.size();i++)if(r.tiles.get(i).id.equals(focused))r.selected=i;
         }
+        host.home.remoteLayoutChanged();
         host.home.ensureVisible();
         host.home.animateFocus();
         host.home.describeFocus();
