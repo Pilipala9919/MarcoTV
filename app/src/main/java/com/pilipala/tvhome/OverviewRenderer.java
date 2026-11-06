@@ -58,11 +58,11 @@ final class OverviewRenderer {
         overviewMatrix.preTranslate(-view.getWidth()/2f,-view.getHeight()/2f);
         bounds.set(0,0,view.getWidth(),view.getHeight());
         overviewMatrix.mapRect(bounds);
-        float available=Math.max(view.getWidth()*.25f,view.getWidth()-350*density);
+        float available=Math.max(view.getWidth()*.25f,view.getWidth()-364*density);
         float targetScale=Math.min(available/bounds.width(),view.getHeight()*.78f/bounds.height());
         float size=1-(1-targetScale)*overview;
         overviewMatrix.postScale(size,size);
-        float targetCenter=20*density+available/2;
+        float targetCenter=24*density+available/2;
         overviewMatrix.postTranslate(view.getWidth()/2f+(targetCenter-view.getWidth()/2f)*overview-bounds.centerX()*size,view.getHeight()/2f-bounds.centerY()*size);
         if(canvas.isHardwareAccelerated()){
             // Live previews stay on the GPU; the antialiased border softens the
