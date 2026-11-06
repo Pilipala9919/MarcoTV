@@ -17,5 +17,14 @@
   "listening_tcp_sockets_for_lab_uid_at_sample": 0,
   "dex_checks": "HomeView, controller, production transport present; independent probe, fake result, fixture and debug bootstrap strings absent",
   "physical_authorized_RIGHT": "not_measured",
-  "visual_proof": null
+  "visual_proof": null,
+  "unauthorized_task_replacement": {
+    "process_survived": true,
+    "same_uid_listener_count_after": 0,
+    "activity_event_types": [
+      "am_create_activity",
+      "am_destroy_activity"
+    ],
+    "scope": "replace task with NEW_TASK|CLEAR_TASK while already asleep and without a grant"
+  }
 }

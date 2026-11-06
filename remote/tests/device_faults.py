@@ -67,7 +67,7 @@ def main():
                 if not prior_pid or COMPONENT not in shell('dumpsys','activity','activities'):
                     raise RuntimeError('Expected lab activity')
                 # Destroy the lab task and create a new Activity without force-stopping its process.
-                shell('am','start','-W','--activity-new-task','--activity-clear-task','-n',COMPONENT)
+                shell('am','start','-W','-f','0x10008000','-n',COMPONENT)
                 result['process_survived_task_replacement'] = prior_pid == shell('pidof',LAB).strip()
             elif args.case == 'idle':
                 time.sleep(16)

@@ -53,6 +53,8 @@ C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次
 | 网络中断 | T：真实主机 TCP 断开时 UI 尚有延迟任务，任务实际返回 UNAUTHORIZED，列保持 0。T 空闲及绝对期限通过 | D：客户端断链及静默丢包/物理 Wi-Fi 中断分别记录；EOF 不能代替物理网络故障 |
 | Android 9 撤销时关闭 socket | C：UI 同步撤权，单独线程释放 TLS 传输；B1 曾有同类问题并修复 | B2 尚需实际批准后电视撤销，查本进程时间窗内 crash buffer、窗口前台和 Windows 断开 |
 
+另一次真机采样在电视仍为 Asleep、测试 UID 无监听、没有已授权会话时进行了实验包任务替换。系统事件记录了新 Activity 创建与旧 Activity 销毁，进程保持，测试 UID 的监听数仍为零。此项只覆盖默认关闭状态下的 Activity 替换，活跃授权的取消仍按上表待测。
+
 自动化入口（Windows，测试环境使用既有审核的 cryptography 50.0.2，运行 CLI 只需 Python 标准库）：
 
 ```powershell
