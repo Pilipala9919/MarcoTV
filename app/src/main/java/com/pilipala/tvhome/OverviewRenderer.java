@@ -16,7 +16,7 @@ final class OverviewRenderer {
     private PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
     private final RectF bounds=new RectF(),frame=new RectF();
     private final Matrix bufferMatrix=new Matrix();
-    private final Path previewCutout=new Path();
+    private final Path previewCutout=new Path(),outerMask=new Path();
 
     OverviewRenderer(HomeView view) {
         this.view = view;
@@ -64,24 +64,30 @@ final class OverviewRenderer {
         overviewMatrix.postScale(size,size);
         float targetCenter=24*density+available/2;
         overviewMatrix.postTranslate(view.getWidth()/2f+(targetCenter-view.getWidth()/2f)*overview-bounds.centerX()*size,view.getHeight()/2f-bounds.centerY()*size);
+        float radius=40*density*overview;
         if(canvas.isHardwareAccelerated()){
-            // Live previews stay on the GPU; the antialiased border softens the
-            // projected outline without a full-screen intermediate render target.
+            // Live previews stay on the GPU; mask outer corners in screen space so 3D perspective never bypasses rounded clipping.
             int transformed=canvas.save();
             canvas.concat(overviewMatrix);
             frame.set(0,0,view.getWidth(),view.getHeight());
             previewCutout.reset();
-            previewCutout.addRoundRect(frame,8*density,8*density,Path.Direction.CW);
+            previewCutout.addRoundRect(frame,radius,radius,Path.Direction.CW);
             int clipped=canvas.save();
             canvas.clipPath(previewCutout);
             view.drawScene(canvas);
             canvas.restoreToCount(clipped);
+            canvas.restoreToCount(transformed);
+            previewCutout.transform(overviewMatrix);
+            outerMask.reset();
+            outerMask.setFillType(Path.FillType.EVEN_ODD);
+            outerMask.addRect(-2*density,-2*density,view.getWidth()+2*density,view.getHeight()+2*density,Path.Direction.CW);
+            outerMask.addPath(previewCutout);
+            overviewBackdrop.drawMask(canvas,outerMask,view.getWidth(),view.getHeight());
             overviewPaint.setShader(null);
             overviewPaint.setStyle(Paint.Style.STROKE);
-            overviewPaint.setStrokeWidth(density);
-            overviewPaint.setColor(0x609BB9CB);
-            canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
-            canvas.restoreToCount(transformed);
+            overviewPaint.setStrokeWidth(1.2f*density);
+            overviewPaint.setColor(0x709BB9CB);
+            canvas.drawPath(previewCutout,overviewPaint);
             return;
         }
         int bufferWidth=Math.min(1280,view.getWidth()),bufferHeight=Math.max(1,Math.round(view.getHeight()*bufferWidth/(float)view.getWidth()));
@@ -108,12 +114,12 @@ final class OverviewRenderer {
         overviewPaint.setShader(overviewShader);
         overviewPaint.setStyle(Paint.Style.FILL);
         overviewPaint.setColor(Color.WHITE);
-        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
+        canvas.drawRoundRect(frame,radius,radius,overviewPaint);
         overviewPaint.setShader(null);
         overviewPaint.setStyle(Paint.Style.STROKE);
-        overviewPaint.setStrokeWidth(density);
-        overviewPaint.setColor(0x609BB9CB);
-        canvas.drawRoundRect(frame,8*density,8*density,overviewPaint);
+        overviewPaint.setStrokeWidth(1.2f*density);
+        overviewPaint.setColor(0x709BB9CB);
+        canvas.drawRoundRect(frame,radius,radius,overviewPaint);
         canvas.restoreToCount(save);
     }
 }
