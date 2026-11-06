@@ -85,8 +85,8 @@ final class PanelWindow extends Dialog {
         int height=getContext().getResources().getDisplayMetrics().heightPixels;
         content.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         if(content instanceof ViewGroup)((ViewGroup)content).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(page.isPersonalization()?290:preview?290:centered?780:network?300:320),
-                width-dp(48)),Math.min(dp(page.isPersonalization()?500:preview?218:centered?425:network?page.networkHeight():500),height-dp(32)));
+        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(page.isPersonalization()?312:preview?312:centered?800:network?300:356),
+                width-dp(48)),Math.min(dp(page.isPersonalization()?516:preview?252:centered?476:network?page.networkHeight():516),height-dp(24)));
         p.gravity=centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
         p.rightMargin=centered?0:dp(24);
         if(network){

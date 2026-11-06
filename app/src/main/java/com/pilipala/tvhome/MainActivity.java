@@ -31,6 +31,7 @@ public final class MainActivity extends Activity {
     HealthPanel health;
     UpdatePanel updates;
     PhoneManager phone;
+    CastManager cast;
     PreviewPreferences previewPreferences;
     PreviewPreferences localPreview;
     AppearanceSession appearanceSession;
@@ -156,6 +157,7 @@ public final class MainActivity extends Activity {
         home = new HomeView(this);
         setContentView(home);
         phone = new PhoneManager(this);
+        cast = new CastManager(this);
         home.requestFocus();
         loadWallpaper();
         loadApplications();
@@ -217,6 +219,7 @@ public final class MainActivity extends Activity {
         }
         dialogs.resume();
         if(network!=null)network.resume();
+        if(cast!=null)cast.resume();
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
         if(updates!=null)updates.resume();
@@ -255,6 +258,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if(defaultHome!=null)defaultHome.destroy();
+        if(cast!=null)cast.destroy();
         if(phone!=null)phone.destroy();
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
@@ -286,6 +290,7 @@ public final class MainActivity extends Activity {
                 preferences.getInt("recent_double_ms",400));
         else if(!intent.hasCategory(Intent.CATEGORY_HOME))homePressTracker.reset();
         recents.close();
+        if(cast!=null&&cast.isPlaying())cast.stopPlayback();
         closeMenus();
         ambientRequested = intent.getBooleanExtra("ambient", false);
         if (home != null) {

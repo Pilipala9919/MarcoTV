@@ -28,8 +28,8 @@ final class SettingsNavigator {
     }
     TvDialog settingsDialog() {
         return new TvDialog.Builder(host).setPageId("main").setTitle("桌面设置")
-                .setOrder("main_v2",java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_IDS,1,SettingsCatalog.ROOT_IDS.length))
-                .setItems(java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_LABELS,1,SettingsCatalog.ROOT_LABELS.length),(d,w)->host.handler.post(()->{
+                .setOrder("main_v2",java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_IDS,1,SettingsCatalog.ROOT_IDS.length-1))
+                .setItems(java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_LABELS,1,SettingsCatalog.ROOT_LABELS.length-1),(d,w)->host.handler.post(()->{
             openCategory(w+1);
         })).setNegativeButton("返回桌面",null).create();
     }
@@ -249,8 +249,9 @@ final class SettingsNavigator {
 
     void deviceSettings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("device").setTitle("网络与声音")
-                .setOrder("device","network","sound").setItems(new String[]{"网络与 Wi-Fi","媒体音量"},(d,w)->{
+                .setOrder("device","network","cast","sound").setItems(new String[]{"网络与 Wi-Fi","无线投屏与镜像","媒体音量"},(d,w)->{
             if(w==0)host.network.show();
+            else if(w==1)host.cast.show();
             else soundSettings();
         }).setNegativeButton("返回",null).create());
     }

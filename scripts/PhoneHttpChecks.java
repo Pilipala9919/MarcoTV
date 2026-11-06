@@ -34,7 +34,10 @@ public final class PhoneHttpChecks {
         check("header_deadline_enforced",deadlineRejected);
         PhoneHttp server=new PhoneHttp(InetAddress.getByName("127.0.0.1"),0,folder,new PhoneHttp.Handler(){
             public PhoneHttp.Response check(PhoneHttp.Request r){return r.path.equals("/denied")?PhoneHttp.Response.text(401,"denied"):null;}
-            public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{return PhoneHttp.Response.text(200,r.remoteAddress+":"+r.text());}
+            public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{
+                if(r.path.equals("/cast"))return PhoneHttp.Response.text(200,"cast:"+(r.body==null?0:r.body.length()));
+                return PhoneHttp.Response.text(200,r.remoteAddress+":"+r.text());
+            }
         });int port=server.port();
         try{
             check("stale_part_files_cleaned_on_start",!stale.exists());
@@ -48,6 +51,8 @@ public final class PhoneHttpChecks {
             }
             check("response_is_not_cached",response.contains("Cache-Control: no-store")&&response.contains("X-Frame-Options: DENY"));
             check("oversized_body_rejected_before_upload",send(port,"POST /action HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n").startsWith("HTTP/1.1 413"));
+            String largePayload=new String(new char[70000]).replace('\0','a');
+            check("authorized_cast_endpoint_accepts_extended_body_limit",send(port,"POST /cast HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n"+largePayload).endsWith("cast:70000"));
             check("authorization_precedes_upload",send(port,"POST /denied HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n").startsWith("HTTP/1.1 401"));
             check("temporary_bodies_removed",folder.list().length==0);
         }finally{server.close();folder.delete();}

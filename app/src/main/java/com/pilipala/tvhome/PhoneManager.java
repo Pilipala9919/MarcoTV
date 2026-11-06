@@ -82,8 +82,9 @@ final class PhoneManager implements PhoneHttp.Handler {
         if(active()){
             host.showDialog(new TvDialog.Builder(host).setPageId("phone").setTitle("Marco 互联")
                     .setMessage((approved?"手机已连接":"等待手机扫码确认")+"\n仅限当前局域网；15 分钟未操作自动关闭。\n关闭连接会取消未保存的外观预览。")
-                    .setItems(new String[]{"显示连接二维码","断开并关闭 Marco 互联"},(d,w)->{
+                    .setItems(new String[]{"显示连接二维码","无线投屏与镜像","断开并关闭 Marco 互联"},(d,w)->{
                 if(w==0)qr();
+                else if(w==1)host.cast.show();
                 else{
                     stop();
                     host.exitMenus();
@@ -112,6 +113,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             closed=false;
             generation++;
             host.armIdle();
+            if(host.cast!=null)host.cast.syncReceiver();
             host.handler.post(timeout);
             qr();
         }catch(Exception e){
@@ -175,12 +177,12 @@ final class PhoneManager implements PhoneHttp.Handler {
         text.setTextColor(0xFFCBD6E2);
         text.setTextSize(15);
         text.setLineSpacing(dp(5),1);
-        text.setText("1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 调整外观 · 上传壁纸\n本地备份 · 导出诊断\n二维码 5 分钟有效 · 无需手机 App");
+        text.setText("1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 照片/视频快投 · 调整外观\n同时已开启 DLNA，视频 App 可直接投屏\n二维码 5 分钟有效 · 无需手机 App");
         instructions.addView(text);
         box.addView(instructions,new LinearLayout.LayoutParams(0,-2,1));
         host.showDialog(new TvDialog.Builder(host).centered().setPageId("phone_qr").setTitle("Marco 互联 · 扫码连接")
                 .setView(box)
-                .setPositiveButton("返回",null).setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host)
+                .setPositiveButton("返回",null).setNeutralButton("无线投屏",(d,w)->host.cast.show()).setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host)
                 .setPageId("phone_manual").setTitle("手动连接电视")
                 .setMessage("手机浏览器打开：http://"+authority+"/\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
                 .setNegativeButton("返回二维码",null).create())).setNegativeButton("关闭连接",(d,w)->{
@@ -206,6 +208,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             server.close();
             server=null;
         }
+        if(host.cast!=null)host.cast.syncReceiver();
         host.armIdle();
     }
     void destroy(){
@@ -274,6 +277,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         }
         if(r.path.equals("/upload"))return upload(r);
         if(r.path.equals("/restore"))return restore(r);
+        if(r.path.equals("/cast"))return castMedia(r);
         if(!r.path.equals("/action"))return fail(404,"操作不存在");
         JSONObject body=new JSONObject(r.text());
         return main(()->action(body));
@@ -292,6 +296,7 @@ final class PhoneManager implements PhoneHttp.Handler {
                     .setPositiveButton("允许连接",(d,w)->{
                 if(!closed&&nonce.equals(expected)&&clientAddress.equals(expectedIp)){
                     approved=true;
+                    if(host.cast!=null)host.cast.trustIp(expectedIp);
                     host.exitMenus();
                     host.toast("手机已连接，未保存的预览不会写入配置");
                 }
@@ -330,6 +335,7 @@ final class PhoneManager implements PhoneHttp.Handler {
                 .put("revision",revision).put("csrf",csrf)
                 .put("rows",rows).put("hidden",hidden).put("settings",settings).put("preview",previewing())
                 .put("sort",host.preferences.getString("tv_sort","recent"))
+                .put("cast",host.cast==null?new JSONObject():host.cast.statusJson())
                 .put("freeMB",host.getFilesDir().getUsableSpace()/1048576).put("foreground",host.foreground);
     }
     private JSONObject tile(Tile t)throws Exception{
@@ -351,6 +357,18 @@ final class PhoneManager implements PhoneHttp.Handler {
         }
         if(op.equals("cancel")){
             clearPreview();
+            return json(state());
+        }
+        if(op.equals("cast_url")){
+            String url=b.optString("url","").trim();
+            if(!(url.startsWith("http://")||url.startsWith("https://"))||url.length()>2048)return fail(400,"请输入有效的 http 或 https 视频链接");
+            String title=b.optString("title","手机网页投屏").trim();
+            if(title.length()>80)title=title.substring(0,80);
+            if(host.cast!=null)host.cast.playVideo(url,title,clientAddress,true);
+            return json(state());
+        }
+        if(op.equals("cast_control")){
+            if(host.cast!=null)host.cast.remoteControl(b.optString("cmd",""));
             return json(state());
         }
         if(b.optLong("revision",-1)!=revision)return fail(409,"电视上的设置已变化，请刷新后再操作");
@@ -595,6 +613,58 @@ final class PhoneManager implements PhoneHttp.Handler {
                 copy.delete();
                 throw e;
             }
+        }finally{
+            transfer.set(false);
+        }
+    }
+    private PhoneHttp.Response castMedia(PhoneHttp.Request r)throws Exception{
+        if(!transfer.compareAndSet(false,true))return fail(409,"正在处理文件，请稍候");
+        try{
+            if(r.body==null||r.length<=0)return fail(400,"请选择照片或视频文件");
+            String kind=r.header("x-marco-cast-kind");
+            String rawName=r.header("x-marco-cast-name");
+            String title="手机快投";
+            if(!rawName.isEmpty())try{
+                title=URLDecoder.decode(rawName,"UTF-8").trim();
+                if(title.length()>80)title=title.substring(0,80);
+            }catch(Exception ignored){}
+            final String castTitle=title;
+            final String ip=r.remoteAddress;
+            if("video".equals(kind)){
+                File dest=new File(host.getCacheDir(),"cast-upload-"+System.currentTimeMillis()+".mp4");
+                try(InputStream in=new FileInputStream(r.body);OutputStream out=new FileOutputStream(dest)){
+                    byte[] block=new byte[32768];
+                    int n;
+                    while((n=in.read(block))!=-1)out.write(block,0,n);
+                }
+                return main(()->{
+                    if(closed||!approved||host.cast==null){
+                        dest.delete();
+                        return fail(401,"连接已关闭");
+                    }
+                    host.cast.stageAndPlayFile(dest,castTitle,ip);
+                    return json(state());
+                });
+            }
+            if(r.length>24L*1024*1024)return fail(400,"照片请小于 24 MB");
+            BitmapFactory.Options o=new BitmapFactory.Options();
+            o.inJustDecodeBounds=true;
+            BitmapFactory.decodeFile(r.body.getPath(),o);
+            if(o.outWidth<1||o.outHeight<1||o.outWidth>8192||o.outHeight>8192||(long)o.outWidth*o.outHeight>36000000)return fail(400,"图片无法识别或像素过大");
+            o.inJustDecodeBounds=false;
+            o.inSampleSize=1;
+            while(o.outWidth/o.inSampleSize>1920||o.outHeight/o.inSampleSize>1080)o.inSampleSize*=2;
+            o.inPreferredConfig=Bitmap.Config.ARGB_8888;
+            final Bitmap bmp=BitmapFactory.decodeFile(r.body.getPath(),o);
+            if(bmp==null)return fail(400,"图片无法读取");
+            return main(()->{
+                if(closed||!approved||host.cast==null){
+                    bmp.recycle();
+                    return fail(401,"连接已关闭");
+                }
+                host.cast.showPhoto(bmp,castTitle,ip);
+                return json(state());
+            });
         }finally{
             transfer.set(false);
         }

@@ -265,7 +265,7 @@ final class DefaultHomePanel {
         guide.setTextColor(android.graphics.Color.WHITE);guide.setTextSize(16);guide.setPadding(gap,0,0,0);
         guide.setText("手机相机扫一扫\n选择「已经安装，设置默认桌面」\n\n也可在浏览器输入\nmarcotv.wlj9919.top/install/#home\n\n网页提供步骤，系统确认需在电视上完成。");
         box.addView(guide,new android.widget.LinearLayout.LayoutParams(0,-2,1));
-        host.showDialog(new TvDialog.Builder(host).setPageId("home_assistant").setTitle("用手机查看设置向导")
+        host.showDialog(new TvDialog.Builder(host).centered().setPageId("home_assistant").setTitle("用手机查看设置向导")
                 .setView(box)
                 .setNegativeButton("返回",null).create());
     }

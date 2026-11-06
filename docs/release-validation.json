@@ -7,7 +7,7 @@
   "all_automated_checks_passed": true,
   "device_model": "Xiaomi MiTV-ASTP0",
   "android": "9",
-  "apk_sha256": "684e1acb1eb9a18ffab176f7d16afb37f28c486bde3ffffaaccc8f0de6943dc4",
+  "apk_sha256": "d75639c3bb4e62c3ce97d8e5dc8bbcb366f2d2c36a9b66970ab3bc2e1f74b603",
   "source_behavior_evidence": {
     "development_apk_sha256": "702716854a3107e72bab19ede23b2edc9dcdeb6d0371eb6b230232ad518411eb",
     "setup_device_checks": 37,
@@ -32,7 +32,7 @@
     "all_passed": true,
     "installation_web_route_combinations": 72,
     "device_setup_checks": 37,
-    "device_setup_apk_sha256": "684e1acb1eb9a18ffab176f7d16afb37f28c486bde3ffffaaccc8f0de6943dc4",
+    "device_setup_apk_sha256": "d75639c3bb4e62c3ce97d8e5dc8bbcb366f2d2c36a9b66970ab3bc2e1f74b603",
     "physical_remote": "user confirmation on source-equivalent development APK; release metadata changed only",
     "full_reboot": "not repeated"
   },

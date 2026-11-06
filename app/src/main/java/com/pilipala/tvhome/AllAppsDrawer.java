@@ -87,10 +87,12 @@ final class AllAppsDrawer {
             item.setText(e.label);
             item.setGravity(Gravity.CENTER);
             item.setTextColor(0xFFE5EDF4);
-            item.setTextSize(14);
+            item.setTextSize(13);
+            item.setIncludeFontPadding(false);
+            item.setLineSpacing(dp(1),1f);
             item.setMaxLines(2);
             item.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            item.setPadding(dp(8),dp(10),dp(8),dp(10));
+            item.setPadding(dp(6),dp(8),dp(6),dp(6));
             item.setFocusable(true);
             item.setClickable(true);
             item.setContentDescription(e.label+"，确定打开，长按添加到桌面");
@@ -99,13 +101,13 @@ final class AllAppsDrawer {
             item.setBackground(bg);
             if(e.icon!=null){
                 Drawable icon=new BitmapDrawable(host.getResources(),e.icon);
-                icon.setBounds(0,0,dp(44),dp(44));
+                icon.setBounds(0,0,dp(42),dp(42));
                 item.setCompoundDrawables(null,icon,null,null);
-                item.setCompoundDrawablePadding(dp(8));
+                item.setCompoundDrawablePadding(dp(6));
             }
             GridLayout.LayoutParams lp=new GridLayout.LayoutParams();
             lp.width=0;
-            lp.height=dp(104);
+            lp.height=dp(110);
             lp.columnSpec=GridLayout.spec(i%5,1f);
             lp.rowSpec=GridLayout.spec(i/5);
             lp.setMargins(dp(4),dp(4),dp(4),dp(4));

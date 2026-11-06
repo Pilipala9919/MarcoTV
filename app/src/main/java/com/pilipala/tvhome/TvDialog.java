@@ -152,7 +152,7 @@ final class TvDialog extends Dialog {
         // Let the window renderer update scrolling rows without a panel-sized software cache.
         panel.setLayerType(View.LAYER_TYPE_NONE, null);
         boolean preview=spec.preview!=null;
-        panel.setPadding(dp(spec.network?14:preview?16:24), dp(spec.network?14:preview?14:22), dp(spec.network?14:preview?16:24), dp(spec.network?10:preview?14:18));
+        panel.setPadding(dp(spec.network?14:preview?14:18), dp(spec.network?14:preview?12:18), dp(spec.network?14:preview?14:18), dp(spec.network?10:preview?12:14));
         panel.setClickable(true);
         GradientDrawable bg = background(0xF51D2028, dp(24));
         bg.setStroke(dp(1), 0x20FFFFFF);
@@ -160,11 +160,12 @@ final class TvDialog extends Dialog {
         TextView brand = text("M A R C O T V", 10, 0xFFB0B8C6);
         brand.setLetterSpacing(.1f);
         if(!preview&&!spec.network)panel.addView(brand);
-        TextView title = text(spec.title, preview||spec.network?19:25, Color.WHITE);
+        TextView title = text(spec.title, preview||spec.network?18:22, Color.WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", 0));
         title.setMaxLines(2);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:8), 0, dp(preview||spec.network?8:14));
+        title.setLineSpacing(dp(2), 1f);
+        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:6), 0, dp(preview||spec.network?6:10));
         panel.addView(title);
         ScrollView scroll = new MotionScrollView(getContext());
         scroll.setFillViewport(false);
@@ -175,10 +176,10 @@ final class TvDialog extends Dialog {
         body.setPadding(dp(3), dp(3), dp(3), dp(3));
         scroll.addView(body);
         if (spec.message != null && !preview) {
-            TextView message = text(spec.message, spec.network?12:16, 0xFFBDC4CF);
-            message.setLineSpacing(dp(spec.network?2:5), 1);
+            TextView message = text(spec.message, spec.network?12:15, 0xFFBDC4CF);
+            message.setLineSpacing(dp(spec.network?2:4), 1);
             messageView=message;
-            message.setPadding(dp(6),0,dp(6),dp(spec.network?8:18));
+            message.setPadding(dp(4),0,dp(4),dp(spec.network?8:12));
             body.addView(message);
         }
         if (spec.view != null) {
@@ -271,17 +272,24 @@ final class TvDialog extends Dialog {
             choices.add(item);
         }
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout buttons = new LinearLayout(getContext());
-        buttons.setOrientation(spec.stackedButtons?LinearLayout.VERTICAL:LinearLayout.HORIZONTAL);
-        buttons.setPadding(0, dp(13), 0, 0);
+        int totalButtons = spec.buttons.size() + (spec.orderKey != null ? 1 : 0);
+        int maxBtnLen = spec.orderKey != null ? 4 : 0, sumBtnLen = maxBtnLen;
         for (ButtonSpec action : spec.buttons) {
-            TextView button = row(action.text, false);
-            button.setGravity(Gravity.CENTER);
-            button.setTextSize(15);
-            LinearLayout.LayoutParams p = spec.stackedButtons
-                    ?new LinearLayout.LayoutParams(-1,dp(44))
-                    :new LinearLayout.LayoutParams(0, dp(preview?34:44), 1);
-            p.setMargins(dp(3), 0, dp(3), 0);
+            int len = action.text == null ? 0 : action.text.length();
+            if (len > maxBtnLen) maxBtnLen = len;
+            sumBtnLen += len;
+        }
+        boolean stackButtons = spec.stackedButtons || (!preview && !spec.centered
+                && ((totalButtons >= 3 && (maxBtnLen > 4 || sumBtnLen > 10)) || (totalButtons == 2 && maxBtnLen > 6)));
+        LinearLayout buttons = new LinearLayout(getContext());
+        buttons.setOrientation(stackButtons?LinearLayout.VERTICAL:LinearLayout.HORIZONTAL);
+        buttons.setPadding(0, dp(10), 0, 0);
+        for (ButtonSpec action : spec.buttons) {
+            TextView button = styleButton(row(action.text, false), preview);
+            LinearLayout.LayoutParams p = stackButtons
+                    ?new LinearLayout.LayoutParams(-1,ViewGroup.LayoutParams.WRAP_CONTENT)
+                    :new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            p.setMargins(dp(3), dp(stackButtons?2:0), dp(3), dp(stackButtons?2:0));
             buttons.addView(button, p);
             choices.add(button);
             button.setOnClickListener(v -> {
@@ -293,16 +301,20 @@ final class TvDialog extends Dialog {
             });
         }
         if(spec.orderKey!=null){
-            TextView sort=row("调整顺序",false);
-            sort.setTextSize(15);
-            sort.setGravity(Gravity.CENTER);
-            buttons.addView(sort,new LinearLayout.LayoutParams(0,dp(44),1));
+            TextView sort=styleButton(row("调整顺序",false), preview);
+            LinearLayout.LayoutParams p = stackButtons
+                    ?new LinearLayout.LayoutParams(-1,ViewGroup.LayoutParams.WRAP_CONTENT)
+                    :new LinearLayout.LayoutParams(0,dp(42),1);
+            p.setMargins(dp(3), dp(stackButtons?2:0), dp(3), dp(stackButtons?2:0));
+            buttons.addView(sort,p);
             choices.add(sort);
             sort.setOnClickListener(v->beginMove(lastItem,false));
         }
         if (buttons.getChildCount()>0) panel.addView(buttons);
         hint = text(spec.orderKey==null?"返回上一级  ·  Home 回桌面":"长按确定调整顺序  ·  返回上一级  ·  Home 回桌面", 11, 0xFF8993A4);
-        hint.setPadding(dp(3), dp(14), 0, 0);
+        hint.setSingleLine(true);
+        hint.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        hint.setPadding(dp(3), dp(10), 0, 0);
         if(!preview&&!spec.network)panel.addView(hint);
         setContentView(panel);
         Window w = getWindow();
@@ -342,7 +354,7 @@ final class TvDialog extends Dialog {
         swallowMoveRelease=fromHold;
         hint.setText("上下移动  ·  确定放下  ·  返回结束排序");
         for(TextView item:itemViews)if((Integer)item.getTag()==index){
-            item.setText("↕  "+spec.items[index]);
+            item.setText("▲▼  "+spec.items[index]);
             item.requestFocus();
             break;
         }
@@ -411,19 +423,31 @@ final class TvDialog extends Dialog {
         t.setText(value);
         t.setTextSize(size);
         t.setTextColor(color);
+        t.setIncludeFontPadding(false);
         t.setFontFeatureSettings("kern");
         return t;
     }
+    private TextView styleButton(TextView button, boolean preview) {
+        button.setGravity(Gravity.CENTER);
+        button.setTextSize(preview ? 14 : 15);
+        button.setSingleLine(true);
+        button.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        button.setMinHeight(dp(preview ? 36 : 42));
+        button.setMinimumHeight(dp(preview ? 36 : 42));
+        button.setPadding(dp(10), dp(preview ? 6 : 8), dp(10), dp(preview ? 6 : 8));
+        return button;
+    }
     private LinearLayout.LayoutParams rowParams() {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
-        p.setMargins(0, dp(3), 0, dp(3));
+        p.setMargins(0, dp(2), 0, dp(2));
         return p;
     }
     private TextView row(String value, boolean checked) {
-        TextView t = text(value, 17, checked ? 0xFFE0EBFF : 0xFFDCE1E9);
-        t.setMinHeight(dp(47));
+        TextView t = text(value, 16, checked ? 0xFFE0EBFF : 0xFFDCE1E9);
+        t.setMinHeight(dp(42));
+        t.setLineSpacing(dp(2), 1f);
         t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(dp(17), dp(10), dp(17), dp(10));
+        t.setPadding(dp(14), dp(8), dp(14), dp(8));
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
         t.setClickable(true);

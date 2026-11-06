@@ -37,10 +37,12 @@ final class ChoiceMenu extends LinearLayout {
         heading.setAllCaps(false);
         heading.setTextSize(13);
         heading.setTextColor(Color.WHITE);
+        heading.setIncludeFontPadding(false);
+        heading.setLineSpacing(dp(4),1f);
         heading.setGravity(android.view.Gravity.LEFT|android.view.Gravity.CENTER_VERTICAL);
-        heading.setPadding(dp(12),dp(8),dp(12),dp(8));
-        heading.setMinHeight(0);
-        heading.setMinimumHeight(0);
+        heading.setPadding(dp(12),dp(9),dp(12),dp(9));
+        heading.setMinHeight(dp(58));
+        heading.setMinimumHeight(dp(58));
         heading.setOnClickListener(v->{
             if(isExpanded())closeMenu();
             else openMenu();
@@ -49,7 +51,7 @@ final class ChoiceMenu extends LinearLayout {
             refresh();
             if(hasFocus)focused.run();
         });
-        addView(heading,new LinearLayout.LayoutParams(-1,dp(66)));
+        addView(heading,new LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         menu=new LinearLayout(context);
         menu.setOrientation(VERTICAL);
         menu.setVisibility(GONE);
@@ -64,7 +66,9 @@ final class ChoiceMenu extends LinearLayout {
             row.setText(names[i]);
             row.setTextSize(13);
             row.setTextColor(Color.WHITE);
-            row.setPadding(dp(8),0,dp(8),0);
+            row.setIncludeFontPadding(false);
+            row.setMinHeight(dp(42));
+            row.setPadding(dp(8),dp(6),dp(8),dp(6));
             row.setButtonTintList(ColorStateList.valueOf(0xFFA9DCE2));
             row.setFocusable(true);
             row.setFocusableInTouchMode(true);
@@ -76,7 +80,7 @@ final class ChoiceMenu extends LinearLayout {
                 setValue(selected);
                 closeMenu();
             });
-            menu.addView(row,new LinearLayout.LayoutParams(-1,dp(42)));
+            menu.addView(row,new LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         refresh();
     }
@@ -119,7 +123,10 @@ final class ChoiceMenu extends LinearLayout {
     }
     private void refresh(){
         if(heading==null)return;
-        heading.setText(title+"\n"+names[value]+(menu!=null&&isExpanded()?"  ▴":"  ▾"));
+        String sub=names[value]+(menu!=null&&isExpanded()?"  ▲":"  ▼");
+        android.text.SpannableString label=new android.text.SpannableString(title+"\n"+sub);
+        label.setSpan(new android.text.style.ForegroundColorSpan(0xFFA9DCE2),title.length()+1,label.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        heading.setText(label);
         heading.setContentDescription(title+"，"+names[value]+"，按确定选择");
         heading.setBackground(TvDialog.background(heading.hasFocus()?0xFF354B5D:0xFF242D38,dp(12)));
         if(options!=null)for(int i=0;i<options.length;i++)if(options[i]!=null){

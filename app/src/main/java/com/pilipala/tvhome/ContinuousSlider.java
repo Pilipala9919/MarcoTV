@@ -38,7 +38,7 @@ final class ContinuousSlider extends View {
     }
     void compact(){
         compact=true;
-        setMinimumHeight(dp(96));
+        setMinimumHeight(dp(108));
         requestLayout();
     }
     ContinuousSlider(Context c,String title,String unit,int min,int max,int value,Listener listener) {
@@ -85,11 +85,11 @@ final class ContinuousSlider extends View {
         invalidate();
     }
     @Override protected void onMeasure(int w,int h){
-        setMeasuredDimension(MeasureSpec.getSize(w),dp(inline?66:compact?96:146));
+        setMeasuredDimension(MeasureSpec.getSize(w),dp(inline?66:compact?108:146));
     }
     @Override protected void onDraw(Canvas c){
         if(inline){
-            float left=dp(12),right=getWidth()-left,y=dp(48);
+            float left=dp(12),right=getWidth()-left,y=dp(47);
             paint.setColor((Integer)COLORS.evaluate(focusProgress,0xFF242D38,0xFF354B5D));
             rect.set(1,1,getWidth()-1,getHeight()-1);
             c.drawRoundRect(rect,dp(12),dp(12),paint);
@@ -111,15 +111,15 @@ final class ContinuousSlider extends View {
             c.drawCircle(knob,y,dp(4+2*focusProgress),paint);
             return;
         }
-        float p=dp(20), y=dp(compact?47:77), right=getWidth()-p;
+        float p=dp(20), y=dp(compact?52:77), right=getWidth()-p;
         paint.setColor((Integer)COLORS.evaluate(focusProgress,0xFF293541,0xFF354B5D));
         rect.set(0,0,getWidth(),getHeight());
         c.drawRoundRect(rect,dp(16),dp(16),paint);
         paint.setTypeface(Typeface.create("sans-serif-medium",0));
-        paint.setTextSize(dp(27));
+        paint.setTextSize(dp(compact?22:26));
         paint.setColor(Color.WHITE);
         paint.setTextAlign(Paint.Align.CENTER);
-        c.drawText(label(),getWidth()/2f,dp(compact?29:43),paint);
+        c.drawText(label(),getWidth()/2f,dp(compact?30:43),paint);
         paint.setColor(0xFF536373);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeWidth(dp(4));
@@ -131,11 +131,11 @@ final class ContinuousSlider extends View {
         paint.setTextSize(dp(12));
         paint.setColor(0xFFB8C6D2);
         paint.setTextAlign(Paint.Align.LEFT);
-        c.drawText(min+unit,p,dp(compact?70:108),paint);
+        c.drawText(min+unit,p,dp(compact?76:108),paint);
         paint.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(max+unit,right,dp(compact?70:108),paint);
+        c.drawText(max+unit,right,dp(compact?76:108),paint);
         paint.setTextAlign(Paint.Align.CENTER);
-        c.drawText("左右微调 · 长按加速 · 返回上一级",getWidth()/2f,dp(compact?89:134),paint);
+        c.drawText("左右微调 · 长按加速 · 返回上一级",getWidth()/2f,dp(compact?96:134),paint);
     }
     @Override public boolean onKeyDown(int key,KeyEvent event){
         if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){
