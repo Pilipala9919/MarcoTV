@@ -1,0 +1,12 @@
+{
+  "case": "local",
+  "started_utc": "2026-11-07T15:38:55.707736+00:00",
+  "outcome": "inconclusive",
+  "initial_position": "1 1 4 0 0",
+  "decision": "MOVED",
+  "expected_decision_observed": false,
+  "lab_process_alive_after": true,
+  "tv_asleep_after": false,
+  "user_confirmation": "User missed the NOW cue; timely physical input not established",
+  "assessment": "Inconclusive. MOVED does not prove a conflict-handling defect because physical input before commit was not established."
+}

@@ -52,6 +52,8 @@ TLS 证据来自真实会话通过固定证书校验代码并取得授权后的 
 
 [活跃会话页面替换记录与画面](evidence/g1-b2-recreate-20261107/observations.json)：23:37:56 批准后，以 NEW_TASK|CLEAR_TASK 显式重开验证版，23:37:57 旧会话结束、Windows 收到 EOF；PID 20227 保持，系统确认旧 Activity 销毁和新 Activity 创建，截图显示 HomeView 正常。用户看到一次闪烁，与本次主动页面替换时点一致。此项不覆盖配置变化恢复或全部重建竞态，也未在重建队列中注入旧 STEP。
 
+[首次物理冲突尝试](evidence/g1-b2-local-missed-20261107.json) 返回 MOVED，用户明确反馈错过 NOW 提示，故记录为未验证，不能据此认定冲突保护通过或失败。测试工具随后在获取 STATE 前增加 5 秒倒计时，STATE 后的 700ms 本地操作窗口与服务端 1 秒截止不变；不修改 Android 代码或放宽安全期限。
+
 ## 证据与验收矩阵（更新至 2026-11-07）
 
 C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次真实电视观测。安装记录及 APK SHA-256 见[设备证据](evidence/g1-b2-install-20261106.json)。

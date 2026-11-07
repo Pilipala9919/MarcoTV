@@ -38,7 +38,10 @@ def main():
         if args.case in ('local','stale','replay'):
             if args.case == 'local':
                 print('Hold the physical remote ready. Press an arrow once WHEN you see NOW.',flush=True)
-                time.sleep(2)
+                # Preparation happens before STATE so the security deadline is unchanged.
+                for remaining in range(5, 0, -1):
+                    print('Ready in', remaining, flush=True)
+                    time.sleep(1)
             nonce,initial = session.state()
             if args.case == 'local':
                 print('NOW',flush=True)
