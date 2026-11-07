@@ -1,6 +1,6 @@
 # G1-B2 · Windows 控制 Marco TV 卡片焦点
 
-**状态：实现已提交审查，真机 RIGHT 视觉验收待执行，G1-B2 未完成。** 基线为 MarcoTV PR #2 的领域控制器、PR #3 的最终证据提交 `7d435c3` 及 MarcoRemote 的 G1-B1 报告。B1 的有条件通过允许开始此次集成。旧验证包的假计数与人工授权记录仅属于 B1。
+**状态：2026-11-07 真实电视授权 RIGHT 视觉验收通过；异常场景验收尚未完成，G1-B2 保持未完成。** 基线为 MarcoTV PR #2 的领域控制器、PR #3 的最终证据提交 `7d435c3` 及 MarcoRemote 的 G1-B1 报告。B1 的有条件通过允许开始此次集成。旧验证包的假计数与人工授权记录仅属于 B1。
 
 ## 实现与审查
 
@@ -36,7 +36,15 @@ python remote/tests/device_witness.py --adb $adb --serial $serial
 
 撤销/休眠/重建/断网前后分别记录 Windows 时间、电视 `MarcoFocus` 日志、对应包的 Activity 和 crash buffer 时间窗。仅收集相关片段，不清空全设备日志。重建或重新联网后应需重新本地配对；再次完成有效 RIGHT 前不得沿用旧凭据。所有模式的结果文件默认写入本地忽略目录。
 
-## 证据与验收矩阵（2026-11-06）
+## 真实 RIGHT 结果（2026-11-07）
+
+Windows 使用 `device_witness.py` 经用户扫描新 QR、粘贴本机隐藏输入并在电视批准后，发送一次 RIGHT。电视日志依次出现 TV_APPROVED（23:28:38.082）、STEP MOVED（23:28:43.599）、LOCAL_SESSION_ENDED（23:28:48.468）。用户报告“成功了”；人工复核原始截图显示选中卡片从 Marco Movie 移至右侧 Moonlight。epoch/layoutRevision 保持 1/1，focusRevision 从 4 到 5，行列从 0/0 到 0/1，最终 STATE 与 MOVED 回执一致。
+
+[结构化实测记录](evidence/g1-b2-right-20261107/observations.json) · [移动前](evidence/g1-b2-right-20261107/before.png) · [移动后](evidence/g1-b2-right-20261107/after.png)。截图无 QR 或配对凭据。原始私有 observations 保留不改；公开记录补充人工复核和证据范围。安装版本沿用前一日记录，不将旧安装记录中的 pending 状态改写成当日通过。
+
+TLS 证据来自真实会话通过固定证书校验代码并取得授权后的 STATE/STEP，不额外声称留有握手抓包或控制台逐字记录。脚本随后调用 CLOSE，电视记录会话结束；未单独保存 CLOSE 回执。此次 crash buffer 检查未返回条目，但不能代替本机主动撤销测试。首次尝试用户只扫码、未向 Windows 提交文本，因此没有批准弹窗或移动；补全既定配对流程后成功，没有绕过校验或修改代码。
+
+## 证据与验收矩阵（更新至 2026-11-07）
 
 C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次真实电视观测。安装记录及 APK SHA-256 见[设备证据](evidence/g1-b2-install-20261106.json)。
 
@@ -44,9 +52,9 @@ C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次
 |---|---|---|
 | 自动化与原有回归 | T 通过。16 个 TLS/CLI 测试（11 项证书/帧 + 5 项端到端主机连接），另有 Java 策略/控制器组合断言。原有 17 套离线测试全通过 | 主机 UI 夹具使用独立执行线程与控制器 |
 | 独立 Android 构建 | B 通过。API28 编译、D8 min23、APK 签名/对齐通过。DEX 含真实 HomeView、控制器、TLS 与会话类 | D 安装成功，本地与安装 APK 哈希一致 |
-| 默认关闭与身份隔离 | D：小米 MiTV-ASTP0/API28 上测试 UID 10040，正式 UID 10059，旧 probe UID 10039。MainActivity 已启动，采样时测试 UID 的 TCP 监听数为 0 | 仍需新 UID 下首次本机配对的 D-TLS 记录 |
-| 本机拒绝/批准与错误证书 | T：合成证书的错误信任根、指纹、身份、过期、未来日期、坏签名均验证失败；主机拒绝不授予会话 | B2 本机拒绝、批准、真实握手待测 |
-| RIGHT/其他方向、状态、关闭 | C/T：真实协议与 reducer 上四向移动、边界、状态和主动 CLOSE 通过 | **D-UI 待测。当前无经授权 RIGHT 的画面证据，阶段未完成** |
+| 默认关闭与身份隔离 | D：小米 MiTV-ASTP0/API28 上测试 UID 10040，正式 UID 10059，旧 probe UID 10039。MainActivity 已启动，采样时测试 UID 的 TCP 监听数为 0 | D：本次新 UID 下已批准连接并完成真实 STATE/STEP；无单独握手抓包 |
+| 本机拒绝/批准与错误证书 | T：合成证书的错误信任根、指纹、身份、过期、未来日期、坏签名均验证失败；主机拒绝不授予会话 | D：B2 本机批准和真实认证连接成功；拒绝与错误证书仍需单独实测 |
+| RIGHT/其他方向、状态、关闭 | C/T：真实协议与 reducer 上四向移动、边界、状态和主动 CLOSE 通过 | **D-UI：RIGHT 通过，前后画面与双端状态一致。** 其余三方向、边界和 CLOSE 回执独立留证待补 |
 | 旧命令重放与陈旧快照 | T：重复 seq 撤权，challenge 单次使用，原始 revision 失效、延迟排队及截止均验证 | D：独立授权后重放已用 seq，对照位置与终止事件 |
 | 本地物理遥控冲突 | T：同位置本地事件和等尺寸布局替换均使旧命令失效；C：HomeView 接入实体事件 | D：STATE 后在 1 秒内本地按方向，提交原 challenge，期望 STALE_FOCUS 或已取消；若已过期限则只算期限测试 |
 | 休眠/唤醒、弹窗、Activity 重建 | C/T：阻塞、销毁、代次和丢弃排队命令已覆盖；D 安装采样时电视处于 Asleep | 活跃会话中按电源/打开设置、重建 Activity 后旧授权无法驱动原/新页面，需单独实测 |
@@ -63,12 +71,12 @@ python scripts/test_offline.py
 python scripts/build.py --focus-lab
 ```
 
-[协议/断连集成测试](../remote/tests/check.py) · [组合状态机测试](../remote/tests/FocusSessionChecks.java) · [主机 TLS 测试夹具](../remote/tests/FocusTransportFixture.java)
+[逐项自动化结果与耗时](evidence/g1-b2-host-tests-20261106.json) · [协议/断连集成测试](../remote/tests/check.py) · [组合状态机测试](../remote/tests/FocusSessionChecks.java) · [主机 TLS 测试夹具](../remote/tests/FocusTransportFixture.java)
 
 ## 复核时发现的问题与剩余风险
 
 最初的适配在排序前同步布局，非活动行可能保留旧的记忆列。已将同步放到排序、目录替换及原有管理端重排之后。客户端缓慢或 UI 排队时，传输读线程仍需观察断开；已将读取和 UI 提交分开，用主机实际断链测试覆盖撤权先于排队提交的次序。另已保护实体确定键按下/松开间隔，避免网络移动改变用户即将打开的卡片。
 
-当前取证阻塞在用户本机扫码与批准。真实 TV 的身份握手、可见 RIGHT、已批准会话中的休眠、重建、物理冲突、网络中断及主动撤销分别保持待测。Android 9 系统 TLS 补丁状态、外部扫码器如何处理秘密和多网卡地址选择仍是部署限制。默认选取第一个可用的私有 IPv4；不可达时应关闭并重新配对。单窗口只接受一个连接，同网其他设备占用连接可能导致用户重新开启窗口。
+真实 TV 的已批准 TLS 会话和可见 RIGHT 已有证据。已批准会话中的休眠、重建、物理冲突、网络中断及主动撤销仍分别待测；不能由一次 RIGHT 成功推定通过。Android 9 系统 TLS 补丁状态、外部扫码器如何处理秘密和多网卡地址选择仍是部署限制。默认选取第一个可用的私有 IPv4；不可达时应关闭并重新配对。单窗口只接受一个连接，同网其他设备占用连接可能导致用户重新开启窗口。
 
 所有改动在功能分支上。HomeView 安全入口没有通用 KeyEvent、Intent、Shell 或跨应用操作；本轮提交供审查，发布与合并由项目维护者决定。

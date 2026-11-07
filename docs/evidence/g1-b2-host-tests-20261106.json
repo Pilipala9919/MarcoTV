@@ -1,0 +1,96 @@
+{
+  "stage": "G1-B2 Windows host; synthetic certificates and UI fixture",
+  "app_source_commit": "c2ee047b08e0461a7f8ac0736b960b849c278718",
+  "wire": {
+    "test_expired_cert_no_ticket": "pass",
+    "test_frame_deadline": "pass",
+    "test_future_cert_no_ticket": "pass",
+    "test_invalid_frame": "pass",
+    "test_invalid_self_signature_no_ticket": "pass",
+    "test_receive_eof": "pass",
+    "test_receive_oversize": "pass",
+    "test_unknown_server_cert_no_ticket": "pass",
+    "test_verified_before_ticket": "pass",
+    "test_wrong_identity_no_ticket": "pass",
+    "test_wrong_pin_no_connection": "pass",
+    "test_denied": "pass",
+    "test_directions_and_close": "pass",
+    "test_disconnect_cancels_queued_step": "pass",
+    "test_queue_does_not_renew_ttl": "pass",
+    "test_replay": "pass"
+  },
+  "wire_seconds": 7.686,
+  "combined_policy": "directions, boundary, original revisions, timeout, replay, single use, blockers, destroy, disconnect, owner, idle and absolute expiry",
+  "offline": {
+    "test_marco_focus.py": {
+      "result": "pass",
+      "seconds": 1.17
+    },
+    "test_home_setup.py": {
+      "result": "pass",
+      "seconds": 3.04
+    },
+    "test_home_auto.py": {
+      "result": "pass",
+      "seconds": 6.13
+    },
+    "test_home_guide.py": {
+      "result": "pass",
+      "seconds": 0.78
+    },
+    "test_feedback.py": {
+      "result": "pass",
+      "seconds": 0.92
+    },
+    "test_feedback_transport.py": {
+      "result": "pass",
+      "seconds": 1.34
+    },
+    "test_motion.py": {
+      "result": "pass",
+      "seconds": 0.68
+    },
+    "test_motion_lifecycle.py": {
+      "result": "pass",
+      "seconds": 1.02
+    },
+    "test_core_consistency.py": {
+      "result": "pass",
+      "seconds": 1.15
+    },
+    "test_ambient_weather.py": {
+      "result": "pass",
+      "seconds": 0.79
+    },
+    "test_release_tools.py": {
+      "result": "pass",
+      "seconds": 0.22
+    },
+    "test_settings.py": {
+      "result": "pass",
+      "seconds": 0.8
+    },
+    "test_updates.py": {
+      "result": "pass",
+      "seconds": 0.73
+    },
+    "test_phone_http.py": {
+      "result": "pass",
+      "seconds": 1.05
+    },
+    "test_restricted.py": {
+      "result": "pass",
+      "seconds": 2.34
+    },
+    "test_lite.py": {
+      "result": "pass",
+      "seconds": 0.71
+    },
+    "check_release.py": {
+      "result": "pass",
+      "seconds": 0.45
+    }
+  },
+  "offline_total_seconds": 23.3,
+  "physical_visual": false
+}
