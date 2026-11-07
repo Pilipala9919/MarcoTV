@@ -48,9 +48,15 @@ def signer_sha256(apk):
     raise RuntimeError('Unable to read APK signer certificate digest')
 
 
-def build(restricted=False, release=False):
-    global BUILD
+def build(restricted=False, release=False, focus_lab=False):
+    global BUILD, DIST
+    if focus_lab and (release or restricted or os.environ.get('MARCOTV_RELEASE') == '1'
+                      or os.environ.get('MARCOTV_KEYSTORE')):
+        raise ValueError('The side-by-side focus build requires an isolated development key')
     BUILD = ROOT / 'build' / 'restricted' if restricted else ROOT / 'build'
+    if focus_lab:
+        BUILD = ROOT / 'build/focus-lab'
+        DIST = BUILD / 'apk'
     import shutil
     info = (SOURCE / 'java/com/pilipala/tvhome/ProjectInfo.java').read_text(encoding='utf-8')
     if f'VERSION="{VERSION}"' not in info:
@@ -74,6 +80,28 @@ def build(restricted=False, release=False):
             previous.unlink()
     run(executable(TOOLS,'aapt2'), 'compile', '--dir', SOURCE / 'res', '-o', BUILD / 'resources.zip')
     manifest = SOURCE / 'AndroidManifest.xml'
+    if focus_lab:
+        ns = '{http://schemas.android.com/apk/res/android}'
+        tree = ET.parse(manifest)
+        root = tree.getroot()
+        original = root.attrib['package']
+        root.set('package', original + '.focuslab')
+        app = root.find('application')
+        app.set(ns+'name', original + '.MarcoApplication')
+        app.set(ns+'label','Marco TV · 卡片遥控验证')
+        app.set(ns+'debuggable','false')
+        for component in list(app):
+            if component.tag == 'activity' and component.get(ns+'name') == '.MainActivity':
+                component.set(ns+'name', original + '.MainActivity')
+            else:
+                app.remove(component)
+        keep = {'INTERNET','ACCESS_NETWORK_STATE','ACCESS_WIFI_STATE'}
+        for permission in root.findall('uses-permission'):
+            if permission.get(ns+'name').split('.')[-1] not in keep:
+                root.remove(permission)
+        manifest = BUILD / 'AndroidManifest.xml'
+        ET.register_namespace('android', ns[1:-1])
+        tree.write(manifest, encoding='utf-8', xml_declaration=True)
     if restricted:
         tree = ET.parse(manifest)
         app = tree.getroot().find('application')
@@ -111,8 +139,8 @@ def build(restricted=False, release=False):
         for info in source.infolist(): target.writestr(info, source.read(info.filename))
         for dex in (BUILD / 'dex').glob('*.dex'): target.write(dex, dex.name)
     run(executable(TOOLS,'zipalign'), '-f', '4', unsigned, BUILD / 'aligned.apk')
-    keys = ROOT / 'private'
-    keys.mkdir(exist_ok=True)
+    keys = ROOT / 'private/focus-lab' if focus_lab else ROOT / 'private'
+    keys.mkdir(exist_ok=True, parents=True)
     keystore = Path(os.environ.get('MARCOTV_KEYSTORE', str(keys / 'development.p12')))
     alias = os.environ.get('MARCOTV_KEY_ALIAS','tvhome')
     env.setdefault('MARCOTV_STORE_PASSWORD','android')
@@ -144,5 +172,6 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--restricted', action='store_true', help='Build without HOME declaration for restricted firmware')
     parser.add_argument('--release', action='store_true', help='Require existing official release signing key and verify certificate digest')
+    parser.add_argument('--focus-lab', action='store_true', help='Build separately signed side-by-side HomeView acceptance APK')
     args=parser.parse_args()
-    build(args.restricted, args.release)
+    build(args.restricted, args.release, args.focus_lab)

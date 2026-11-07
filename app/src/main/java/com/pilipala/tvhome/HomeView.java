@@ -59,6 +59,7 @@ final class HomeView extends View {
         return mover.active();
     }
     void beginMove(){
+        host.cancelFocusControl();
         mover.begin();
     }
     ValueAnimator fade;
@@ -93,6 +94,7 @@ final class HomeView extends View {
     private int edgeSelected;
     private final String[] edgeItems={"添加应用","编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
     void edge(boolean open){
+        if (open) host.cancelFocusControl();
         edgeOpen=open;
         edge.target(open?1:0);
         animateFocus();
@@ -142,6 +144,7 @@ final class HomeView extends View {
     ValueAnimator previewFade;
     private int previewSavedRow=-2;
     void preview(String key){
+        if (key != null) host.cancelFocusControl();
         if((key==null)!=(previewKey==null)){
             if(overviewAnimation==null)overviewAnimation=new UiMotion(this,overview,26,this::previewTransform);
             overviewAnimation.to(key==null?0:1);
@@ -192,6 +195,73 @@ final class HomeView extends View {
         refreshAppearance();
     }
 
+    private MarcoFocusController remoteController;
+
+    boolean canControlCards() {
+        return host.foreground && isAttachedToWindow() && hasWindowFocus() && isFocused()
+                && isShown() && !host.dialogs.open() && !host.remotePanelVisible() && !host.recents.visible && !edgeOpen
+                && !mover.active() && previewKey == null && !idleMode
+                && (host.phone == null || !host.phone.previewing())
+                && ((android.os.PowerManager)host.getSystemService(android.content.Context.POWER_SERVICE)).isInteractive()
+                && row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty();
+    }
+    void beginRemoteFocus() {
+        if (!canControlCards()) throw new IllegalStateException("BLOCKED");
+        remoteController = new MarcoFocusController(android.os.SystemClock::elapsedRealtime);
+        remoteLayoutChanged();
+        if (remoteController == null) throw new IllegalStateException("INVALID_LAYOUT");
+        for (MarcoFocusController.Blocker b : new MarcoFocusController.Blocker[]{
+                MarcoFocusController.Blocker.PAUSED, MarcoFocusController.Blocker.WINDOW_UNFOCUSED,
+                MarcoFocusController.Blocker.SCREEN_OFF}) remoteController.setBlocked(b, false);
+        remoteController.beginAuthorizedLease(MarcoFocusController.MAX_LEASE_MS);
+    }
+    void endRemoteFocus() {
+        if (remoteController != null) remoteController.destroy();
+        remoteController = null;
+    }
+    private int[] selections() {
+        int[] result = new int[rows.size()];
+        for (int i=0; i<result.length; i++)
+            result[i] = rows.get(i).tiles.isEmpty() ? -1 : rows.get(i).selected;
+        return result;
+    }
+    void remoteLayoutChanged() {
+        if (remoteController == null) return;
+        int[] sizes = new int[rows.size()];
+        for (int i=0; i<sizes.length; i++) sizes[i] = rows.get(i).tiles.size();
+        try { remoteController.replaceLayout(sizes, selections(), row >= 0 && row < sizes.length ? row : -1); }
+        catch (IllegalArgumentException unsupported) { endRemoteFocus(); host.cancelFocusControl(); }
+    }
+    @Override protected void onFocusChanged(boolean gain,int direction,android.graphics.Rect previous) {
+        super.onFocusChanged(gain,direction,previous);
+        if (!gain && host != null && host.focusRemote != null) host.focusRemote.windowLost();
+    }
+    @Override protected void onSizeChanged(int w,int h,int oldWidth,int oldHeight) {
+        super.onSizeChanged(w,h,oldWidth,oldHeight);
+        remoteLayoutChanged();
+    }
+    private void remoteLocalInput() {
+        if (remoteController != null) remoteController.localFocus(row < 0 ? -1 : row, selections());
+    }
+    MarcoFocusController.Snapshot remoteSnapshot() {
+        if (!canControlCards() || remoteController == null) throw new IllegalStateException("BLOCKED");
+        MarcoFocusController.Snapshot s = remoteController.snapshot();
+        if (s.row != row || s.column != rows.get(row).selected) remoteLocalInput();
+        return remoteController.snapshot();
+    }
+    MarcoFocusController.Result remoteStep(MarcoFocusController.Snapshot original,
+            MarcoFocusController.Direction direction, long deadline) {
+        remoteSnapshot(); // Observe intervening selection changes; keep the original command snapshot.
+        MarcoFocusController.Result result = remoteController.execute(
+                remoteController.prepareUntil(original, direction, deadline));
+        if (result.status == MarcoFocusController.Status.MOVED) {
+            row = result.state.row;
+            rows.get(row).selected = result.state.column;
+            ensureVisible(); animateFocus(); describeFocus(); invalidate(); host.armIdle();
+        }
+        return result;
+    }
+
     void refreshAppearance() {
         radius = host.appearance().getInt("card_radius", 32);
         focusScale = host.appearance().getInt("focus_scale", 16) / 100f;
@@ -226,6 +296,7 @@ final class HomeView extends View {
             r.selected = Math.max(0, Math.min(r.selected, r.tiles.size() - 1));
             for (int j = 0; j < r.tiles.size(); j++) r.tiles.get(j).emphasis.snap(i == 0 && j == r.selected ? 1 : 0);
         }
+        remoteLayoutChanged();
         ensureVisible();
         animateFocus();
         describeFocus();
@@ -233,6 +304,7 @@ final class HomeView extends View {
     }
 
     void setIdle(boolean value) {
+        if (value) host.cancelFocusControl();
         if (value == idleMode && ((fade != null && fade.isRunning()) || ambientProgress == (value ? 1 : 0))) {
             if (!value) host.armIdle();
             return;
@@ -321,6 +393,7 @@ final class HomeView extends View {
     }
 
     @Override protected void onDetachedFromWindow() {
+        host.cancelFocusControl();
         stopMotion();
         overviewRenderer.detach();
         super.onDetachedFromWindow();
@@ -674,6 +747,18 @@ final class HomeView extends View {
         animateFocus();
     }
     @Override public boolean onKeyDown(int code, KeyEvent event) {
+        try { return localKeyDown(code,event); }
+        finally { finishLocalInput(); }
+    }
+    private void finishLocalInput() {
+        if (remoteController == null) return;
+        if (!canControlCards()) host.cancelFocusControl();
+        else remoteLocalInput();
+    }
+    private boolean localKeyDown(int code, KeyEvent event) {
+        // A remote move between local OK down/up could change which application the user opens.
+        if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+                || code == KeyEvent.KEYCODE_NUMPAD_ENTER) host.cancelFocusControl();
         if(host.recents.visible)return host.recents.key(code,event);
         boolean navigation = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
                 || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
@@ -775,6 +860,10 @@ final class HomeView extends View {
     }
 
     @Override public boolean onKeyUp(int code, KeyEvent event) {
+        try { return localKeyUp(code,event); }
+        finally { finishLocalInput(); }
+    }
+    private boolean localKeyUp(int code, KeyEvent event) {
         if(host.recents.visible)return host.recents.key(code,event);
         if(mover.swallowKeyUp())return true;
         if (wakingKey) {
@@ -809,6 +898,11 @@ final class HomeView extends View {
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
+        try { return localTouch(event); }
+        finally { finishLocalInput(); }
+    }
+    private boolean localTouch(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) host.cancelFocusControl();
         if(host.recents.visible){
             host.recents.touch(event.getAction(),(event.getX()-(getWidth()-1920*scale)/2)/scale,(event.getY()-offsetY)/scale);
             return true;

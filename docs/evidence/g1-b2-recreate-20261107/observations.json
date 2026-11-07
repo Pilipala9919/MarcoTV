@@ -1,0 +1,29 @@
+{
+  "case": "recreate",
+  "started_utc": "2026-11-07T15:36:55.301173+00:00",
+  "outcome": "client observed loss; verify physical cause and TV log",
+  "initial_position": "1 1 4 0 0",
+  "process_survived_task_replacement": true,
+  "windows_connection_observation": "EOFError",
+  "seconds_to_observation": 0.845,
+  "lab_process_alive_after": true,
+  "tv_asleep_after": false,
+  "source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "user_observation": "Screen flashed once after approval",
+  "visual_review": "Post-replacement screenshot shows normal Marco TV HomeView with Marco Movie selected",
+  "after_png_sha256": "49468b936190109aa05063d58bbe934d9903d28163f25d153dd98a8784a6857e",
+  "tv_log": [
+    "11-07 23:37:56.956 20227 20227 I MarcoFocus: TV_APPROVED",
+    "11-07 23:37:57.368 20227 20227 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "system_events": [
+    "11-07 23:37:57.368 am_finish_activity: old 101333582 clear-task-all",
+    "11-07 23:37:57.375 am_create_activity: new 258911026 MainActivity",
+    "11-07 23:37:57.484 am_on_create_called: pid 20227 MainActivity",
+    "11-07 23:37:57.863 am_destroy_activity: old 101333582",
+    "11-07 23:37:57.910 am_on_destroy_called: pid 20227 MainActivity"
+  ],
+  "crash_buffer": "No entries returned at post-check",
+  "assessment": "Passed for active-session task replacement: old connection EOF, same process, old Activity destroyed, new Activity created and normal HomeView visible.",
+  "limitations": "Explicit NEW_TASK|CLEAR_TASK on lab component, not configuration-change/saved-state restore coverage; no queued old STEP was injected in this case."
+}

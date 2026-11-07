@@ -70,6 +70,13 @@ public final class MainActivity extends Activity {
     SharedPreferences preferences;
     HomeView home;
     boolean foreground;
+    FocusRemote focusRemote;
+    void cancelFocusControl() { if (focusRemote != null) focusRemote.close(); }
+    boolean remotePanelVisible() { return panels != null && panels.isShowing(); }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused && focusRemote != null) focusRemote.windowLost();
+    }
     private boolean receiverRegistered;
     final IdleController screensaver = new IdleController(this);
     void idleChanged(boolean idle) {
@@ -155,6 +162,7 @@ public final class MainActivity extends Activity {
         fullscreen();
         home = new HomeView(this);
         setContentView(home);
+        focusRemote = new FocusRemote(this);
         phone = new PhoneManager(this);
         home.requestFocus();
         loadWallpaper();
@@ -225,6 +233,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        cancelFocusControl();
         if(phone!=null)phone.clearPreview();
         if(updates!=null)updates.pause();
         if(network!=null)network.pause();
@@ -254,6 +263,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        cancelFocusControl();
         if(defaultHome!=null)defaultHome.destroy();
         if(phone!=null)phone.destroy();
         handler.removeCallbacksAndMessages(null);
@@ -278,6 +288,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onNewIntent(Intent intent) {
+        cancelFocusControl();
         super.onNewIntent(intent);
         setIntent(intent);
         HomeSetup.observeHomeIntent(this, intent);
@@ -352,6 +363,7 @@ public final class MainActivity extends Activity {
     }
 
     void showDialog(TvDialog dialog) {
+        cancelFocusControl();
         dialogs.show(dialog);
     }
     boolean isPage(String id){

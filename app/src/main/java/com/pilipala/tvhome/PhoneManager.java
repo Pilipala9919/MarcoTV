@@ -371,6 +371,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             }
             host.previewPreferences.values.clear();
             host.previewPreferences.values.putAll(next);
+            host.cancelFocusControl();
             ambientPreview=b.optString("key").startsWith("ambient_");
             previewAt=SystemClock.elapsedRealtime();
             host.home.setIdle(false);
@@ -422,6 +423,7 @@ final class PhoneManager implements PhoneHttp.Handler {
                 row.tiles=sorted;
                 row.selected=0;
                 for(int i=0;i<sorted.size();i++)if(sorted.get(i).id.equals(selected))row.selected=i;
+                host.home.remoteLayoutChanged();
                 host.home.ensureVisible();
                 host.home.animateFocus();
             }else if(op.equals("card")){

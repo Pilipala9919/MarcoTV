@@ -75,6 +75,7 @@ final class RecentApps {
         backdropAnimation.speedOverride=speed;
     }
     void show(){
+        host.cancelFocusControl();
         boolean reversing=visible&&closing;
         host.exitMenus();
         switching=false;

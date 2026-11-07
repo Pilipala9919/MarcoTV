@@ -1,0 +1,14 @@
+{
+  "date_local": "2026-11-07",
+  "timezone": "Asia/Shanghai",
+  "command": "python remote/tests/check.py",
+  "environment": "Previously reviewed research venv with cryptography 50.0.2",
+  "tests": 16,
+  "seconds": 7.818,
+  "result": "OK",
+  "exit_code": 0,
+  "scope": "Windows host TLS/CLI, synthetic certificates and Java transport/controller fixture. Not physical device evidence.",
+  "test_harness_syntax_check": "python -m py_compile remote/tests/device_faults.py passed",
+  "android_app_changes_in_this_followup": false,
+  "android_build": "Not rebuilt in this follow-up; existing installed build evidence remains separate."
+}

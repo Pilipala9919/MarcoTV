@@ -1,0 +1,18 @@
+{
+  "case": "replay",
+  "started_utc": "2026-11-07T15:30:15.571817+00:00",
+  "outcome": "decision observed",
+  "initial_position": "1 1 4 0 1",
+  "decision": "REPLAY",
+  "expected_decision_observed": true,
+  "eof_after_replay": true,
+  "lab_process_alive_after": true,
+  "tv_asleep_after": false,
+  "tv_log": [
+    "11-07 23:31:18.249 19658 19658 I MarcoFocus: TV_APPROVED",
+    "11-07 23:31:18.325 19658 19658 I MarcoFocus: STEP REPLAY",
+    "11-07 23:31:18.328 19658 19658 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "scope": "Duplicate sequence rejected on real TV and EOF observed; no after-position or screenshot retained for this case. Do not infer other faults."
+}

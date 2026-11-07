@@ -1,0 +1,23 @@
+{
+  "case": "revoke",
+  "started_utc": "2026-11-07T15:32:32.485908+00:00",
+  "outcome": "client observed loss; verify physical cause and TV log",
+  "initial_position": "1 1 4 0 1",
+  "windows_connection_observation": "EOFError",
+  "seconds_to_observation": 4.173,
+  "lab_process_alive_after": true,
+  "tv_asleep_after": false,
+  "source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "user_confirmation": "User reported normal behavior after opening desktop settings with physical remote",
+  "tv_log": [
+    "11-07 23:33:43.577 19658 19658 I MarcoFocus: TV_APPROVED",
+    "11-07 23:33:47.740 19658 19658 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "post_check": {
+    "foreground": "com.pilipala.tvhome.focuslab/com.pilipala.tvhome.MainActivity",
+    "crash_buffer": "No entries returned by logcat -b crash -d -t 60",
+    "process_log_filter": "No NetworkOnMainThreadException or FATAL EXCEPTION matches in logcat -d --pid=19658"
+  },
+  "assessment": "Passed for this physical settings-triggered revoke: EOF, process alive, foreground retained, user confirmed normal; no crash or UI-thread network exception observed.",
+  "scope": "No claim of exhaustive race coverage or old-credential reconnect test."
+}

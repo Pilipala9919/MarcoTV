@@ -1,0 +1,41 @@
+{
+  "case": "sleep",
+  "started_utc": "2026-11-07T15:34:27.842662+00:00",
+  "outcome": "client observed loss; verify physical cause and TV log",
+  "initial_position": "1 1 4 0 1",
+  "windows_connection_observation": "EOFError",
+  "seconds_to_observation": 5.217,
+  "source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "user_confirmation": "Physical sleep/wake succeeded; wake showed default Xiaomi launcher",
+  "tv_log": [
+    "11-07 23:35:26.128 19658 19658 I MarcoFocus: TV_APPROVED",
+    "11-07 23:35:31.064 19658 19658 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "system_events": [
+    "11-07 23:35:31.063 am_pause_activity: com.pilipala.tvhome.focuslab/com.pilipala.tvhome.MainActivity",
+    "11-07 23:35:31.096 am_kill: [0,19658,com.pilipala.tvhome.focuslab,100,stop com.pilipala.tvhome.focuslab]",
+    "11-07 23:35:31.097 am_finish_activity: proc died without state saved",
+    "11-07 23:35:31.112 PowerManagerService: Going to sleep by application request (uid 1000), reason=8",
+    "11-07 23:35:31.751 power_screen_state: [0,2,0,0,0]",
+    "11-07 23:35:45.616 PowerManagerService: Waking up from sleep (uid=1000 reason=android.policy:POWER)",
+    "11-07 23:35:45.795 power_screen_state: [1,0,0,0,181]"
+  ],
+  "wake_check": {
+    "foreground": "com.xiaomi.eetv.litehome/com.xiaomi.eetv.litehome.Launcher",
+    "lab_process_present": false,
+    "crash_buffer": "No entries returned by logcat -b crash -d -t 60"
+  },
+  "manual_test_app_relaunch": {
+    "method": "adb am start explicit lab MainActivity; no pairing or credentials accessed",
+    "start_status": "ok",
+    "new_pid": 20227,
+    "uid": 10040,
+    "listening_tcp_sockets_at_followup_sample": 0
+  },
+  "assessment": "Physical sleep ended the session before system killed the app; client observed EOF. Wake returned to Xiaomi launcher. Explicit lab relaunch had no TCP listener at sample.",
+  "limitations": [
+    "Harness post-sleep pidof exited nonzero because process was stopped, so automatic alive/asleep fields are absent; separate system logs supply sleep evidence.",
+    "No old credential reconnection attempt captured.",
+    "App survival and automatic return to Marco are not passed. Do not generalize this firmware behavior to other devices."
+  ]
+}

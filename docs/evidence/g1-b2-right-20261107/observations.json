@@ -1,0 +1,46 @@
+{
+  "case": "physical-RIGHT",
+  "visual_review": "passed: Marco Movie selected before; adjacent Moonlight selected after",
+  "samples": [],
+  "before": [
+    1,
+    1,
+    4,
+    0,
+    0
+  ],
+  "before_png_sha256": "91addc1017fd6f22113fda58ffbb0c205093a0be59de27b4d307bf4bb901bae2",
+  "right_reply": [
+    1,
+    1,
+    5,
+    0,
+    1
+  ],
+  "after_png_sha256": "fefd084b0298aa18e4f77fdcb993296375686bbde4ac00015cc2e0c11a64c04b",
+  "after": [
+    1,
+    1,
+    5,
+    0,
+    1
+  ],
+  "position_check": "passed",
+  "date_local": "2026-11-07",
+  "timezone": "Asia/Shanghai",
+  "user_confirmation": "User reported success in this conversation after the run",
+  "model": "MiTV-ASTP0",
+  "android_api": 28,
+  "package": "com.pilipala.tvhome.focuslab",
+  "source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "apk_sha256_from_install_record": "8d42859890b23b9ac6a262a5a8eb2016506df898abfb14d10f159400b4288cc1",
+  "tv_log": [
+    "11-07 23:28:38.082 19658 19658 I MarcoFocus: TV_APPROVED",
+    "11-07 23:28:43.599 19658 19658 I MarcoFocus: STEP MOVED",
+    "11-07 23:28:48.468 19658 19658 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "tls_evidence": "Witness uses marco_remote.pair -> tls_link.connect; session returned and authenticated STATE/STEP succeeded. No separate console transcript or packet trace retained.",
+  "close_evidence": "Witness finally calls CLOSE; TV logged session ended. CLOSE reply not retained.",
+  "crash_buffer_observation": "No entries returned at post-run inspection; does not prove physical revoke scenario.",
+  "scope": "One approved RIGHT only. Other directions and fault scenarios require separate device evidence."
+}
