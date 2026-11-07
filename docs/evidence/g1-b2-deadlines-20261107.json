@@ -1,0 +1,25 @@
+{
+  "case": "deadlines",
+  "started_utc": "2026-11-07T15:43:28.055918+00:00",
+  "outcome": "stale rejection and idle EOF observed",
+  "initial_position": "1 1 4 0 3",
+  "decision": "STALE_CHALLENGE",
+  "before_stale": "1 1 4 0 3",
+  "after_stale": "1 1 4 0 3",
+  "stale_position_unchanged": true,
+  "idle_eof_seconds": 15.008,
+  "idle_timing_in_range": true,
+  "lab_process_alive_after": true,
+  "tv_asleep_after": false,
+  "app_source_commit": "6247892d43ad05871c19a5fa606b8dbc0d057911",
+  "harness_commit": "5f8aa9c",
+  "user_confirmation": "TV remained normal while left untouched for this test",
+  "tv_log": [
+    "11-07 23:44:33.533 20227 20227 I MarcoFocus: TV_APPROVED",
+    "11-07 23:44:34.799 20227 20227 I MarcoFocus: STEP STALE_CHALLENGE",
+    "11-07 23:44:49.817 20227 20227 I MarcoFocus: LOCAL_SESSION_ENDED"
+  ],
+  "crash_buffer": "No entries returned at post-check",
+  "assessment": "Passed for 1.2-second-old challenge rejection and idle expiry: state unchanged, direct EOF after 15.008 seconds without keepalive, TV ended session, app alive.",
+  "scope": "Does not test five-minute absolute lifetime, ticket expiry, physical packet loss or real-device UI queue delay."
+}
