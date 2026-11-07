@@ -21,7 +21,7 @@ COMPONENT = LAB+'/com.pilipala.tvhome.MainActivity'
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('case',choices=['local','replay','stale','revoke','sleep','recreate','network','idle'])
+    p.add_argument('case',choices=['local','replay','stale','revoke','sleep','recreate','network','idle','deadlines'])
     p.add_argument('--adb',required=True)
     p.add_argument('--serial',required=True)
     args = p.parse_args()
@@ -63,6 +63,28 @@ def main():
             if args.case == 'replay':
                 try: receive(session.sock,timeout=3)
                 except EOFError: result['eof_after_replay'] = True
+        elif args.case == 'deadlines':
+            print('Leave the TV untouched for about 18 seconds. Testing stale command and idle expiry.',flush=True)
+            nonce, before = session.state()
+            time.sleep(1.2)
+            decision = session.request('STEP '+nonce+' RIGHT')
+            if decision != 'STALE_CHALLENGE':
+                raise ValueError('Expected stale challenge rejection')
+            result['decision'] = decision
+            _, after = session.state()
+            result['before_stale'] = before
+            result['after_stale'] = after
+            result['stale_position_unchanged'] = before == after
+            # No keep-alive and no requests during this wait; observe server EOF directly.
+            idle_start = time.monotonic()
+            try:
+                receive(session.sock,timeout=20)
+            except EOFError:
+                result['idle_eof_seconds'] = round(time.monotonic()-idle_start,3)
+                result['idle_timing_in_range'] = 14 <= result['idle_eof_seconds'] <= 20
+            result['outcome'] = ('stale rejection and idle EOF observed'
+                if result['stale_position_unchanged'] and result.get('idle_timing_in_range')
+                else 'inconclusive')
         else:
             start = time.monotonic()
             prior_pid = shell('pidof',LAB).strip()

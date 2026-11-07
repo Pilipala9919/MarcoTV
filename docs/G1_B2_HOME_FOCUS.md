@@ -70,10 +70,12 @@ C 表示源码审查，T 表示主机自动化，B 表示构建，D 表示本次
 | 旧命令重放与陈旧快照 | T：重复 seq 撤权，challenge 单次使用，原始 revision 失效、延迟排队及截止均验证 | D：2026-11-07 新授权后重复 seq，Windows 收到 REPLAY 和 EOF；电视记录 STEP REPLAY 后会话结束，进程仍在。未保存此轮最终位置/画面；陈旧快照另测 |
 | 本地物理遥控冲突 | T：同位置本地事件和等尺寸布局替换均使旧命令失效；C：HomeView 接入实体事件 | D：第二次 NOW 后实体右方向键操作，Windows 和电视均返回 STALE_FOCUS，通过此次原快照冲突拒绝；首次错过时机的尝试保留未验证。无此轮最终截图 |
 | 休眠/唤醒、弹窗、Activity 重建 | C/T：阻塞、销毁、代次和丢弃排队命令已覆盖；D 安装采样时电视处于 Asleep | D：打开设置已断开；物理休眠前会话结束，系统随后停止进程，唤醒回小米桌面。重新打开验证版采样无监听。D：活跃会话任务替换已断开，同进程新页面正常；配置变化恢复、排队旧 STEP 与旧凭据重连仍待测 |
-| 网络中断 | T：真实主机 TCP 断开时 UI 尚有延迟任务，任务实际返回 UNAUTHORIZED，列保持 0。T 空闲及绝对期限通过 | D：客户端断链及静默丢包/物理 Wi-Fi 中断分别记录；EOF 不能代替物理网络故障 |
+| 网络中断 | T：真实主机 TCP 断开时 UI 尚有延迟任务，任务实际返回 UNAUTHORIZED，列保持 0。T 空闲及绝对期限通过 | D：用户 2026-11-07 确认暂不能在电视 UI 外仅中断电视网络，物理断网/静默丢包未验证。打开设置会提前撤权，不能作为断网测试；普通 EOF 也不能替代 |
 | Android 9 撤销时关闭 socket | C：UI 同步撤权，单独线程释放 TLS 传输；B1 曾有同类问题并修复 | D：2026-11-07 获批后实体遥控打开设置，Windows 收到 EOF，电视 LOCAL_SESSION_ENDED，进程/前台仍在，用户确认正常；crash buffer 无条目，本进程日志无 NetworkOnMainThreadException/FATAL EXCEPTION。仅本次路径通过 |
 
 另一次真机采样在电视仍为 Asleep、测试 UID 无监听、没有已授权会话时进行了实验包任务替换。系统事件记录了新 Activity 创建与旧 Activity 销毁，进程保持，测试 UID 的监听数仍为零。此项只覆盖默认关闭状态下的 Activity 替换，活跃授权的取消仍按上表待测。
+
+期限采集可使用 `python remote/tests/device_faults.py deadlines --adb $adb --serial $serial`：新扫码和实体批准后，等待 1.2 秒提交原 challenge，要求 STALE_CHALLENGE；随后 STATE 必须保持位置及版本一致，再不发送任何保活，直接等待 14–20 秒内的服务端 EOF。采集命令及期望不等于真实执行通过，结果需另记。该模式与倒计时均只改 Windows 测试工具，不改变 Android 安全策略。
 
 自动化入口（Windows，测试环境使用既有审核的 cryptography 50.0.2，运行 CLI 只需 Python 标准库）：
 
