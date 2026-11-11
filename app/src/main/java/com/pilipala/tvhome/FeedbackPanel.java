@@ -76,8 +76,9 @@ final class FeedbackPanel {
     }
     void qr(){
         try{
-            FeedbackManager.prefs(host).edit().putString("query_id",report.optString("id")).apply();
-            final io.nayuki.qrcodegen.QrCode code=io.nayuki.qrcodegen.QrCode.encodeText(FeedbackManager.link(report),io.nayuki.qrcodegen.QrCode.Ecc.LOW);
+            JSONObject qrReport=FeedbackManager.qrSnapshot(report);
+            FeedbackManager.prefs(host).edit().putString("query_id",qrReport.optString("id")).apply();
+            final io.nayuki.qrcodegen.QrCode code=io.nayuki.qrcodegen.QrCode.encodeText(FeedbackManager.link(qrReport),io.nayuki.qrcodegen.QrCode.Ecc.LOW);
             LinearLayout box=new LinearLayout(host);box.setGravity(android.view.Gravity.CENTER_VERTICAL);
             int unit=Math.round(20*host.getResources().getDisplayMetrics().density);
             View image=new View(host){protected void onDraw(Canvas canvas){

@@ -35,8 +35,12 @@ public final class MarcoDreamService extends DreamService {
             Bitmap bitmap=WallpaperSource.load(this);
             handler.post(()->{
                 if(view!=null){
+                    Bitmap old=view.wallpaper;
                     view.wallpaper=bitmap;
+                    if(old!=null&&old!=bitmap&&!old.isRecycled())old.recycle();
                     view.invalidate();
+                }else if(bitmap!=null&&!bitmap.isRecycled()){
+                    bitmap.recycle();
                 }
             });
         });
@@ -52,7 +56,7 @@ public final class MarcoDreamService extends DreamService {
         super.onDreamingStopped();
     }
     @Override public void onDetachedFromWindow(){
-        if(view!=null)view.stop();
+        if(view!=null)view.release();
         view=null;
         handler.removeCallbacksAndMessages(null);
         super.onDetachedFromWindow();
@@ -85,10 +89,16 @@ public final class MarcoDreamService extends DreamService {
         void stop(){
             if(animator!=null)animator.cancel();
         }
+        void release(){
+            stop();
+            clock.release();
+            if(wallpaper!=null&&!wallpaper.isRecycled())wallpaper.recycle();
+            wallpaper=null;
+        }
         @Override protected void onDraw(Canvas c){
             c.drawColor(Color.BLACK);
             float scale=Math.min(getWidth()/1920f,getHeight()/1080f);
-            if(wallpaper!=null){
+            if(wallpaper!=null&&!wallpaper.isRecycled()){
                 float k=Math.max(getWidth()/(float)wallpaper.getWidth(),getHeight()/(float)wallpaper.getHeight());
                 float w=k*wallpaper.getWidth(),h=k*wallpaper.getHeight();
                 rect.set((getWidth()-w)/2,(getHeight()-h)/2,(getWidth()+w)/2,(getHeight()+h)/2);

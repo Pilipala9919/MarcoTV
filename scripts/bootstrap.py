@@ -52,6 +52,19 @@ if __name__ == '__main__':
     TOOLS.mkdir(exist_ok=True)
     with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(install, PACKAGES))
+    json_jar = TOOLS / 'test-libs/json-20240303.jar'
+    json_sha = '3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed'
+    json_jar.parent.mkdir(parents=True, exist_ok=True)
+    if not json_jar.exists() or hashlib.sha256(json_jar.read_bytes()).hexdigest() != json_sha:
+        print('json-20240303.jar: downloading test library', flush=True)
+        req = urllib.request.Request(
+            'https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar',
+            headers={'User-Agent': 'TVLauncher-Build/0.1'},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            json_jar.write_bytes(resp.read())
+        if hashlib.sha256(json_jar.read_bytes()).hexdigest() != json_sha:
+            raise RuntimeError('json-20240303.jar: checksum mismatch')
     configuration = {
         'jdk': str(next((TOOLS / 'jdk').glob('*/bin/javac.exe')).parents[1]),
         'android_jar': str(next((TOOLS / 'platform').rglob('android.jar'))),

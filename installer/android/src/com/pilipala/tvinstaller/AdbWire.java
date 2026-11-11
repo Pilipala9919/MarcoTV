@@ -24,6 +24,13 @@ public final class AdbWire implements Closeable {
         String[] parts=text.split("\\.");byte[] b=new byte[4];for(int i=0;i<4;i++){int n=Integer.parseInt(parts[i]);if(n>255)throw new IOException("电视 IP 格式不正确");b[i]=(byte)n;}
         int a=b[0]&255,c=b[1]&255;if(!(a==10||(a==172&&c>=16&&c<=31)||(a==192&&c==168))||(b[3]&255)==255)throw new IOException("请填写家庭局域网中的电视 IP");return InetAddress.getByAddress(b);
     }
+    public static List<String> subnetHosts(byte[] b,int prefix){
+        List<String> out=new ArrayList<>();if(b==null||b.length!=4||prefix<8||prefix>30)return out;
+        int eff=Math.max(24,prefix);long ip=((b[0]&255L)<<24)|((b[1]&255L)<<16)|((b[2]&255L)<<8)|(b[3]&255L);
+        long m=(0xFFFFFFFFL<<(32-eff))&0xFFFFFFFFL,net=ip&m,bcast=net|(~m&0xFFFFFFFFL);
+        for(long cur=net+1;cur<bcast;cur++){long last=cur&255L;if(cur==ip||last==0||last==255)continue;out.add(((cur>>24)&255)+"."+((cur>>16)&255)+"."+((cur>>8)&255)+"."+last);}
+        return out;
+    }
     public static KeyPair key(File folder)throws Exception{
         File f=new File(folder,"installer-adb-key");KeyFactory factory=KeyFactory.getInstance("RSA");
         if(f.exists()){
@@ -40,8 +47,8 @@ public final class AdbWire implements Closeable {
     }
     public void connect(String host,int port,KeyPair key,Consumer<String> status)throws Exception{
         try{
-            if(port<1||port>65535)throw new IOException("端口须为 1–65535");socket.connect(new InetSocketAddress(address(host),port),7000);socket.setSoTimeout(65000);socket.setTcpNoDelay(true);in=socket.getInputStream();out=socket.getOutputStream();send(CNXN,0x01000000,4096,utf("host::\0"));int count=0;
-            for(int i=0;i<6;i++){Packet p=read();if(p.cmd==CNXN)return;if(p.cmd!=AUTH||p.a!=1||p.data.length!=20)throw new IOException("此端口不支持普通网络 ADB；无线配对码机型请查看其他路线");if(count++==0)send(AUTH,2,0,sign(key,p.data));else{status.accept("请在电视上用遥控器选择“允许连接”");send(AUTH,3,0,utf(Base64.getEncoder().encodeToString(publicKey((RSAPublicKey)key.getPublic()))+" Pilipala@MarcoTVInstaller\0"));}}
+            if(port<1||port>65535)throw new IOException("端口须为 1–65535");socket.connect(new InetSocketAddress(address(host),port),7000);socket.setSoTimeout(8000);socket.setTcpNoDelay(true);in=socket.getInputStream();out=socket.getOutputStream();send(CNXN,0x01000000,4096,utf("host::\0"));int count=0;
+            for(int i=0;i<6;i++){Packet p=read();if(p.cmd==CNXN){socket.setSoTimeout(65000);return;}if(p.cmd!=AUTH||p.a!=1||p.data.length!=20)throw new IOException("此端口不支持普通网络 ADB；无线配对码机型请查看其他路线");if(count++==0)send(AUTH,2,0,sign(key,p.data));else{socket.setSoTimeout(65000);status.accept("请在电视上用遥控器选择“允许连接”");send(AUTH,3,0,utf(Base64.getEncoder().encodeToString(publicKey((RSAPublicKey)key.getPublic()))+" Pilipala@MarcoTVInstaller\0"));}}
             throw new IOException("电视尚未完成授权，请确认弹窗后重试");
         }catch(Exception e){close();throw e;}
     }

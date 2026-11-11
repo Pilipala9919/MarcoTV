@@ -56,8 +56,8 @@ final class TaskBridgeClient {
     }
     static JSONObject configure(Context context)throws Exception{
         ComponentName original=ComponentName.unflattenFromString(SystemIntegration.prefs(context).getString("original_home",""));
-        boolean enabled=SystemIntegration.prefs(context).getBoolean("home_compat",false)&&context.getSharedPreferences("home",0)
-                .getBoolean("recent_wake",true);
+        boolean wakePref=!HomeSetup.unlocked(context)||context.getSharedPreferences("home",0).getBoolean("recent_wake",true);
+        boolean enabled=SystemIntegration.prefs(context).getBoolean("home_compat",false)&&wakePref;
         call(new JSONObject().put("action","configure").put("wake",enabled).put("home",original==null?"":original.getPackageName()));
         return request("status");
     }

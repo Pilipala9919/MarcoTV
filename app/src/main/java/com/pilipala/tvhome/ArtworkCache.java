@@ -14,7 +14,7 @@ import android.util.LruCache;
  */
 final class ArtworkCache {
     private static final int RICH_BUDGET_MB = 26;
-    private static final int LEAN_BUDGET_MB = 8;
+    private static final int LEAN_BUDGET_MB = 6;
     private static boolean evaluated;
     private static boolean retain = true;
     private static final LruCache<String, Bitmap> ENTRIES = new LruCache<String, Bitmap>(RICH_BUDGET_MB * 1024 * 1024) {
@@ -26,8 +26,10 @@ final class ArtworkCache {
     private ArtworkCache() { }
 
     static void configure(Context context) {
-        retain = true;
-        ENTRIES.resize((lean(context) ? LEAN_BUDGET_MB : RICH_BUDGET_MB) * 1024 * 1024);
+        boolean severe = severeLowMemory(context);
+        retain = !severe;
+        if (severe) ENTRIES.evictAll();
+        ENTRIES.resize((severe ? 1 : lean(context) ? LEAN_BUDGET_MB : RICH_BUDGET_MB) * 1024 * 1024);
         evaluated = true;
     }
 
@@ -55,7 +57,21 @@ final class ArtworkCache {
         for (String key : ENTRIES.snapshot().keySet()) if (key.startsWith(prefix)) ENTRIES.remove(key);
     }
 
-    /** True when the device cannot spare memory for cached artwork. */
+    /** True when memory is so constrained (<=1 GB RAM or <=48 MB heap) that caching decoded bitmaps risks OOM. */
+    private static boolean severeLowMemory(Context context) {
+        long maxHeap = Runtime.getRuntime().maxMemory();
+        if (maxHeap <= 48L * 1024 * 1024) return true;
+        ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager != null) {
+            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            manager.getMemoryInfo(info);
+            if (info.totalMem > 0 && info.totalMem <= 1024L * 1024 * 1024) return true;
+            if (manager.isLowRamDevice() && maxHeap <= 64L * 1024 * 1024) return true;
+        }
+        return false;
+    }
+
+    /** True when the device should use a reduced artwork cache budget. */
     static boolean lean(Context context) {
         ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         if (manager != null) {

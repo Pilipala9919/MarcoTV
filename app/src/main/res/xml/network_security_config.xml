@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 Pilipala; SPDX-License-Identifier: GPL-3.0-only -->
+<network-security-config>
+    <!-- LAN DLNA / HTTP media playback requires cleartext on private/local streams. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- Official update and opt-in feedback endpoints must strictly use HTTPS. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">marcotv.wlj9919.top</domain>
+        <domain includeSubdomains="true">pilipala9919.github.io</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>

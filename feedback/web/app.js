@@ -9,7 +9,7 @@ async function request(path,body){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
  try{
   const response=await fetch('/api/feedback/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
-  const data=await response.json();if(!response.ok)throw new Error(data.error==='rate_limited'?'提交较频繁，请稍后再试。':'暂未提交，反馈服务暂不可用，请保留此页稍后重试。');return data;
+  const data=await response.json();if(!response.ok)throw new Error(data.error==='rate_limited'?'提交较频繁，请稍后再试。':data.error==='id_conflict'?'该反馈编号已提交过（若修改了症状分类，请回电视重新扫码），无需重复提交。':'暂未提交，反馈服务暂不可用，请保留此页稍后重试。');return data;
  }finally{clearTimeout(timer);}
 }
 function update(){ $('submit').disabled=!ready||!report||!$('consent').checked||busy; }

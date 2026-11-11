@@ -110,6 +110,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        normalizeViewportMetrics();
         HomeSetup.finishCompatibilityConsent(this);
         HomeSetup.observeHomeIntent(this, getIntent());
         Diagnostics.init(this);
@@ -181,6 +182,37 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void normalizeViewportMetrics() {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (dm == null || dm.widthPixels <= 0 || dm.heightPixels <= 0) return;
+        int w = Math.max(dm.widthPixels, dm.heightPixels);
+        int h = Math.min(dm.widthPixels, dm.heightPixels);
+        float targetDensity = Math.max(0.75f, Math.min(6.0f, Math.min(w / 960f, h / 540f)));
+        android.content.res.Configuration cfg = getResources().getConfiguration();
+        float rawFontScale = cfg != null && cfg.fontScale > 0 ? cfg.fontScale : 1f;
+        float clampedFontScale = Math.max(0.85f, Math.min(1.15f, rawFontScale));
+        int targetDpi = Math.round(targetDensity * 160f);
+        float targetScaledDensity = targetDensity * clampedFontScale;
+        dm.density = targetDensity;
+        dm.densityDpi = targetDpi;
+        dm.scaledDensity = targetScaledDensity;
+        Context app = getApplicationContext();
+        if (app != null && app.getResources() != null) {
+            android.util.DisplayMetrics appDm = app.getResources().getDisplayMetrics();
+            if (appDm != null) {
+                appDm.density = targetDensity;
+                appDm.densityDpi = targetDpi;
+                appDm.scaledDensity = targetScaledDensity;
+            }
+        }
+    }
+
+    @Override public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        normalizeViewportMetrics();
+        if (home != null) home.invalidate();
+    }
+
     private void fullscreen() {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -191,6 +223,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        normalizeViewportMetrics();
         foreground = true;
         HomeSetup.reconcile(this);
         Diagnostics.foreground(true);
@@ -232,6 +265,7 @@ public final class MainActivity extends Activity {
         if(updates!=null)updates.pause();
         if(network!=null)network.pause();
         foreground = false;
+        if(cast!=null)cast.pause();
         Diagnostics.foreground(false);
         if(playback!=null)playback.stop();
         handler.removeCallbacks(clock);

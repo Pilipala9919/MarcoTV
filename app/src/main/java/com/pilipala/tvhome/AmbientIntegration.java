@@ -9,6 +9,7 @@ import android.util.Log;
 /** Reversible Android screensaver selection. Foreground idle is owned by our window. */
 final class AmbientIntegration {
     static boolean enabled(Context c){
+        if(!HomeSetup.unlocked(c))return false;
         return c.getSharedPreferences("home",0).getBoolean("ambient_enabled",true);
     }
     static void configure(Context c){

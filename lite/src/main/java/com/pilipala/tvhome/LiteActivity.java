@@ -146,10 +146,22 @@ public final class LiteActivity extends Activity {
                         App app=new App();
                         app.id=a.packageName;
                         app.label=r.loadLabel(pm).toString();
+                        app.pinned=prefs.getBoolean("pinned:"+app.id,false);
+                        app.opened=prefs.getLong("opened:"+app.id,0);
                         app.intent=new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(a.packageName,a.name))
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                         found.add(app);
                     }
+                    final boolean alphabetic=prefs.getBoolean("alphabetic",false);
+                    Collections.sort(found,new Comparator<App>(){
+                        public int compare(App a,App b){
+                            boolean ha=prefs.getBoolean("hidden:"+a.id,false),hb=prefs.getBoolean("hidden:"+b.id,false);
+                            if(ha!=hb)return ha?1:-1;
+                            if(a.pinned!=b.pinned)return a.pinned?-1:1;
+                            if(!alphabetic&&a.opened!=b.opened)return a.opened>b.opened?-1:1;
+                            return a.label.compareToIgnoreCase(b.label);
+                        }
+                    });
                     for(int i=0;i<Math.min(iconLimit,found.size());i++){
                         if(destroyed)break;
                         try{
@@ -198,6 +210,15 @@ public final class LiteActivity extends Activity {
     }
     static void recycle(List<App> list){
         for(App a:list)if(a.icon!=null&&!a.icon.isRecycled())a.icon.recycle();
+    }
+    static boolean isConfirmKey(int key){
+        return key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER
+                ||key==KeyEvent.KEYCODE_NUMPAD_ENTER||key==KeyEvent.KEYCODE_BUTTON_A;
+    }
+    boolean isDefaultHome(){
+        if(getIntent()!=null&&getIntent().hasCategory(Intent.CATEGORY_HOME))return true;
+        ResolveInfo r=getPackageManager().resolveActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),PackageManager.MATCH_DEFAULT_ONLY);
+        return r!=null&&r.activityInfo!=null&&getPackageName().equals(r.activityInfo.packageName);
     }
     void launch(App app){
         try{
@@ -468,7 +489,9 @@ public final class LiteActivity extends Activity {
         void release(){
             pause();
             closePage();
-            if(wallpaper!=null)wallpaper.recycle();
+            clock.release();
+            if(wallpaper!=null&&!wallpaper.isRecycled())wallpaper.recycle();
+            wallpaper=null;
         }
         void wake(){
             touched=SystemClock.uptimeMillis();
@@ -818,21 +841,31 @@ public final class LiteActivity extends Activity {
                 wakeKey=true;
                 return true;
             }
-            if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER){
+            if(isConfirmKey(key)){
                 if(event.getRepeatCount()==0){
                     event.startTracking();
                     longPress=false;
+                }else if((event.isLongPress()||event.getRepeatCount()>=3)&&!longPress&&page==0&&!topFocus&&!apps.isEmpty()){
+                    longPress=true;
+                    open(3);
                 }
                 return true;
             }
             if(key==KeyEvent.KEYCODE_BACK){
                 if(page!=0){
                     backPage();
-                }else{
+                }else if(topFocus||selected!=0){
                     topFocus=false;
                     selected=0;
                     scroll.target(0);
                     scheduleMotion();
+                }else if(host.isDefaultHome()){
+                    ambient=true;
+                    saver.target(1);
+                    scheduleMotion();
+                }else{
+                    host.finish();
+                    return true;
                 }
                 invalidate();
                 return true;
@@ -864,7 +897,7 @@ public final class LiteActivity extends Activity {
             return super.onKeyDown(key,event);
         }
         @Override public boolean onKeyLongPress(int key,KeyEvent event){
-            if((key==23||key==66)&&page==0&&!topFocus&&!apps.isEmpty()){
+            if(isConfirmKey(key)&&!longPress&&page==0&&!topFocus&&!apps.isEmpty()){
                 longPress=true;
                 open(3);
                 return true;
@@ -876,7 +909,7 @@ public final class LiteActivity extends Activity {
                 wakeKey=false;
                 return true;
             }
-            if(key==23||key==66){
+            if(isConfirmKey(key)){
                 if(!longPress&&!event.isCanceled())activate();
                 longPress=false;
                 return true;

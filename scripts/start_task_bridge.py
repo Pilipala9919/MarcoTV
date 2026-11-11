@@ -23,7 +23,7 @@ def main():
     if not match:raise RuntimeError('Install Marco TV for the current user first')
     path=shell('pm','path','--user',user,'com.pilipala.tvhome')
     paths=[p.removeprefix('package:') for p in path.splitlines() if p.startswith('package:')]
-    if len(paths)!=1 or not paths[0].startswith('/data/app/') or not paths[0].endswith('.apk'):raise RuntimeError('Unexpected APK path')
+    if len(paths)!=1 or '..' in paths[0] or not re.fullmatch(r'(?:/data/app/|/mnt/expand/[A-Za-z0-9_-]+/app/)[A-Za-z0-9_./=+~-]+\.apk',paths[0]):raise RuntimeError('Unexpected APK path')
     command='CLASSPATH='+shlex.quote(paths[0])+' app_process /system/bin --nice-name=marcotv-task-bridge com.pilipala.tvhome.TaskBridgeServer '+match[1]+' '+user+' </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1 &'
     shell(command)
     started=False

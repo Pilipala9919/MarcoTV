@@ -49,16 +49,20 @@ final class AllAppsDrawer {
                 }
                 Collator order=Collator.getInstance(Locale.CHINA);
                 Collections.sort(entries,(a,b)->order.compare(a.label,b.label));
-                for(int i=0;i<Math.min(64,entries.size());i++)try{
-                    Entry e=entries.get(i);
-                    Drawable icon=pm.getApplicationIcon(e.id);
-                    e.icon=Bitmap.createBitmap(64,64,Bitmap.Config.ARGB_8888);
-                    int w=Math.max(1,icon.getIntrinsicWidth()),h=Math.max(1,icon.getIntrinsicHeight());
-                    float scale=56f/Math.max(w,h);
-                    icon.setBounds((int)(32-w*scale/2),(int)(32-h*scale/2),(int)(32+w*scale/2),(int)(32+h*scale/2));
-                    icon.draw(new Canvas(e.icon));
-                }catch(Exception ignored){}
+                for(int i=0;i<entries.size();i++){
+                    if(request!=generation||epoch!=host.menuEpoch||host.isDestroyed())break;
+                    try{
+                        Entry e=entries.get(i);
+                        Drawable icon=pm.getApplicationIcon(e.id);
+                        e.icon=Bitmap.createBitmap(56,56,Bitmap.Config.ARGB_8888);
+                        int w=Math.max(1,icon.getIntrinsicWidth()),h=Math.max(1,icon.getIntrinsicHeight());
+                        float scale=48f/Math.max(w,h);
+                        icon.setBounds((int)(28-w*scale/2),(int)(28-h*scale/2),(int)(28+w*scale/2),(int)(28+h*scale/2));
+                        icon.draw(new Canvas(e.icon));
+                    }catch(Exception ignored){}
+                }
             }catch(RuntimeException failure){
+                recycle(entries);
                 host.handler.post(()->{
                     if(request==generation&&epoch==host.menuEpoch&&host.isPage("all_apps"))host.showDialog(new TvDialog.Builder(host)
                             .setPageId("all_apps").centered().setTitle("全部应用").setMessage("读取失败，请返回后重新打开。")
@@ -67,10 +71,19 @@ final class AllAppsDrawer {
                 return;
             }
             host.handler.post(()->{
-                if(request!=generation||host.isDestroyed()||epoch!=host.menuEpoch||!host.isPage("all_apps"))return;
+                if(request!=generation||host.isDestroyed()||epoch!=host.menuEpoch||!host.isPage("all_apps")){
+                    recycle(entries);
+                    return;
+                }
                 present(entries);
             });
         });
+    }
+    private static void recycle(List<Entry> entries){
+        for(Entry e:entries)if(e.icon!=null&&!e.icon.isRecycled()){
+            e.icon.recycle();
+            e.icon=null;
+        }
     }
     void present(ArrayList<Entry> entries){
         GridLayout grid=new GridLayout(host);
@@ -137,9 +150,13 @@ final class AllAppsDrawer {
                 return true;
             });
         }
-        host.showDialog(new TvDialog.Builder(host).setPageId("all_apps").centered().setTitle("全部应用 · "+entries.size())
+        TvDialog dialog=new TvDialog.Builder(host).setPageId("all_apps").centered().setTitle("全部应用 · "+entries.size())
                 .setMessage(entries.isEmpty()?"没有找到可启动应用。可到添加应用查找其他入口。":"方向键选择 · 确定打开 · 长按添加到桌面。包含已隐藏的应用，仅显示可启动入口。")
                 .setView(grid).setNeutralButton("查找其他入口",(d,w)->host.library.show()).setNegativeButton("返回",null)
-                .create());
+                .create();
+        dialog.onLeave(()->{
+            if(!host.dialogs.hasPage("all_apps"))recycle(entries);
+        });
+        host.showDialog(dialog);
     }
 }

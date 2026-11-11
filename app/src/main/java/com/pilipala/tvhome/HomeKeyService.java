@@ -62,16 +62,21 @@ public final class HomeKeyService extends AccessibilityService {
     private final HomePressTracker homePressTracker=new HomePressTracker();
     private final HomeInputGate inputGate=new HomeInputGate();
     private boolean canRedirect(){
+        if(!HomeSetup.unlocked(this))return false;
         android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
         return inputGate.allow(power!=null&&power.isInteractive(),SystemClock.elapsedRealtime());
     }
     private Intent homePressIntent(){
         long now=SystemClock.elapsedRealtime();
         lastOpen=now;
-        android.content.SharedPreferences p=getSharedPreferences("home",0);
         boolean twice=false;
-        if(p.getBoolean("recent_enabled",false))twice=homePressTracker.press(now,p.getInt("recent_double_ms",400));
-        else homePressTracker.reset();
+        if(HomeSetup.unlocked(this)){
+            android.content.SharedPreferences p=getSharedPreferences("home",0);
+            if(p.getBoolean("recent_enabled",false))twice=homePressTracker.press(now,p.getInt("recent_double_ms",400));
+            else homePressTracker.reset();
+        }else{
+            homePressTracker.reset();
+        }
         return SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",twice);
     }
     private boolean handlingHome;

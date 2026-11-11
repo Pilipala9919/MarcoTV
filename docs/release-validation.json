@@ -1,46 +1,58 @@
 {
-  "version": "0.15.0",
-  "version_code": 36,
-  "date": "2026-11-03",
+  "version": "0.16.0",
+  "version_code": 37,
+  "date": "2026-11-11",
   "author": "Pilipala",
   "release_channel": "stable",
+  "apk_sha256": "6ad42f8efebf1320ad1f5315d462aaa4995ba96d0512f7beb7761a090cfd54d6",
+  "restricted_apk_sha256": "761004cbfc77842cd601d79e73604b6a77ec42b3ca9e15c9fe63e349b06d6068",
+  "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
-  "device_model": "Xiaomi MiTV-ASTP0",
-  "android": "9",
-  "apk_sha256": "f2d4a55617ec4fc1407764c11aab61c6ea3724a068ae64ad36d142ca41ce26de",
-  "source_behavior_evidence": {
-    "development_apk_sha256": "702716854a3107e72bab19ede23b2edc9dcdeb6d0371eb6b230232ad518411eb",
-    "setup_device_checks": 37,
+  "hardware_baseline": {
+    "version": "0.15.0",
+    "version_code": 36,
+    "device_model": "Xiaomi MiTV-ASTP0",
+    "android": "9",
+    "apk_sha256": "f2d4a55617ec4fc1407764c11aab61c6ea3724a068ae64ad36d142ca41ce26de",
+    "device_setup_checks": 37,
     "physical_remote": "user confirmed Home, double Home task cards and direction keys",
     "settings_return": "real automatic continuation passed"
   },
-  "current_release_checks": {
-    "local_suites": [
-      "home_guide",
-      "home_auto",
+  "release_checks": {
+    "offline_suites": [
       "home_setup",
+      "home_auto",
+      "home_guide",
+      "feedback",
+      "feedback_transport",
       "motion",
       "motion_lifecycle",
       "core_consistency",
+      "ambient_weather",
+      "release_tools",
       "settings",
       "updates",
       "phone_http",
-      "release_tools",
+      "cast_protocol",
+      "task_bridge",
       "restricted",
-      "lite"
+      "lite",
+      "check_release"
     ],
+    "offline_suites_count": 18,
     "all_passed": true,
     "installation_web_route_combinations": 72,
-    "device_setup_checks": 37,
-    "device_setup_apk_sha256": "f2d4a55617ec4fc1407764c11aab61c6ea3724a068ae64ad36d142ca41ce26de",
-    "physical_remote": "user confirmation on source-equivalent development APK; release metadata changed only",
-    "full_reboot": "not repeated"
+    "feedback_node_checks": 48,
+    "installer_transport_checks": "Windows C# + Android JVM RSA/CIDR/payload verification passed",
+    "device_instrumentation_compile_only_apks": 7
   },
   "not_verified": [
-    "final release full reboot",
-    "other brands",
-    "stable frame rate",
-    "restricted edition target firmware"
+    "0.16.0 physical TV installation, remote keys, DLNA control point playback and full reboot",
+    "Android 10-14 physical TV TaskBridge Binder handshake and Adopted Storage runtime",
+    "other brands (TCL, Hisense, Skyworth, Sony, Huawei)",
+    "stable frame rate across devices",
+    "restricted edition target firmware",
+    "Lite 0.1.2 physical Android 4.x TV hardware"
   ],
   "screenshots": "Historical privacy-sanitized screenshots retain their original capture versions; no new private screenshots published."
 }

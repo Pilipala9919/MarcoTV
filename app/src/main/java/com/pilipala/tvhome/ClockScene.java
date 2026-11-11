@@ -201,6 +201,7 @@ final class ClockScene {
                 result=existing;
                 result.eraseColor(Color.TRANSPARENT);
             }else{
+                if(existing!=null&&!existing.isRecycled())existing.recycle();
                 result=Bitmap.createBitmap(targetW,targetH,Bitmap.Config.ARGB_8888);
             }
             Canvas canvas=new Canvas(result);
@@ -214,6 +215,11 @@ final class ClockScene {
             }
             return result;
         }
+    }
+    void release(){
+        if(clockBitmap!=null&&!clockBitmap.isRecycled())clockBitmap.recycle();
+        clockBitmap=null;
+        cachedTime="";
     }
     static int dim(SharedPreferences prefs,float ambient){
         float normal=prefs.getInt("wallpaper_dim",10)/100f;

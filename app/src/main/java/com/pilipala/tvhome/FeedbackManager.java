@@ -30,6 +30,16 @@ final class FeedbackManager {
                 .put("reason",reason).put("home",SystemIntegration.homeIsOurs(c)).put("service",HomeKeyService.connected)
                 .put("events",new JSONArray(FeedbackPolicy.codes(journal))).put("frames",new JSONArray(FeedbackPolicy.frames(journal)));
     }
+    static JSONObject qrSnapshot(JSONObject report){
+        try{
+            JSONObject copy=new JSONObject(report.toString());
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(("qr:"+report.getString("id")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex=new StringBuilder(32);
+            for(int i=0;i<16;i++)hex.append(String.format(Locale.ROOT,"%02x",digest[i]&255));
+            return copy.put("id",hex.toString());
+        }catch(Exception e){throw new IllegalArgumentException("Invalid report");}
+    }
     static String link(JSONObject report){
         try{
             JSONObject compact=new JSONObject(report.toString());

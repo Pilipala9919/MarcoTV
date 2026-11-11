@@ -67,7 +67,7 @@ final class CardMover {
     boolean keyDown(int code){
         swallowMoveKey=true;
         if(code==KeyEvent.KEYCODE_BACK)finish(false);
-        else if(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)finish(true);
+        else if(HomeView.isConfirmKey(code))finish(true);
         else if(code==KeyEvent.KEYCODE_DPAD_LEFT||code==KeyEvent.KEYCODE_DPAD_RIGHT){
             int from=movingRow.selected,to=from+(code==KeyEvent.KEYCODE_DPAD_LEFT?-1:1);
             if(to>=0&&to<movingRow.tiles.size()){

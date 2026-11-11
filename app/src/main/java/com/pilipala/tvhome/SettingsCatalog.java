@@ -43,14 +43,16 @@ final class SettingsCatalog {
         specs.put("recent_double_ms",new int[]{200,700,400});
         INT_SPECS=Collections.unmodifiableMap(specs);
         Set<String> home=new LinkedHashSet<>(specs.keySet());
-        home.addAll(Arrays.asList("ambient_enabled","now_playing","tv_sort","order_tv","order_inputs","order_favorites","order_other"));
+        home.addAll(Arrays.asList("ambient_enabled","now_playing","recent_enabled","recent_wake","tv_sort","order_tv","order_inputs","order_favorites","order_other"));
         HOME_KEYS=Collections.unmodifiableSet(home);
     }
     static int[] range(String key){
+        if("cast_mode".equals(key))return new int[]{0,2};
         int[] spec=INT_SPECS.get(key);
         return spec!=null?new int[]{spec[0],spec[1]}:new int[]{0,100};
     }
     static int defaultValue(String key,int fallback){
+        if("cast_mode".equals(key))return 1;
         int[] spec=INT_SPECS.get(key);
         return spec!=null?spec[2]:fallback;
     }
@@ -58,13 +60,15 @@ final class SettingsCatalog {
         if(group==null||key==null)return false;
         if(group.equals("home"))return HOME_KEYS.contains(key)||(key.startsWith("opened:")&&key.length()>7&&key.length()<=507);
         if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps").contains(key)||key.matches("(name|cover|manual):.{1,500}");
+        if(group.equals("cast"))return key.equals("cast_mode")||key.equals("cast_confirm");
         return group.equals("menu_order")&&ORDER_KEYS.contains(key);
     }
     static String expectedType(String group,String key){
         if(group.equals("menu_order"))return "s";
         if(group.equals("cards"))return key.contains(":")?"s":"set";
+        if(group.equals("cast"))return key.equals("cast_confirm")?"b":"i";
         if(key.startsWith("opened:"))return "l";
-        if(key.equals("ambient_enabled")||key.equals("now_playing"))return "b";
+        if(key.equals("ambient_enabled")||key.equals("now_playing")||key.equals("recent_enabled")||key.equals("recent_wake"))return "b";
         if(key.startsWith("order_")||key.equals("tv_sort"))return "s";
         return "i";
     }

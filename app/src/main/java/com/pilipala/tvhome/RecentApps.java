@@ -352,7 +352,7 @@ final class RecentApps {
                 else if(code==KeyEvent.KEYCODE_MENU)settings();
                 else if(code==KeyEvent.KEYCODE_DPAD_UP)remove();
             }
-        }else if(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)open();
+        }else if(HomeView.isConfirmKey(code))open();
         return true;
     }
     void touch(int action,float x,float y){

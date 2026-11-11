@@ -39,16 +39,16 @@ public sealed class AdbWire : IDisposable {
             var ar=client.BeginConnect(Address(host),port,null,null);
             try { if(!ar.AsyncWaitHandle.WaitOne(7000))throw new IOException("连接超时。请确认电视已开启网络调试，且两端在同一家庭网络。");client.EndConnect(ar); }
             finally { ar.AsyncWaitHandle.Close(); }
-            client.NoDelay=true;client.ReceiveTimeout=65000;client.SendTimeout=20000;stream=client.GetStream();
+            client.NoDelay=true;client.ReceiveTimeout=8000;client.SendTimeout=20000;stream=client.GetStream();
             var cp=new CspParameters(){KeyContainerName="MarcoTVInstaller-Pilipala-v1",Flags=CspProviderFlags.UseDefaultKeyContainer};
             // A named per-user CSP container keeps the private key out of the distribution.
             cp.Flags=CspProviderFlags.NoFlags;key=new RSACryptoServiceProvider(2048,cp);key.PersistKeyInCsp=true;
             Send(CNXN,0x01000000,4096,Utf("host::\0"));int attempts=0;
             for(int i=0;i<6;i++) {
-                var p=Read();if(p.Cmd==CNXN)return;
+                var p=Read();if(p.Cmd==CNXN){client.ReceiveTimeout=65000;return;}
                 if(p.Cmd!=AUTH||p.A!=1||p.Data.Length!=20)throw new IOException("该端口不是支持的普通 ADB 连接。仅提供无线配对码的电视请查看其他安装路线。");
                 if(attempts++==0)Send(AUTH,2,0,key.SignHash(p.Data,"SHA1"));
-                else {status("请在电视弹窗选择“允许”，确认这是你自己的设备。");Send(AUTH,3,0,Utf(Convert.ToBase64String(PublicKey(key.ExportParameters(false)))+" Pilipala@MarcoTVInstaller\0"));}
+                else {client.ReceiveTimeout=65000;status("请在电视弹窗选择“允许”，确认这是你自己的设备。");Send(AUTH,3,0,Utf(Convert.ToBase64String(PublicKey(key.ExportParameters(false)))+" Pilipala@MarcoTVInstaller\0"));}
             }
             throw new IOException("电视未完成连接授权，请确认弹窗后重试。");
         }catch{Dispose();throw;}

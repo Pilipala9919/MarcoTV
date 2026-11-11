@@ -21,6 +21,8 @@ SUITES = [
     'test_settings.py',
     'test_updates.py',
     'test_phone_http.py',
+    'test_cast_protocol.py',
+    'test_task_bridge.py',
     'test_restricted.py',
     'test_lite.py',
     'check_release.py',

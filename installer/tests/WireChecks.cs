@@ -4,7 +4,10 @@ public class WireChecks {
  public static int Main(string[] args){
   try{
    using(var key=new RSACryptoServiceProvider(2048)){var p=key.ExportParameters(false);byte[] data=AdbWire.PublicKey(p);var n=new System.Numerics.BigInteger(data.Skip(8).Take(256).Concat(new byte[]{0}).ToArray());uint inv=BitConverter.ToUInt32(data,4);if((n*inv+1)% (System.Numerics.BigInteger.One<<32)!=0)throw new Exception("RSA inverse");}
-   if(args.Length==0){Console.WriteLine("PASS RSA public key Montgomery inverse");return 0;}
+   var wide=InstallerForm.SubnetHosts(new byte[]{10,0,5,42},new byte[]{255,255,0,0}).ToList();
+   var narrow=InstallerForm.SubnetHosts(new byte[]{172,16,4,19},new byte[]{255,255,255,240}).ToList();
+   if(wide.Count!=253||wide.Contains(string.Join(".",new[]{10,0,5,42}))||narrow.Count!=13||InstallerForm.SubnetHosts(new byte[]{10,0,5,42},new byte[]{255,255,0,255}).Any()||InstallerForm.SubnetHosts(new byte[]{10,0,5,42},new byte[]{255,255,255,254}).Any())throw new Exception("subnet mask scan bounds");
+   if(args.Length==0){Console.WriteLine("PASS RSA public key Montgomery inverse and CIDR subnet bounds");return 0;}
    using(var adb=new AdbWire(args[0],5555,Console.WriteLine)){
     Console.WriteLine("PASS connected SDK "+adb.Shell("getprop ro.build.version.sdk"));
     byte[] bytes=Enumerable.Range(0,70001).Select(i=>(byte)(i%251)).ToArray();string path="/data/local/tmp/marcotv-wire-check.bin";

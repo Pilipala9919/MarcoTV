@@ -15,7 +15,7 @@ import java.util.zip.*;
 /** Versioned allowlisted backup format. Imported paths and system permissions are never restored. */
 final class BackupStore {
     static final long LIMIT=128L*1024*1024;
-    static final String[] GROUPS={"home","cards","menu_order"};
+    static final String[] GROUPS={"home","cards","menu_order","cast"};
     static final Set<String> HOME=new HashSet<>(SettingsCatalog.HOME_KEYS);
     static boolean allowed(String group,String key){
         return SettingsCatalog.allowed(group,key);
@@ -45,6 +45,7 @@ final class BackupStore {
             JSONObject hashes=new JSONObject();
             long total=0;
             if(root.getBoolean("images")){
+                CardStore.pruneOrphanCovers(c);
                 File[] files=c.getFilesDir().listFiles(f->imageName(f.getName()));
                 if(files!=null&&files.length>500)throw new IOException("image count limit");
                 if(files!=null)for(File f:files){
@@ -168,7 +169,8 @@ final class BackupStore {
         if(root.getBoolean("customWallpaper")&&!p.images.containsKey("wallpaper-image"))throw new IOException("wallpaper missing");
         Set<String> packages=new HashSet<>();
         for(String group:GROUPS){
-            JSONObject values=root.getJSONObject(group);
+            JSONObject values=group.equals("cast")?root.optJSONObject(group):root.getJSONObject(group);
+            if(values==null)continue;
             if(values.length()>5000)throw new IOException("too many settings");
             for(Iterator<String> it=values.keys();it.hasNext();){
                 String key=it.next();
@@ -280,8 +282,8 @@ final class BackupStore {
             SharedPreferences prefs=c.getSharedPreferences(group,0);
             SharedPreferences.Editor edit=prefs.edit();
             for(String key:prefs.getAll().keySet())if(allowed(group,key))edit.remove(key);
-            JSONObject values=p.metadata.getJSONObject(group);
-            for(Iterator<String> it=values.keys();it.hasNext();){
+            JSONObject values=p.metadata.optJSONObject(group);
+            if(values!=null)for(Iterator<String> it=values.keys();it.hasNext();){
                 String key=it.next();
                 JSONObject v=values.getJSONObject(key);
                 String type=v.getString("type");
@@ -315,6 +317,7 @@ final class BackupStore {
             }
             if(!edit.commit())throw new IOException("preference write");
         }
+        CardStore.pruneOrphanCovers(c);
         MenuMigration.apply(c);
         ArtworkCache.clear();
     }

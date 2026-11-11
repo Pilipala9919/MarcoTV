@@ -71,7 +71,7 @@ final class PersonalizationPanel extends LinearLayout {
         slider("屏保渐变时长","ambient_transition",1,30,3," 秒");
         action("屏保开关与系统接管…",()->host.navigator.ambientSettings(),"personalization");
         section("wallpaper","壁纸");
-        slider("桌面壁纸压暗","wallpaper_dim",0,90,10,"%");
+        slider("桌面壁纸压暗","wallpaper_dim",0,100,10,"%");
         action("选择或导入壁纸…",()->host.navigator.wallpaperSettings(),"personalization");
         section("recent","最近任务卡片");
         slider("任务卡片大小","recent_size",60,120,100,"%");

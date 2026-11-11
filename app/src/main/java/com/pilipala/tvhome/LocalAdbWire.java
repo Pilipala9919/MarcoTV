@@ -40,8 +40,8 @@ final class LocalAdbWire implements Closeable {
     }
     public void connect(String host,int port,KeyPair key,Status status)throws Exception{
         try{
-            if(port<1||port>65535)throw new IOException("端口须为 1–65535");socket.connect(new InetSocketAddress(address(host),port),7000);socket.setSoTimeout(45000);socket.setTcpNoDelay(true);in=socket.getInputStream();out=socket.getOutputStream();send(CNXN,0x01000000,4096,utf("host::\0"));int count=0;
-            for(int i=0;i<6;i++){Packet p=read();if(p.cmd==CNXN)return;if(p.cmd!=AUTH||p.a!=1||p.data.length!=20)throw new IOException("此端口不支持普通网络 ADB；无线配对码机型请查看其他路线");if(count++==0)send(AUTH,2,0,sign(key,p.data));else{status.accept("请在电视上用遥控器选择“允许连接”");send(AUTH,3,0,utf(Base64.encodeToString(publicKey((RSAPublicKey)key.getPublic()),Base64.NO_WRAP)+" Pilipala@MarcoTVLocalSetup\0"));}}
+            if(port<1||port>65535)throw new IOException("端口须为 1–65535");socket.connect(new InetSocketAddress(address(host),port),7000);socket.setSoTimeout(8000);socket.setTcpNoDelay(true);in=socket.getInputStream();out=socket.getOutputStream();send(CNXN,0x01000000,4096,utf("host::\0"));int count=0;
+            for(int i=0;i<6;i++){Packet p=read();if(p.cmd==CNXN){socket.setSoTimeout(45000);return;}if(p.cmd!=AUTH||p.a!=1||p.data.length!=20)throw new IOException("此端口不支持普通网络 ADB；无线配对码机型请查看其他路线");if(count++==0)send(AUTH,2,0,sign(key,p.data));else{socket.setSoTimeout(45000);status.accept("请在电视上用遥控器选择“允许连接”");send(AUTH,3,0,utf(Base64.encodeToString(publicKey((RSAPublicKey)key.getPublic()),Base64.NO_WRAP)+" Pilipala@MarcoTVLocalSetup\0"));}}
             throw new IOException("电视尚未完成授权，请确认弹窗后重试");
         }catch(Exception e){close();throw e;}
     }

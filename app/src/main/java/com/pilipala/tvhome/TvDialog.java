@@ -27,8 +27,12 @@ final class TvDialog extends Dialog {
     private View savedFocus;
     private DialogInterface.OnDismissListener dismissListener;
     private Runnable leaveAction;
+    private Runnable returnAction;
     void onLeave(Runnable action){
         leaveAction=action;
+    }
+    void onReturn(Runnable action){
+        returnAction=action;
     }
     void leave(){
         if(leaveAction!=null){
@@ -57,6 +61,7 @@ final class TvDialog extends Dialog {
     @Override public void show(){
         forwardDismiss=false;
         if(panel==null)super.create();
+        if(returning&&returnAction!=null)returnAction.run();
         surface=((MainActivity)spec.activity).panelWindow();
         showing=true;
         surface.present(this,panel,spec.preview!=null,spec.centered,spec.network);

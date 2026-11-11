@@ -31,8 +31,9 @@ final class DialogStack {
         }
         // Explicit callbacks which refresh an existing page replace it rather than
         // adding a duplicate ancestor. Keep parent views so focus/scroll survive Back.
+        ArrayList<TvDialog> leaving=new ArrayList<>();
         for(int i=0;i<dialogHistory.size();i++)if(dialogHistory.get(i).pageKey().equals(dialog.pageKey())){
-            while(dialogHistory.size()>i)dialogHistory.remove(dialogHistory.size()-1).leave();
+            while(dialogHistory.size()>i)leaving.add(dialogHistory.remove(dialogHistory.size()-1));
             break;
         }
         if(dialogHistory.isEmpty()&&!dialog.pageKey().equals("main")&&(dialog.reorderable()||dialog.pageKey()
@@ -40,10 +41,17 @@ final class DialogStack {
         dialog.returning(false);
         dialogHistory.add(dialog);
         presentDialog(dialog);
+        for(TvDialog old:leaving)old.leave();
     }
 
     boolean isPage(String id){
         return activeDialog!=null&&activeDialog.isShowing()&&activeDialog.pageKey().equals(id);
+    }
+
+    boolean hasPage(String id){
+        if(isPage(id))return true;
+        for(TvDialog page:dialogHistory)if(id.equals(page.pageKey()))return true;
+        return false;
     }
 
     /** Completed async work replaces its progress page; Back must not reopen a dead operation. */
@@ -52,9 +60,9 @@ final class DialogStack {
         expected.setOnDismissListener(null);
         expected.dismiss();
         dialogHistory.remove(dialogHistory.size()-1);
-        expected.leave();
         activeDialog = null;
         show(result);
+        expected.leave();
     }
 
     /** Shows the current page again after the activity returns to the foreground. */
@@ -90,22 +98,24 @@ final class DialogStack {
             activeDialog.setOnDismissListener(null);
             activeDialog.dismiss();
         }
-        dialogHistory.remove(dialogHistory.size()-1).leave();
+        TvDialog leaving=dialogHistory.remove(dialogHistory.size()-1);
         TvDialog parent=dialogHistory.get(dialogHistory.size()-1);
         parent.returning(true);
         presentDialog(parent);
+        leaving.leave();
     }
 
     /** Dismisses every page; the caller handles the surrounding menu state. */
     void close(){
         TvDialog previous=activeDialog;
         activeDialog=null;
-        for(TvDialog page:dialogHistory)page.leave();
+        ArrayList<TvDialog> leaving=new ArrayList<>(dialogHistory);
         dialogHistory.clear();
         dialogOpen=false;
         if(previous!=null){
             previous.setOnDismissListener(null);
             previous.dismiss();
         }
+        for(int i=leaving.size()-1;i>=0;i--)leaving.get(i).leave();
     }
 }

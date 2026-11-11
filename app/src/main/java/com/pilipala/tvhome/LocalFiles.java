@@ -22,6 +22,18 @@ final class LocalFiles {
     private int epoch;
     LocalFiles(MainActivity h){
         host=h;
+        host.loader.execute(this::cleanTempExports);
+    }
+    private boolean isTempExport(File file){
+        File parent=file==null?null:file.getParentFile();
+        return parent!=null&&parent.equals(new File(host.getCacheDir(),"exports"));
+    }
+    private void deleteIfTempExport(File file){
+        if(isTempExport(file))file.delete();
+    }
+    private void cleanTempExports(){
+        File[] stale=new File(host.getCacheDir(),"exports").listFiles();
+        if(stale!=null)for(File f:stale)if(f.isFile())f.delete();
     }
     void export(File file,String mime){
         pending=file;
@@ -51,6 +63,8 @@ final class LocalFiles {
             }catch(Exception e){
                 host.handler.post(()->host.toast("导出失败，请检查存储空间"));
                 Diagnostics.event("EXPORT_FAILED");
+            }finally{
+                deleteIfTempExport(file);
             }
         });
     }
@@ -114,6 +128,7 @@ final class LocalFiles {
     boolean result(int request,int result,Intent data){
         if(request!=SAVE&&request!=OPEN)return false;
         if(epoch!=host.menuEpoch||result!=Activity.RESULT_OK||data==null||data.getData()==null){
+            deleteIfTempExport(pending);
             pending=null;
             selected=null;
             return true;
@@ -137,6 +152,9 @@ final class LocalFiles {
                 catch(Exception e){
                     Diagnostics.event("EXPORT_FAILED");
                     host.handler.post(()->host.toast("保存失败，请重新选择位置"));
+                }
+                finally{
+                    deleteIfTempExport(file);
                 }
             });
         }

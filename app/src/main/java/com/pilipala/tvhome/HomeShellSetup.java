@@ -56,8 +56,9 @@ final class HomeShellSetup {
     }
 
     static boolean validApkPath(String path) {
-        return path != null && path.startsWith("/data/app/") && path.endsWith(".apk")
-                && !path.contains("..") && path.matches("/data/app/[A-Za-z0-9_./=-]+\\.apk");
+        return path != null && path.endsWith(".apk") && !path.contains("..")
+                && (path.matches("/data/app/[A-Za-z0-9_./=+~-]+\\.apk")
+                || path.matches("/mnt/expand/[A-Za-z0-9_-]+/app/[A-Za-z0-9_./=+~-]+\\.apk"));
     }
 
     void startTaskBridge(String apkPath, int appUid) throws Exception {

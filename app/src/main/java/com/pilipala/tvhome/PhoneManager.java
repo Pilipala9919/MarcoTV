@@ -291,7 +291,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             nonce=supplied;
             clientAddress=r.remoteAddress;
             final String expected=nonce,expectedIp=clientAddress;
-            host.showDialog(new TvDialog.Builder(host).setPageId("phone_approve").setTitle("允许手机通过 Marco 互联连接？")
+            TvDialog approveDialog=new TvDialog.Builder(host).setPageId("phone_approve").setTitle("允许手机通过 Marco 互联连接？")
                     .setMessage("请求设备："+expectedIp+"\n仅允许你刚刚扫码的手机连接。\n手机可读取应用卡片、调整外观、上传壁纸和下载备份。\n无需 ADB；可随时在“Marco 互联”断开。")
                     .setPositiveButton("允许连接",(d,w)->{
                 if(!closed&&nonce.equals(expected)&&clientAddress.equals(expectedIp)){
@@ -301,7 +301,14 @@ final class PhoneManager implements PhoneHttp.Handler {
                     host.toast("手机已连接，未保存的预览不会写入配置");
                 }
             })
-                    .setNegativeButton("拒绝",(d,w)->stop()).create());
+                    .setNegativeButton("拒绝",(d,w)->stop()).create();
+            approveDialog.onLeave(()->{
+                if(!approved&&nonce.equals(expected)){
+                    nonce="";
+                    clientAddress="";
+                }
+            });
+            host.showDialog(approveDialog);
         }
         if(!secretEquals(nonce,supplied)||!clientAddress.equals(r.remoteAddress))return fail(409,"已有手机正在连接，请在电视重新开启");
         PhoneHttp.Response result=json(new JSONObject().put("status",approved?"connected":"pending").put("csrf",approved?csrf:""));
@@ -360,15 +367,18 @@ final class PhoneManager implements PhoneHttp.Handler {
             return json(state());
         }
         if(op.equals("cast_url")){
+            if(!host.foreground)return fail(409,"请先回到 Marco TV 桌面");
             String url=b.optString("url","").trim();
-            if(!(url.startsWith("http://")||url.startsWith("https://"))||url.length()>2048)return fail(400,"请输入有效的 http 或 https 视频链接");
+            if(!CastProtocol.isAllowedMediaUri(url)||url.length()>2048)return fail(400,"请输入有效的 http 或 https 视频链接");
             String title=b.optString("title","手机网页投屏").trim();
             if(title.length()>80)title=title.substring(0,80);
             if(host.cast!=null)host.cast.playVideo(url,title,clientAddress,true);
             return json(state());
         }
         if(op.equals("cast_control")){
-            if(host.cast!=null)host.cast.remoteControl(b.optString("cmd",""));
+            String cmd=b.optString("cmd","");
+            if(!host.foreground&&!("stop".equals(cmd)||"pause".equals(cmd)))return fail(409,"请先回到 Marco TV 桌面");
+            if(host.cast!=null)host.cast.remoteControl(cmd);
             return json(state());
         }
         if(b.optLong("revision",-1)!=revision)return fail(409,"电视上的设置已变化，请刷新后再操作");
@@ -632,15 +642,21 @@ final class PhoneManager implements PhoneHttp.Handler {
             final String ip=r.remoteAddress;
             if("video".equals(kind)){
                 File dest=new File(host.getCacheDir(),"cast-upload-"+System.currentTimeMillis()+".mp4");
-                try(InputStream in=new FileInputStream(r.body);OutputStream out=new FileOutputStream(dest)){
-                    byte[] block=new byte[32768];
-                    int n;
-                    while((n=in.read(block))!=-1)out.write(block,0,n);
+                if(!r.body.renameTo(dest)){
+                    try(InputStream in=new FileInputStream(r.body);OutputStream out=new FileOutputStream(dest)){
+                        byte[] block=new byte[32768];
+                        int n;
+                        while((n=in.read(block))!=-1)out.write(block,0,n);
+                    }
                 }
                 return main(()->{
                     if(closed||!approved||host.cast==null){
                         dest.delete();
                         return fail(401,"连接已关闭");
+                    }
+                    if(!host.foreground){
+                        dest.delete();
+                        return fail(409,"请先回到 Marco TV 桌面");
                     }
                     host.cast.stageAndPlayFile(dest,castTitle,ip);
                     return json(state());
@@ -661,6 +677,10 @@ final class PhoneManager implements PhoneHttp.Handler {
                 if(closed||!approved||host.cast==null){
                     bmp.recycle();
                     return fail(401,"连接已关闭");
+                }
+                if(!host.foreground){
+                    bmp.recycle();
+                    return fail(409,"请先回到 Marco TV 桌面");
                 }
                 host.cast.showPhoto(bmp,castTitle,ip);
                 return json(state());

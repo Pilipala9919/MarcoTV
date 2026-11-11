@@ -16,12 +16,12 @@ def check():
         if any(part in {'private','.tools','build','research','references','verification','.git'} for part in p.relative_to(ROOT).parts):
             errors.append('Local-only path in release: '+rel)
         if p.suffix in {'.p12','.jks','.keystore','.apk','.log'}:errors.append('Unexpected artifact: '+rel)
-        if p.suffix in {'.java','.py','.xml','.md','.yml','.json'}:
+        if p.suffix in {'.java','.py','.xml','.md','.yml','.json','.cs','.mjs','.js','.html','.css','.sql'}:
             text=p.read_text(encoding='utf-8')
-            if p.suffix in {'.java','.py','.xml','.yml'}:
+            if p.suffix in {'.java','.py','.xml','.yml','.cs','.mjs','.js','.html','.css','.sql'}:
                 if re.search(r'(?<![A-Za-z])[A-Za-z]:[\\\\/]',text):errors.append('Machine-specific absolute path: '+rel)
                 if re.search(r'(?<![\d.])(?:192\.168\.|10\.\d+\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+\.\d+(?![\d.])',text):errors.append('Private network address in source: '+rel)
-            if p.suffix in {'.java','.py','.xml'}:
+            if p.suffix in {'.java','.py','.xml','.cs','.mjs','.js','.html','.css','.sql'}:
                 vendored=rel.startswith('app/src/main/java/io/nayuki/qrcodegen/')
                 if vendored:
                     if 'Copyright' not in text or 'Project Nayuki' not in text or 'Permission is hereby granted' not in text:errors.append('Missing upstream license: '+rel)
@@ -36,6 +36,9 @@ def check():
         tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
         allowed={p.relative_to(ROOT).as_posix() for p in files}
         errors.extend('Unexpected tracked file: '+p for p in tracked if p and p not in allowed)
+        ignored_proc=subprocess.run(['git','check-ignore','--stdin','-z'],input='\0'.join(sorted(allowed)).encode(),cwd=ROOT,capture_output=True)
+        for p in ignored_proc.stdout.decode().split('\0'):
+            if p:errors.append('Public source file ignored by .gitignore: '+p)
     manifest=ET.parse(ROOT/'app/src/main/AndroidManifest.xml').getroot()
     version=manifest.get('{http://schemas.android.com/apk/res/android}versionName')
     info=(ROOT/'app/src/main/java/com/pilipala/tvhome/ProjectInfo.java').read_text(encoding='utf-8')

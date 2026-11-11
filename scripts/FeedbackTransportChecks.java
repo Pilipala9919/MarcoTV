@@ -51,6 +51,8 @@ public final class FeedbackTransportChecks {
         check(!report.toString().contains("external.package"));
         String fragment=FeedbackManager.link(report).split("#",2)[1];
         check(new JSONObject(new String(java.util.Base64.getUrlDecoder().decode(fragment),java.nio.charset.StandardCharsets.UTF_8)).getString("id").equals(report.getString("id")));
+        JSONObject qr=FeedbackManager.qrSnapshot(report);
+        check(qr.getString("id").matches("[0-9a-f]{32}")&&!qr.getString("id").equals(report.getString("id"))&&qr.getString("id").equals(FeedbackManager.qrSnapshot(report).getString("id")));
         String result=send(c,report,false);check(!result.startsWith("已收到"));
         check(FeedbackManager.pending(c).exists());
         String id=new JSONObject(posted).getString("id");check(id.equals(report.getString("id")));
@@ -78,7 +80,7 @@ public final class FeedbackTransportChecks {
         System.out.println("Feedback transport checks passed: "+passed);
     }
 }
-class ProjectInfo {static final String VERSION="0.15.0";}
+class ProjectInfo {static final String VERSION="0.16.0";}
 class BuildEdition {static final boolean RESTRICTED=false;}
 class HomeKeyService {static boolean connected;}
 class SystemIntegration {static boolean homeIsOurs(Context c){return false;}}

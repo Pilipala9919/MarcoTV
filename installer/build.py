@@ -6,15 +6,15 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from build import JDK,ANDROID,TOOLS,env,executable
-VERSION='1.0.0'
-PAYLOAD_VERSION='0.12.0'
-PAYLOAD_SHA='72224b15f6ece6c024ccfecbeab7b9a8dc5a8b40204407d310889ba0fd1db218'
+VERSION='1.0.1'
+PAYLOAD_VERSION='0.16.0'
+PAYLOAD_SHA='6ad42f8efebf1320ad1f5315d462aaa4995ba96d0512f7beb7761a090cfd54d6'
 OUT=ROOT/'dist';BUILD=ROOT/'build/installer'
 def run(*args):subprocess.run([str(x) for x in args],cwd=ROOT,env=env,check=True)
 def write(path,text):path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(text.encode('utf-8'))
 def main():
     apk=OUT/f'MarcoTV-{PAYLOAD_VERSION}.apk'
-    if not apk.exists() or hashlib.sha256(apk.read_bytes()).hexdigest()!=PAYLOAD_SHA:raise RuntimeError('Download the official 0.12.0 release APK first; payload digest must match.')
+    if not apk.exists() or hashlib.sha256(apk.read_bytes()).hexdigest()!=PAYLOAD_SHA:raise RuntimeError(f'Download the official {PAYLOAD_VERSION} release APK first; payload digest must match.')
     BUILD.mkdir(parents=True,exist_ok=True);size=apk.stat().st_size
     write(BUILD/'ReleaseInfo.cs',f'// Copyright (C) 2026 Pilipala\nnamespace MarcoInstaller {{ static class ReleaseInfo {{ public const string Version="{PAYLOAD_VERSION}", Sha="{PAYLOAD_SHA}"; public const long Size={size}; }} }}\n')
     csc=Path(os.environ['WINDIR'])/'Microsoft.NET/Framework64/v4.0.30319/csc.exe'

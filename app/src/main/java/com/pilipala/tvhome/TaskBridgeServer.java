@@ -23,6 +23,7 @@ public final class TaskBridgeServer {
     private volatile String originalHome="",lastWake="尚无唤醒记录";
     private long lastWakeTime;
     private volatile boolean connected;
+    private final Object wakeMonitor=new Object();
     private final Binder binder=new Binder(){
         @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
             if(code==INTERFACE_TRANSACTION){
@@ -105,9 +106,15 @@ public final class TaskBridgeServer {
         }
         return -1;
     }
+    static List<?> unwrapTaskList(Object slice)throws Exception{
+        if(slice==null)return Collections.emptyList();
+        if(slice instanceof List)return (List<?>)slice;
+        Object list=slice.getClass().getMethod("getList").invoke(slice);
+        return list instanceof List?(List<?>)list:Collections.emptyList();
+    }
     private List<?> tasks()throws Exception{
         Object slice=api.getMethod("getRecentTasks",int.class,int.class,int.class).invoke(manager,60,0,user);
-        return (List<?>)slice.getClass().getMethod("getList").invoke(slice);
+        return unwrapTaskList(slice);
     }
     private static Object field(Object object,String name){
         try{
@@ -161,18 +168,39 @@ public final class TaskBridgeServer {
             }
         }
         if(snapshot==null)return new JSONObject().put("available",false);
-        // Android 9 GraphicBuffer conversion. Other releases safely use an artwork fallback.
-        if(Build.VERSION.SDK_INT!=28)return new JSONObject().put("available",false);
-        Object buffer=snapshot.getClass().getMethod("getSnapshot").invoke(snapshot);
         Bitmap hardware=null,small=null;
         try{
-            for(Method method:Bitmap.class.getDeclaredMethods())if(method.getName().equals("createHardwareBitmap")&&method.getParameterTypes().length==1){
-                method.setAccessible(true);
-                hardware=(Bitmap)method.invoke(null,buffer);
-                break;
+            if(Build.VERSION.SDK_INT>=30){
+                try{
+                    Object hb=snapshot.getClass().getMethod("getHardwareBuffer").invoke(snapshot);
+                    Object cs=snapshot.getClass().getMethod("getColorSpace").invoke(snapshot);
+                    if(hb!=null){
+                        for(Method m:Bitmap.class.getMethods())if(m.getName().equals("wrapHardwareBuffer")&&m.getParameterTypes().length==2){
+                            hardware=(Bitmap)m.invoke(null,hb,cs);
+                            break;
+                        }
+                        try{hb.getClass().getMethod("close").invoke(hb);}catch(Throwable ignored){}
+                    }
+                }catch(Throwable ignored){
+                    return new JSONObject().put("available",false);
+                }
+            }else if(Build.VERSION.SDK_INT==28||Build.VERSION.SDK_INT==29){
+                try{
+                    Object buffer=snapshot.getClass().getMethod("getSnapshot").invoke(snapshot);
+                    for(Method method:Bitmap.class.getDeclaredMethods())if(method.getName().equals("createHardwareBitmap")&&method.getParameterTypes().length==1){
+                        method.setAccessible(true);
+                        hardware=(Bitmap)method.invoke(null,buffer);
+                        break;
+                    }
+                }catch(Throwable ignored){
+                    return new JSONObject().put("available",false);
+                }
+            }else{
+                return new JSONObject().put("available",false);
             }
             if(hardware==null)return new JSONObject().put("available",false);
             Bitmap copy=hardware.copy(Bitmap.Config.ARGB_8888,false);
+            if(copy==null)return new JSONObject().put("available",false);
             float ratio=Math.min(1,640f/copy.getWidth());
             small=Bitmap.createScaledBitmap(copy,Math.max(1,(int)(copy.getWidth()*ratio)),Math.max(1,(int)(copy.getHeight()*ratio)),true);
             if(small!=copy)copy.recycle();
@@ -195,6 +223,7 @@ public final class TaskBridgeServer {
             wakeRecovery=request.optBoolean("wake",false);
             String home=request.optString("home","");
             originalHome=home.matches("[A-Za-z0-9_.]{1,200}")?home:"";
+            synchronized(wakeMonitor){wakeMonitor.notifyAll();}
             answer=new JSONObject();
         }
         else if(action.equals("list"))answer=list();
@@ -223,6 +252,29 @@ public final class TaskBridgeServer {
         else throw new IOException("unsupported operation");
         return answer.put("ok",true);
     }
+    static Object invokeProviderCall(Object provider,Class<?> providerApi,String authority,String callMethod,Object extras,int callerUid)throws Exception{
+        for(Method method:providerApi.getMethods())if(method.getName().equals("call")){
+            Class<?>[] types=method.getParameterTypes();
+            Object reply=null;
+            if(types.length==4&&types[0]==String.class){
+                reply=method.invoke(provider,"com.android.shell",callMethod,null,extras);
+            }else if(types.length==5&&types[0]==String.class){
+                reply=method.invoke(provider,"com.android.shell",authority,callMethod,null,extras);
+            }else if(types.length==6&&types[0]==String.class&&types[1]==String.class){
+                // Android 11 (API 30): (callingPkg, attributionTag, authority, method, arg, extras)
+                reply=method.invoke(provider,"com.android.shell",null,authority,callMethod,null,extras);
+            }else if(types.length==5&&types[0].getName().endsWith("AttributionSource")){
+                // Android 12+ (API 31+): (AttributionSource, authority, method, arg, extras)
+                Class<?> builderCls=Class.forName(types[0].getName()+"$Builder");
+                Object builder=builderCls.getConstructor(int.class).newInstance(callerUid);
+                builderCls.getMethod("setPackageName",String.class).invoke(builder,"com.android.shell");
+                Object source=builderCls.getMethod("build").invoke(builder);
+                reply=method.invoke(provider,source,authority,callMethod,null,extras);
+            }
+            if(reply!=null)return reply;
+        }
+        return null;
+    }
     private void publish(){
         Object am=null;
         Class<?> amApi=null;
@@ -242,18 +294,14 @@ public final class TaskBridgeServer {
             Class<?> providerApi=Class.forName("android.content.IContentProvider");
             Bundle extras=new Bundle();
             extras.putBinder("service",binder);
-            Bundle reply=null;
-            for(Method method:providerApi.getMethods())if(method.getName().equals("call")){
-                Class<?>[] types=method.getParameterTypes();
-                if(types.length==4&&types[0]==String.class)reply=(Bundle)method.invoke(provider,"com.android.shell","connect",null,extras);
-                else if(types.length==5&&types[0]==String.class)reply=(Bundle)method.invoke(provider,"com.android.shell",authority,"connect",
-                        null,extras);
-                if(reply!=null)break;
-            }
+            Bundle reply=(Bundle)invokeProviderCall(provider,providerApi,authority,"connect",extras,android.os.Process.myUid());
             IBinder lifetime=reply==null?null:reply.getBinder("lifetime");
             if(lifetime!=null){
                 connected=true;
-                lifetime.linkToDeath(()->connected=false,0);
+                lifetime.linkToDeath(()->{
+                    connected=false;
+                    synchronized(wakeMonitor){wakeMonitor.notifyAll();}
+                },0);
             }
         }catch(Exception e){
             connected=false;
@@ -287,16 +335,26 @@ public final class TaskBridgeServer {
     }
     private void watchWake(){
         Thread thread=new Thread(()->{
-            boolean was=interactive();
+            boolean was=interactive(),wasMonitoring=false;
             long ready=0,lastPublish=0;
             while(true){
                 try{
-                    Thread.sleep(500);
-                    boolean on=interactive();
+                    boolean activeMonitor=wakeRecovery&&!originalHome.isEmpty();
+                    long sleepMs=(connected&&!activeMonitor&&ready==0)?5000L:500L;
+                    synchronized(wakeMonitor){wakeMonitor.wait(sleepMs);}
                     long now=SystemClock.elapsedRealtime();
                     if(!connected&&now-lastPublish>5000){
                         publish();
                         lastPublish=now;
+                    }
+                    if(!(wakeRecovery&&!originalHome.isEmpty())&&ready==0){
+                        wasMonitoring=false;
+                        continue;
+                    }
+                    boolean on=interactive();
+                    if(!wasMonitoring){
+                        was=on;
+                        wasMonitoring=true;
                     }
                     if(on&&!was)ready=now+1200;
                     if(!on)ready=0;

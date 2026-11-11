@@ -63,6 +63,7 @@ final class PanelWindow extends Dialog {
         w.setLayout(-1,-1);
     }
     void present(TvDialog page,View content,boolean preview,boolean centered,boolean network){
+        if(closing&&super.isShowing())dismissNow();
         if(!super.isShowing())show();
         closing=false;
         final int epoch=++generation;

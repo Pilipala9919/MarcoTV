@@ -3,9 +3,9 @@
 name: Build installation helpers
 on:
   push:
-    paths: ['installer/**', 'scripts/build.py', '.github/workflows/installer.yml']
+    paths: ['installer/**', 'docs/install/**', 'docs/updates/stable.json', 'scripts/build.py', '.github/workflows/installer.yml']
   pull_request:
-    paths: ['installer/**', 'scripts/build.py', '.github/workflows/installer.yml']
+    paths: ['installer/**', 'docs/install/**', 'docs/updates/stable.json', 'scripts/build.py', '.github/workflows/installer.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +20,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: marcotv-installer-tools-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.py') }}
       - name: Prepare toolchain
         run: python scripts/bootstrap.py
       - name: Fetch pinned TV release (build verifies SHA-256)
@@ -27,11 +34,13 @@ jobs:
         run: |
           import pathlib, urllib.request
           out=pathlib.Path('dist');out.mkdir(exist_ok=True)
-          urllib.request.urlretrieve('https://github.com/Pilipala9919/MarcoTV/releases/download/v0.12.0/MarcoTV-0.12.0.apk',out/'MarcoTV-0.12.0.apk')
+          urllib.request.urlretrieve('https://github.com/Pilipala9919/MarcoTV/releases/download/v0.16.0/MarcoTV-0.16.0.apk',out/'MarcoTV-0.16.0.apk')
       - name: Build standalone helpers
         run: python installer/build.py
       - name: Transport and payload checks
         run: python installer/tests/run.py
+      - name: Web installation route checks
+        run: python installer/tests/test_web_guide.py
       - name: Public source boundaries
         run: python scripts/check_release.py
       - uses: actions/upload-artifact@v4

@@ -7,3 +7,4 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS reports_expiry ON reports(expires_at);
 CREATE TABLE IF NOT EXISTS feedback_limits (bucket TEXT PRIMARY KEY,n INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS feedback_limits_expiry ON feedback_limits(expires_at);

@@ -4,31 +4,28 @@ package com.pilipala.tvhome;
 
 import android.app.Dialog;
 import android.content.*;
-import android.content.pm.*;
 import android.graphics.*;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.*;
-import android.net.wifi.WifiManager;
 import android.os.*;
 import android.text.TextUtils;
 import android.view.*;
 import android.widget.*;
 import org.json.JSONObject;
-import java.io.*;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
+import java.io.File;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.util.*;
-import java.util.concurrent.*;
 
 /**
- * Lightweight 3-in-1 TV casting manager:
- * 1) DLNA / UPnP MediaRenderer (SSDP + AVTransport / RenderingControl SOAP)
- * 2) Marco Connect Web Quick Cast (photos, videos, HTTP/HLS URLs, remote control)
- * 3) System / OEM wireless screen mirroring bridge (Miracast / AirPlay / Wi-Fi Display)
+ * Lightweight 3-in-1 TV casting coordinator:
+ * 1) DLNA / UPnP MediaRenderer (delegating transport & security to DlnaServer + CastProtocol)
+ * 2) Marco Connect Web Quick Cast (photos, local videos via staged cache, HTTP/HLS URLs, remote control)
+ * 3) System / OEM wireless display bridge (Miracast / Wi-Fi Display via SystemMirroringLauncher)
  */
-final class CastManager {
+final class CastManager implements DlnaServer.SoapHandler {
     static final int MODE_OFF = 0;
     static final int MODE_WHEN_OPEN = 1;
     static final int MODE_ALWAYS = 2;
@@ -37,26 +34,19 @@ final class CastManager {
             "仅打开互联或投屏页时可发现（推荐）",
             "桌面运行时始终可发现"
     };
-    private static final String SSDP_ADDRESS = "239.255.255.250";
-    private static final int SSDP_PORT = 1900;
 
     private final MainActivity host;
     private final SharedPreferences prefs;
     private final Set<String> trustedIps = Collections.synchronizedSet(new HashSet<String>());
-    private ServerSocket httpServer;
-    private MulticastSocket ssdpSocket;
-    private WifiManager.MulticastLock multicastLock;
-    private ExecutorService ioPool;
-    private volatile boolean receiverRunning;
-    private volatile String activeIp = "";
-    private volatile int activePort;
-    private boolean pageOpen;
+    private DlnaServer server;
+    private boolean openingPage;
 
     // Playback state shared with DLNA SOAP queries
     private volatile String currentUri = "";
     private volatile String nextUri = "";
     private volatile String currentTitle = "";
     private volatile String currentSource = "";
+    private volatile String currentOwnerIp = "";
     private volatile String transportState = "STOPPED";
     private volatile int currentDurationMs;
     private volatile int currentPositionMs;
@@ -74,10 +64,11 @@ final class CastManager {
     private TextView osdTitle, osdSub, osdTime, bufferingView;
     private ProgressBar osdProgress;
     private File stagedVideoFile;
+    private long externalHandoffAt;
 
     private final Runnable progressTicker = new Runnable() {
         @Override public void run() {
-            if (playerDialog == null || !playerDialog.isShowing()) return;
+            if (!host.foreground || playerDialog == null || !playerDialog.isShowing()) return;
             if (!isPhotoCast && videoView != null) {
                 try {
                     if (videoView.isPlaying()) {
@@ -101,22 +92,19 @@ final class CastManager {
         }
     };
 
-    private final Runnable ssdpAliveTicker = new Runnable() {
-        @Override public void run() {
-            if (!receiverRunning) return;
-            final String ip = activeIp;
-            final int port = activePort;
-            final String uuid = udn();
-            if (ioPool != null && !ip.isEmpty() && port > 0) {
-                ioPool.execute(() -> sendSsdpNotify(ip, port, uuid, true));
-            }
-            host.handler.postDelayed(this, 25000);
-        }
-    };
-
     CastManager(MainActivity host) {
         this.host = host;
         this.prefs = host.getSharedPreferences("cast", Context.MODE_PRIVATE);
+        cleanStaleUploads();
+    }
+
+    private void cleanStaleUploads() {
+        UpdateApkProvider.clearCastFile();
+        File[] stale = host.getCacheDir().listFiles(
+                f -> f.isFile() && f.getName().startsWith("cast-upload-"));
+        if (stale != null) {
+            for (File f : stale) f.delete();
+        }
     }
 
     int mode() {
@@ -146,14 +134,50 @@ final class CastManager {
         return playerDialog != null && playerDialog.isShowing();
     }
 
+    private boolean isCastStackOpen() {
+        return openingPage
+                || host.dialogs.hasPage("cast")
+                || host.dialogs.hasPage("cast_waiting")
+                || host.dialogs.hasPage("cast_mirror_list")
+                || host.dialogs.hasPage("cast_mirror_none")
+                || host.dialogs.hasPage("cast_approve");
+    }
+
     void resume() {
+        if (externalHandoffAt > 0 && SystemClock.elapsedRealtime() - externalHandoffAt > 30 * 60000L) {
+            clearStagedVideo();
+        }
+        syncReceiver();
+        if (isPlaying() && !isPhotoCast) {
+            host.handler.removeCallbacks(progressTicker);
+            host.handler.post(progressTicker);
+            showOsd(false);
+        }
+    }
+
+    void pause() {
+        host.handler.removeCallbacks(progressTicker);
+        host.handler.removeCallbacks(hideOsd);
+        if (isPlaying() && !isPhotoCast && videoView != null) {
+            try {
+                if (videoView.isPlaying()) {
+                    videoView.pause();
+                    transportState = "PAUSED_PLAYBACK";
+                }
+            } catch (RuntimeException ignored) {}
+        }
         syncReceiver();
     }
 
     void destroy() {
-        stopPlayback();
-        pageOpen = false;
+        stopPlayback(false);
+        clearStagedVideo();
         stopReceiver();
+    }
+
+    private void clearStagedVideo() {
+        externalHandoffAt = 0;
+        UpdateApkProvider.clearCastFile();
         if (stagedVideoFile != null) {
             stagedVideoFile.delete();
             stagedVideoFile = null;
@@ -164,482 +188,532 @@ final class CastManager {
         if (ip != null && !ip.isEmpty()) trustedIps.add(ip);
     }
 
-    void syncReceiver() {
+    synchronized void syncReceiver() {
         int m = mode();
         boolean phoneOpen = host.phone != null && host.phone.active();
-        boolean shouldRun = m == MODE_ALWAYS || (m == MODE_WHEN_OPEN && (pageOpen || phoneOpen || isPlaying()));
-        if (shouldRun) {
-            String ip = localAddress();
-            if (ip == null) {
-                stopReceiver();
-                return;
-            }
-            if (!receiverRunning || !ip.equals(activeIp)) {
-                stopReceiver();
-                startReceiver(ip);
-            }
-        } else {
+        boolean shouldRun = host.foreground && (m == MODE_ALWAYS
+                || (m == MODE_WHEN_OPEN && (isCastStackOpen() || phoneOpen || isPlaying())));
+        if (!shouldRun) {
             stopReceiver();
+            return;
         }
+        String ip = localAddress();
+        if (ip == null) {
+            stopReceiver();
+            return;
+        }
+        if (server == null || !ip.equals(server.ip())) {
+            stopReceiver();
+            try {
+                server = new DlnaServer(host, host.handler, ip, udn(), friendlyName(), this);
+            } catch (Exception e) {
+                stopReceiver();
+            }
+        }
+    }
+
+    private synchronized void stopReceiver() {
+        if (server != null) {
+            server.close();
+            server = null;
+        }
+    }
+
+    private synchronized void refreshReceiver() {
+        stopReceiver();
+        syncReceiver();
+        if (server != null) server.announceAlive();
     }
 
     void show() {
-        pageOpen = true;
-        syncReceiver();
-        LinearLayout root = new LinearLayout(host);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setFocusable(false);
-        root.setClipChildren(false);
-        root.setClipToPadding(false);
-        root.setPadding(dp(2), dp(2), dp(2), dp(2));
+        openingPage = true;
+        try {
+            syncReceiver();
+            LinearLayout root = new LinearLayout(host);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setFocusable(false);
+            root.setClipChildren(false);
+            root.setClipToPadding(false);
+            root.setPadding(dp(2), dp(2), dp(2), dp(2));
 
-        // 1. Top Graphical Live Status Banner
-        LinearLayout banner = new LinearLayout(host);
-        banner.setOrientation(LinearLayout.HORIZONTAL);
-        banner.setGravity(Gravity.CENTER_VERTICAL);
-        banner.setPadding(dp(16), dp(10), dp(16), dp(10));
-        GradientDrawable bannerBg = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF233040, 0xFF1C2532});
-        bannerBg.setCornerRadius(dp(14));
-        bannerBg.setStroke(dp(1), 0x2EA9DCE2);
-        banner.setBackground(bannerBg);
+            LinearLayout banner = new LinearLayout(host);
+            banner.setOrientation(LinearLayout.HORIZONTAL);
+            banner.setGravity(Gravity.CENTER_VERTICAL);
+            banner.setPadding(dp(16), dp(10), dp(16), dp(10));
+            GradientDrawable bannerBg = new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0xFF233040, 0xFF1C2532});
+            bannerBg.setCornerRadius(dp(14));
+            bannerBg.setStroke(dp(1), 0x2EA9DCE2);
+            banner.setBackground(bannerBg);
 
-        final CastGraphicView beaconView = new CastGraphicView(host, CastGraphicView.KIND_STATUS_BEACON, receiverRunning);
-        banner.addView(beaconView, new LinearLayout.LayoutParams(dp(42), dp(42)));
+            final CastGraphicView beaconView = new CastGraphicView(host, CastGraphicView.KIND_STATUS_BEACON, server != null);
+            banner.addView(beaconView, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
-        LinearLayout bannerText = new LinearLayout(host);
-        bannerText.setOrientation(LinearLayout.VERTICAL);
-        bannerText.setPadding(dp(14), 0, dp(12), 0);
-        final TextView bannerTitle = new TextView(host);
-        bannerTitle.setTextColor(Color.WHITE);
-        bannerTitle.setTextSize(15);
-        bannerTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        bannerTitle.setSingleLine(true);
-        bannerTitle.setEllipsize(TextUtils.TruncateAt.END);
-        bannerTitle.setIncludeFontPadding(false);
-        bannerText.addView(bannerTitle);
+            LinearLayout bannerText = new LinearLayout(host);
+            bannerText.setOrientation(LinearLayout.VERTICAL);
+            bannerText.setPadding(dp(14), 0, dp(12), 0);
+            final TextView bannerTitle = new TextView(host);
+            bannerTitle.setTextColor(Color.WHITE);
+            bannerTitle.setTextSize(15);
+            bannerTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+            bannerTitle.setSingleLine(true);
+            bannerTitle.setEllipsize(TextUtils.TruncateAt.END);
+            bannerTitle.setIncludeFontPadding(false);
+            bannerText.addView(bannerTitle);
 
-        final TextView bannerSub = new TextView(host);
-        bannerSub.setTextColor(0xFFA8B8CA);
-        bannerSub.setTextSize(12);
-        bannerSub.setSingleLine(true);
-        bannerSub.setEllipsize(TextUtils.TruncateAt.END);
-        bannerSub.setIncludeFontPadding(false);
-        bannerSub.setPadding(0, dp(3), 0, 0);
-        bannerText.addView(bannerSub);
-        banner.addView(bannerText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            final TextView bannerSub = new TextView(host);
+            bannerSub.setTextColor(0xFFA8B8CA);
+            bannerSub.setTextSize(12);
+            bannerSub.setSingleLine(true);
+            bannerSub.setEllipsize(TextUtils.TruncateAt.END);
+            bannerSub.setIncludeFontPadding(false);
+            bannerSub.setPadding(0, dp(3), 0, 0);
+            bannerText.addView(bannerSub);
+            banner.addView(bannerText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        final TextView statusPill = new TextView(host);
-        statusPill.setTextSize(12);
-        statusPill.setSingleLine(true);
-        statusPill.setIncludeFontPadding(false);
-        statusPill.setPadding(dp(12), dp(5), dp(12), dp(5));
-        banner.addView(statusPill, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(banner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)));
+            final TextView statusPill = new TextView(host);
+            statusPill.setTextSize(12);
+            statusPill.setSingleLine(true);
+            statusPill.setIncludeFontPadding(false);
+            statusPill.setPadding(dp(12), dp(5), dp(12), dp(5));
+            banner.addView(statusPill, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            root.addView(banner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)));
 
-        // 2. Middle Row: 3 Graphical Feature Cards
-        LinearLayout cardsRow = new LinearLayout(host);
-        cardsRow.setOrientation(LinearLayout.HORIZONTAL);
-        cardsRow.setFocusable(false);
-        cardsRow.setClipChildren(false);
-        cardsRow.setClipToPadding(false);
-        LinearLayout.LayoutParams cardsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(156));
-        cardsRowLp.topMargin = dp(10);
+            LinearLayout cardsRow = new LinearLayout(host);
+            cardsRow.setOrientation(LinearLayout.HORIZONTAL);
+            cardsRow.setFocusable(false);
+            cardsRow.setClipChildren(false);
+            cardsRow.setClipToPadding(false);
+            LinearLayout.LayoutParams cardsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(156));
+            cardsRowLp.topMargin = dp(10);
 
-        int[] cardIds = {View.generateViewId(), View.generateViewId(), View.generateViewId()};
-        int[] switchIds = {View.generateViewId(), View.generateViewId(), View.generateViewId()};
+            int[] cardIds = {View.generateViewId(), View.generateViewId(), View.generateViewId()};
+            int[] switchIds = {View.generateViewId(), View.generateViewId(), View.generateViewId()};
 
-        String[] cardTitles = {"视频 App 投屏", "手机扫码快投", "系统无线镜像"};
-        String[] cardSubs = {"B站 · 爱优腾 · 抖音 · 夸克", "相册照片 · 本地视频 · 链接", "Miracast · AirPlay 整屏"};
-        String[] cardBadges = {"进入接收页", "浏览器扫码直投", "开启整屏镜像"};
-        int[] cardKinds = {CastGraphicView.KIND_CARD_DLNA, CastGraphicView.KIND_CARD_PHONE, CastGraphicView.KIND_CARD_MIRROR};
+            String[] cardTitles = {"视频 App 投屏", "手机扫码快投", "系统无线镜像"};
+            String[] cardSubs = {"B站 · 爱优腾 · 抖音 · 夸克", "相册照片 · 本地视频 · 链接", "Miracast · 无线显示组件"};
+            String[] cardBadges = {"进入接收页", "浏览器扫码直投", "开启整屏镜像"};
+            int[] cardKinds = {CastGraphicView.KIND_CARD_DLNA, CastGraphicView.KIND_CARD_PHONE, CastGraphicView.KIND_CARD_MIRROR};
 
-        for (int i = 0; i < 3; i++) {
-            final int idx = i;
-            LinearLayout card = new LinearLayout(host);
-            card.setId(cardIds[i]);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setGravity(Gravity.CENTER_HORIZONTAL);
-            card.setPadding(dp(12), dp(12), dp(12), dp(10));
-            card.setFocusable(true);
-            card.setClickable(true);
-
-            final GradientDrawable cardBg = new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0xFF2A394A, 0xFF1E2834});
-            cardBg.setCornerRadius(dp(16));
-            cardBg.setStroke(dp(1), 0x24FFFFFF);
-            card.setBackground(cardBg);
-
-            CastGraphicView illustration = new CastGraphicView(host, cardKinds[i], true);
-            card.addView(illustration, new LinearLayout.LayoutParams(dp(54), dp(54)));
-
-            TextView ct = new TextView(host);
-            ct.setText(cardTitles[i]);
-            ct.setTextColor(Color.WHITE);
-            ct.setTextSize(16);
-            ct.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-            ct.setSingleLine(true);
-            ct.setIncludeFontPadding(false);
-            ct.setPadding(0, dp(8), 0, dp(3));
-            card.addView(ct, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            TextView cs = new TextView(host);
-            cs.setText(cardSubs[i]);
-            cs.setTextColor(0xFFA8B9CC);
-            cs.setTextSize(12);
-            cs.setSingleLine(true);
-            cs.setEllipsize(TextUtils.TruncateAt.END);
-            cs.setIncludeFontPadding(false);
-            card.addView(cs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            TextView badge = new TextView(host);
-            badge.setText(cardBadges[i]);
-            badge.setTextColor(0xFF8BE8F5);
-            badge.setTextSize(11);
-            badge.setSingleLine(true);
-            badge.setIncludeFontPadding(false);
-            badge.setPadding(dp(10), dp(3), dp(10), dp(3));
-            final GradientDrawable badgeBg = new GradientDrawable();
-            badgeBg.setCornerRadius(dp(10));
-            badgeBg.setColor(0x245CE1E6);
-            badge.setBackground(badgeBg);
-            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            badgeLp.topMargin = dp(8);
-            card.addView(badge, badgeLp);
-
-            if (i > 0) card.setNextFocusLeftId(cardIds[i - 1]);
-            if (i < 2) card.setNextFocusRightId(cardIds[i + 1]);
-            card.setNextFocusDownId(switchIds[i]);
-
-            card.setOnFocusChangeListener((v, hasFocus) -> {
-                cardBg.setColors(hasFocus ? new int[]{0xFF3A586C, 0xFF294152} : new int[]{0xFF2A394A, 0xFF1E2834});
-                cardBg.setStroke(dp(1), hasFocus ? 0xFFABD6DF : 0x24FFFFFF);
-                badgeBg.setColor(hasFocus ? 0x405CE1E6 : 0x245CE1E6);
-            });
-            card.setOnClickListener(v -> {
-                if (idx == 0) showWaitingPage();
-                else if (idx == 1) host.phone.show();
-                else openSystemMirroring();
-            });
-
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
-            if (i > 0) lp.leftMargin = dp(10);
-            cardsRow.addView(card, lp);
-        }
-        root.addView(cardsRow, cardsRowLp);
-
-        // 3. Bottom Row: 3 Graphical Switch Cards with Real ToggleDrawable Switches
-        LinearLayout switchRow = new LinearLayout(host);
-        switchRow.setOrientation(LinearLayout.HORIZONTAL);
-        switchRow.setFocusable(false);
-        switchRow.setClipChildren(false);
-        switchRow.setClipToPadding(false);
-        LinearLayout.LayoutParams switchRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
-        switchRowLp.topMargin = dp(10);
-
-        final CastGraphicView[] switchIcons = new CastGraphicView[3];
-        final TextView[] switchSubs = new TextView[3];
-        final ImageView[] switchToggles = new ImageView[3];
-        String[] switchTitles = {"DLNA 投屏服务", "后台始终可发现", "陌生设备确认"};
-        int[] switchKinds = {
-                CastGraphicView.KIND_ICON_DLNA_SWITCH,
-                CastGraphicView.KIND_ICON_RADAR_SWITCH,
-                CastGraphicView.KIND_ICON_SHIELD_SWITCH
-        };
-
-        final Runnable refreshControls = () -> {
-            String ip = localAddress();
-            int m = mode();
-            boolean dlnaEnabled = m != MODE_OFF;
-            boolean alwaysOn = m == MODE_ALWAYS;
-            boolean confirmOn = confirmUntrusted();
-
-            beaconView.setActive(receiverRunning && dlnaEnabled);
-            bannerTitle.setText(friendlyName() + (ip != null ? "  ·  " + ip : "  ·  未连接局域网"));
-            bannerSub.setText(dlnaEnabled
-                    ? (alwaysOn ? "桌面后台随时可被手机视频 App 搜索并投屏" : "打开投屏页或 Marco 互联时可被手机视频 App 搜索")
-                    : "DLNA 视频 App 发现已关闭，仍可使用手机扫码快投与系统镜像");
-
-            GradientDrawable pillBg = new GradientDrawable();
-            pillBg.setCornerRadius(dp(12));
-            if (ip == null) {
-                statusPill.setText("● 未连网");
-                statusPill.setTextColor(0xFFFFB86C);
-                pillBg.setColor(0x26FFB86C);
-                pillBg.setStroke(dp(1), 0x66FFB86C);
-            } else if (dlnaEnabled && receiverRunning) {
-                statusPill.setText("● DLNA 已就绪");
-                statusPill.setTextColor(0xFF63E69A);
-                pillBg.setColor(0x2634C759);
-                pillBg.setStroke(dp(1), 0x8034C759);
-            } else {
-                statusPill.setText("● DLNA 已关闭");
-                statusPill.setTextColor(0xFFA0AEC0);
-                pillBg.setColor(0x26718096);
-                pillBg.setStroke(dp(1), 0x55718096);
-            }
-            statusPill.setBackground(pillBg);
-
-            boolean[] states = {dlnaEnabled, alwaysOn, confirmOn};
-            String[] subTexts = {
-                    dlnaEnabled ? "已开启 · 允许视频投屏" : "已关闭 · 点击开启",
-                    alwaysOn ? "已开启 · 桌面随时可投" : "仅打开投屏/互联页时",
-                    confirmOn ? "已开启 · 首次连接弹窗" : "已关闭 · 直接允许播放"
-            };
             for (int i = 0; i < 3; i++) {
-                switchIcons[i].setActive(states[i]);
-                switchSubs[i].setText(subTexts[i]);
-                switchSubs[i].setTextColor(states[i] ? 0xFF8CE7BA : 0xFF98A8BC);
-                ToggleDrawable td = new ToggleDrawable(states[i]);
-                td.setBounds(0, 0, dp(46), dp(28));
-                switchToggles[i].setImageDrawable(td);
+                final int idx = i;
+                LinearLayout card = new LinearLayout(host);
+                card.setId(cardIds[i]);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setGravity(Gravity.CENTER_HORIZONTAL);
+                card.setPadding(dp(12), dp(12), dp(12), dp(10));
+                card.setFocusable(true);
+                card.setClickable(true);
+
+                final GradientDrawable cardBg = new GradientDrawable(
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xFF2A394A, 0xFF1E2834});
+                cardBg.setCornerRadius(dp(16));
+                cardBg.setStroke(dp(1), 0x24FFFFFF);
+                card.setBackground(cardBg);
+
+                CastGraphicView illustration = new CastGraphicView(host, cardKinds[i], true);
+                card.addView(illustration, new LinearLayout.LayoutParams(dp(54), dp(54)));
+
+                TextView ct = new TextView(host);
+                ct.setText(cardTitles[i]);
+                ct.setTextColor(Color.WHITE);
+                ct.setTextSize(16);
+                ct.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+                ct.setSingleLine(true);
+                ct.setIncludeFontPadding(false);
+                ct.setPadding(0, dp(8), 0, dp(3));
+                card.addView(ct, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                TextView cs = new TextView(host);
+                cs.setText(cardSubs[i]);
+                cs.setTextColor(0xFFA8B9CC);
+                cs.setTextSize(12);
+                cs.setSingleLine(true);
+                cs.setEllipsize(TextUtils.TruncateAt.END);
+                cs.setIncludeFontPadding(false);
+                card.addView(cs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                TextView badge = new TextView(host);
+                badge.setText(cardBadges[i]);
+                badge.setTextColor(0xFF8BE8F5);
+                badge.setTextSize(11);
+                badge.setSingleLine(true);
+                badge.setIncludeFontPadding(false);
+                badge.setPadding(dp(10), dp(3), dp(10), dp(3));
+                final GradientDrawable badgeBg = new GradientDrawable();
+                badgeBg.setCornerRadius(dp(10));
+                badgeBg.setColor(0x245CE1E6);
+                badge.setBackground(badgeBg);
+                LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                badgeLp.topMargin = dp(8);
+                card.addView(badge, badgeLp);
+
+                if (i > 0) card.setNextFocusLeftId(cardIds[i - 1]);
+                if (i < 2) card.setNextFocusRightId(cardIds[i + 1]);
+                card.setNextFocusDownId(switchIds[i]);
+
+                card.setOnFocusChangeListener((v, hasFocus) -> {
+                    cardBg.setColors(hasFocus ? new int[]{0xFF3A586C, 0xFF294152} : new int[]{0xFF2A394A, 0xFF1E2834});
+                    cardBg.setStroke(dp(1), hasFocus ? 0xFFABD6DF : 0x24FFFFFF);
+                    badgeBg.setColor(hasFocus ? 0x405CE1E6 : 0x245CE1E6);
+                });
+                card.setOnClickListener(v -> {
+                    if (idx == 0) showWaitingPage();
+                    else if (idx == 1) host.phone.show();
+                    else openSystemMirroring();
+                });
+
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+                if (i > 0) lp.leftMargin = dp(10);
+                cardsRow.addView(card, lp);
             }
-        };
+            root.addView(cardsRow, cardsRowLp);
 
-        for (int i = 0; i < 3; i++) {
-            final int idx = i;
-            LinearLayout sw = new LinearLayout(host);
-            sw.setId(switchIds[i]);
-            sw.setOrientation(LinearLayout.HORIZONTAL);
-            sw.setGravity(Gravity.CENTER_VERTICAL);
-            sw.setPadding(dp(12), dp(8), dp(12), dp(8));
-            sw.setFocusable(true);
-            sw.setClickable(true);
+            LinearLayout switchRow = new LinearLayout(host);
+            switchRow.setOrientation(LinearLayout.HORIZONTAL);
+            switchRow.setFocusable(false);
+            switchRow.setClipChildren(false);
+            switchRow.setClipToPadding(false);
+            LinearLayout.LayoutParams switchRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68));
+            switchRowLp.topMargin = dp(10);
 
-            final GradientDrawable swBg = new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0xFF253241, 0xFF1C2530});
-            swBg.setCornerRadius(dp(14));
-            swBg.setStroke(dp(1), 0x22FFFFFF);
-            sw.setBackground(swBg);
+            final CastGraphicView[] switchIcons = new CastGraphicView[3];
+            final TextView[] switchSubs = new TextView[3];
+            final ImageView[] switchToggles = new ImageView[3];
+            String[] switchTitles = {"DLNA 投屏服务", "桌面常驻可发现", "陌生设备确认"};
+            int[] switchKinds = {
+                    CastGraphicView.KIND_ICON_DLNA_SWITCH,
+                    CastGraphicView.KIND_ICON_RADAR_SWITCH,
+                    CastGraphicView.KIND_ICON_SHIELD_SWITCH
+            };
 
-            switchIcons[i] = new CastGraphicView(host, switchKinds[i], true);
-            sw.addView(switchIcons[i], new LinearLayout.LayoutParams(dp(28), dp(28)));
-
-            LinearLayout swText = new LinearLayout(host);
-            swText.setOrientation(LinearLayout.VERTICAL);
-            swText.setPadding(dp(10), 0, dp(6), 0);
-
-            TextView st = new TextView(host);
-            st.setText(switchTitles[i]);
-            st.setTextColor(Color.WHITE);
-            st.setTextSize(14);
-            st.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-            st.setSingleLine(true);
-            st.setIncludeFontPadding(false);
-            swText.addView(st);
-
-            switchSubs[i] = new TextView(host);
-            switchSubs[i].setTextSize(11);
-            switchSubs[i].setSingleLine(true);
-            switchSubs[i].setEllipsize(TextUtils.TruncateAt.END);
-            switchSubs[i].setIncludeFontPadding(false);
-            switchSubs[i].setPadding(0, dp(2), 0, 0);
-            swText.addView(switchSubs[i]);
-            sw.addView(swText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-            switchToggles[i] = new ImageView(host);
-            switchToggles[i].setScaleType(ImageView.ScaleType.FIT_CENTER);
-            sw.addView(switchToggles[i], new LinearLayout.LayoutParams(dp(46), dp(28)));
-
-            if (i > 0) sw.setNextFocusLeftId(switchIds[i - 1]);
-            if (i < 2) sw.setNextFocusRightId(switchIds[i + 1]);
-            sw.setNextFocusUpId(cardIds[i]);
-
-            sw.setOnFocusChangeListener((v, hasFocus) -> {
-                swBg.setColors(hasFocus ? new int[]{0xFF3A586C, 0xFF294152} : new int[]{0xFF253241, 0xFF1C2530});
-                swBg.setStroke(dp(1), hasFocus ? 0xFFABD6DF : 0x22FFFFFF);
-            });
-            sw.setOnClickListener(v -> {
+            final Runnable refreshControls = () -> {
+                String ip = localAddress();
                 int m = mode();
-                if (idx == 0) {
-                    int next = (m == MODE_OFF) ? MODE_WHEN_OPEN : MODE_OFF;
-                    prefs.edit().putInt("cast_mode", next).apply();
-                    syncReceiver();
-                } else if (idx == 1) {
-                    int next = (m == MODE_ALWAYS) ? MODE_WHEN_OPEN : MODE_ALWAYS;
-                    prefs.edit().putInt("cast_mode", next).apply();
-                    syncReceiver();
+                DlnaServer activeSrv = server;
+                boolean running = activeSrv != null;
+                boolean dlnaEnabled = m != MODE_OFF;
+                boolean alwaysOn = m == MODE_ALWAYS;
+                boolean confirmOn = confirmUntrusted();
+                boolean portBusy = running && !activeSrv.ssdpSearchBound();
+
+                beaconView.setActive(running && dlnaEnabled);
+                bannerTitle.setText(friendlyName() + (ip != null ? "  ·  " + ip : "  ·  未连接局域网"));
+                if (!dlnaEnabled) {
+                    bannerSub.setText("DLNA 视频 App 发现已关闭，仍可使用手机扫码快投与系统镜像");
+                } else if (portBusy) {
+                    bannerSub.setText("系统自带投屏占用了 1900 搜索端口，已启用主动广播兼容模式");
                 } else {
-                    prefs.edit().putBoolean("cast_confirm", !confirmUntrusted()).apply();
+                    bannerSub.setText(alwaysOn
+                            ? "桌面位于前台时随时可被手机视频 App 搜索并投屏"
+                            : "打开投屏页或 Marco 互联时可被手机视频 App 搜索");
                 }
+
+                GradientDrawable pillBg = new GradientDrawable();
+                pillBg.setCornerRadius(dp(12));
+                if (ip == null) {
+                    statusPill.setText("● 未连网");
+                    statusPill.setTextColor(0xFFFFB86C);
+                    pillBg.setColor(0x26FFB86C);
+                    pillBg.setStroke(dp(1), 0x66FFB86C);
+                } else if (dlnaEnabled && running && portBusy) {
+                    statusPill.setText("● 广播兼容");
+                    statusPill.setTextColor(0xFFFFD166);
+                    pillBg.setColor(0x26FFD166);
+                    pillBg.setStroke(dp(1), 0x80FFD166);
+                } else if (dlnaEnabled && running) {
+                    statusPill.setText("● DLNA 已就绪");
+                    statusPill.setTextColor(0xFF63E69A);
+                    pillBg.setColor(0x2634C759);
+                    pillBg.setStroke(dp(1), 0x8034C759);
+                } else {
+                    statusPill.setText("● DLNA 已关闭");
+                    statusPill.setTextColor(0xFFA0AEC0);
+                    pillBg.setColor(0x26718096);
+                    pillBg.setStroke(dp(1), 0x55718096);
+                }
+                statusPill.setBackground(pillBg);
+
+                boolean[] states = {dlnaEnabled, alwaysOn, confirmOn};
+                String[] subTexts = {
+                        dlnaEnabled ? "已开启 · 允许视频投屏" : "已关闭 · 点击开启",
+                        alwaysOn ? "已开启 · 桌面随时可投" : "仅打开投屏/互联页时",
+                        confirmOn ? "已开启 · 首次连接弹窗" : "已关闭 · 直接允许播放"
+                };
+                for (int i = 0; i < 3; i++) {
+                    switchIcons[i].setActive(states[i]);
+                    switchSubs[i].setText(subTexts[i]);
+                    switchSubs[i].setTextColor(states[i] ? 0xFF8CE7BA : 0xFF98A8BC);
+                    ToggleDrawable td = new ToggleDrawable(states[i]);
+                    td.setBounds(0, 0, dp(46), dp(28));
+                    switchToggles[i].setImageDrawable(td);
+                }
+            };
+
+            for (int i = 0; i < 3; i++) {
+                final int idx = i;
+                LinearLayout sw = new LinearLayout(host);
+                sw.setId(switchIds[i]);
+                sw.setOrientation(LinearLayout.HORIZONTAL);
+                sw.setGravity(Gravity.CENTER_VERTICAL);
+                sw.setPadding(dp(12), dp(8), dp(12), dp(8));
+                sw.setFocusable(true);
+                sw.setClickable(true);
+
+                final GradientDrawable swBg = new GradientDrawable(
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xFF253241, 0xFF1C2530});
+                swBg.setCornerRadius(dp(14));
+                swBg.setStroke(dp(1), 0x22FFFFFF);
+                sw.setBackground(swBg);
+
+                switchIcons[i] = new CastGraphicView(host, switchKinds[i], true);
+                sw.addView(switchIcons[i], new LinearLayout.LayoutParams(dp(28), dp(28)));
+
+                LinearLayout swText = new LinearLayout(host);
+                swText.setOrientation(LinearLayout.VERTICAL);
+                swText.setPadding(dp(10), 0, dp(6), 0);
+
+                TextView st = new TextView(host);
+                st.setText(switchTitles[i]);
+                st.setTextColor(Color.WHITE);
+                st.setTextSize(14);
+                st.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+                st.setSingleLine(true);
+                st.setIncludeFontPadding(false);
+                swText.addView(st);
+
+                switchSubs[i] = new TextView(host);
+                switchSubs[i].setTextSize(11);
+                switchSubs[i].setSingleLine(true);
+                switchSubs[i].setEllipsize(TextUtils.TruncateAt.END);
+                switchSubs[i].setIncludeFontPadding(false);
+                switchSubs[i].setPadding(0, dp(2), 0, 0);
+                swText.addView(switchSubs[i]);
+                sw.addView(swText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                switchToggles[i] = new ImageView(host);
+                switchToggles[i].setScaleType(ImageView.ScaleType.FIT_CENTER);
+                sw.addView(switchToggles[i], new LinearLayout.LayoutParams(dp(46), dp(28)));
+
+                if (i > 0) sw.setNextFocusLeftId(switchIds[i - 1]);
+                if (i < 2) sw.setNextFocusRightId(switchIds[i + 1]);
+                sw.setNextFocusUpId(cardIds[i]);
+
+                sw.setOnFocusChangeListener((v, hasFocus) -> {
+                    swBg.setColors(hasFocus ? new int[]{0xFF3A586C, 0xFF294152} : new int[]{0xFF253241, 0xFF1C2530});
+                    swBg.setStroke(dp(1), hasFocus ? 0xFFABD6DF : 0x22FFFFFF);
+                });
+                sw.setOnClickListener(v -> {
+                    int m = mode();
+                    if (idx == 0) {
+                        int next = (m == MODE_OFF) ? MODE_WHEN_OPEN : MODE_OFF;
+                        prefs.edit().putInt("cast_mode", next).apply();
+                        syncReceiver();
+                    } else if (idx == 1) {
+                        int next = (m == MODE_ALWAYS) ? MODE_WHEN_OPEN : MODE_ALWAYS;
+                        prefs.edit().putInt("cast_mode", next).apply();
+                        syncReceiver();
+                    } else {
+                        prefs.edit().putBoolean("cast_confirm", !confirmUntrusted()).apply();
+                    }
+                    refreshControls.run();
+                });
+
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+                if (i > 0) lp.leftMargin = dp(10);
+                switchRow.addView(sw, lp);
+            }
+            root.addView(switchRow, switchRowLp);
+            refreshControls.run();
+
+            TvDialog dialog = new TvDialog.Builder(host).centered().setPageId("cast").setTitle("无线投屏中心")
+                    .setView(root)
+                    .setNegativeButton("返回", null).create();
+            dialog.onReturn(() -> {
+                syncReceiver();
                 refreshControls.run();
             });
-
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
-            if (i > 0) lp.leftMargin = dp(10);
-            switchRow.addView(sw, lp);
+            dialog.onLeave(this::syncReceiver);
+            host.showDialog(dialog);
+        } finally {
+            openingPage = false;
         }
-        root.addView(switchRow, switchRowLp);
-        refreshControls.run();
-
-        TvDialog dialog = new TvDialog.Builder(host).centered().setPageId("cast").setTitle("无线投屏中心")
-                .setView(root)
-                .setNegativeButton("返回", null).create();
-        dialog.onLeave(() -> {
-            pageOpen = host.isPage("cast") || host.isPage("cast_waiting") || host.isPage("cast_mode");
-            syncReceiver();
-        });
-        host.showDialog(dialog);
+        syncReceiver();
     }
 
     void showWaitingPage() {
-        pageOpen = true;
-        if (mode() == MODE_OFF) prefs.edit().putInt("cast_mode", MODE_WHEN_OPEN).apply();
-        syncReceiver();
         String ip = localAddress();
         if (ip == null) {
             host.toast("请先连接可用的 Wi-Fi 或有线局域网");
             return;
         }
-        LinearLayout root = new LinearLayout(host);
-        root.setOrientation(LinearLayout.HORIZONTAL);
-        root.setGravity(Gravity.CENTER_VERTICAL);
-        root.setFocusable(false);
-
-        // Left Radar Hero Card
-        LinearLayout radarCard = new LinearLayout(host);
-        radarCard.setOrientation(LinearLayout.VERTICAL);
-        radarCard.setGravity(Gravity.CENTER);
-        radarCard.setPadding(dp(14), dp(14), dp(14), dp(14));
-        GradientDrawable radarBg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFF233243, 0xFF1A232F});
-        radarBg.setCornerRadius(dp(16));
-        radarBg.setStroke(dp(1), 0x2EA9DCE2);
-        radarCard.setBackground(radarBg);
-
-        CastGraphicView radarHero = new CastGraphicView(host, CastGraphicView.KIND_RADAR_HERO, true);
-        radarCard.addView(radarHero, new LinearLayout.LayoutParams(dp(136), dp(136)));
-
-        TextView devName = new TextView(host);
-        devName.setText(friendlyName());
-        devName.setTextColor(Color.WHITE);
-        devName.setTextSize(15);
-        devName.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        devName.setSingleLine(true);
-        devName.setEllipsize(TextUtils.TruncateAt.END);
-        devName.setIncludeFontPadding(false);
-        devName.setPadding(0, dp(8), 0, dp(3));
-        radarCard.addView(devName);
-
-        TextView addrText = new TextView(host);
-        addrText.setText(ip + (activePort > 0 ? ":" + activePort : ""));
-        addrText.setTextColor(0xFF9AB0C7);
-        addrText.setTextSize(12);
-        addrText.setSingleLine(true);
-        addrText.setIncludeFontPadding(false);
-        radarCard.addView(addrText);
-
-        TextView livePill = new TextView(host);
-        livePill.setText("● 正在广播 DLNA 信号");
-        livePill.setTextColor(0xFF63E69A);
-        livePill.setTextSize(11);
-        livePill.setSingleLine(true);
-        livePill.setIncludeFontPadding(false);
-        livePill.setPadding(dp(10), dp(4), dp(10), dp(4));
-        GradientDrawable liveBg = new GradientDrawable();
-        liveBg.setCornerRadius(dp(10));
-        liveBg.setColor(0x2434C759);
-        liveBg.setStroke(dp(1), 0x6634C759);
-        livePill.setBackground(liveBg);
-        LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        liveLp.topMargin = dp(8);
-        radarCard.addView(livePill, liveLp);
-
-        root.addView(radarCard, new LinearLayout.LayoutParams(dp(248), dp(246)));
-
-        // Right 3 Visual Step Cards
-        LinearLayout stepsCol = new LinearLayout(host);
-        stepsCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams stepsColLp = new LinearLayout.LayoutParams(0, dp(246), 1f);
-        stepsColLp.leftMargin = dp(12);
-
-        String[] stepTitles = {
-                "连接同一局域网 / Wi-Fi",
-                "打开手机视频 App 播放页",
-                "点击视频画面右上角「TV 投屏」"
-        };
-        String[] stepDescs = {
-                "确认手机与电视连接在同一路由器下（本机 " + ip + "）",
-                "支持哔哩哔哩、爱奇艺、腾讯视频、优酷、抖音、夸克等",
-                "在搜索列表中选择「" + friendlyName() + "」即可全屏播放"
-        };
-        int[] stepKinds = {
-                CastGraphicView.KIND_STEP_WIFI,
-                CastGraphicView.KIND_STEP_VIDEO,
-                CastGraphicView.KIND_STEP_CAST
-        };
-
-        for (int i = 0; i < 3; i++) {
-            LinearLayout stepCard = new LinearLayout(host);
-            stepCard.setOrientation(LinearLayout.HORIZONTAL);
-            stepCard.setGravity(Gravity.CENTER_VERTICAL);
-            stepCard.setPadding(dp(14), dp(10), dp(14), dp(10));
-            GradientDrawable stepBg = new GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{0xFF253242, 0xFF1D2733});
-            stepBg.setCornerRadius(dp(14));
-            stepBg.setStroke(dp(1), 0x22FFFFFF);
-            stepCard.setBackground(stepBg);
-
-            CastGraphicView stepIcon = new CastGraphicView(host, stepKinds[i], true);
-            stepCard.addView(stepIcon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-            LinearLayout stepText = new LinearLayout(host);
-            stepText.setOrientation(LinearLayout.VERTICAL);
-            stepText.setPadding(dp(12), 0, 0, 0);
-
-            TextView st = new TextView(host);
-            st.setText(stepTitles[i]);
-            st.setTextColor(Color.WHITE);
-            st.setTextSize(15);
-            st.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-            st.setSingleLine(true);
-            st.setIncludeFontPadding(false);
-            stepText.addView(st);
-
-            TextView sd = new TextView(host);
-            sd.setText(stepDescs[i]);
-            sd.setTextColor(0xFFA9B9CC);
-            sd.setTextSize(12);
-            sd.setSingleLine(true);
-            sd.setEllipsize(TextUtils.TruncateAt.END);
-            sd.setIncludeFontPadding(false);
-            sd.setPadding(0, dp(3), 0, 0);
-            stepText.addView(sd);
-
-            stepCard.addView(stepText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-            LinearLayout.LayoutParams stepLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-            if (i > 0) stepLp.topMargin = dp(8);
-            stepsCol.addView(stepCard, stepLp);
-        }
-        root.addView(stepsCol, stepsColLp);
-
-        TvDialog dialog = new TvDialog.Builder(host).centered().setPageId("cast_waiting").setTitle("等待视频 App 投屏")
-                .setView(root)
-                .setPositiveButton("刷新广播信号", (d, w) -> {
-                    stopReceiver();
-                    syncReceiver();
-                    host.toast("已重新广播投屏信号，请在手机端刷新搜索");
-                    showWaitingPage();
-                })
-                .setNeutralButton("手机扫码快投", (d, w) -> host.phone.show())
-                .setNeutralButton("系统无线镜像", (d, w) -> openSystemMirroring())
-                .setNegativeButton("返回", (d, w) -> show()).create();
-        dialog.onLeave(() -> {
-            pageOpen = host.isPage("cast") || host.isPage("cast_waiting");
+        openingPage = true;
+        try {
+            if (mode() == MODE_OFF) prefs.edit().putInt("cast_mode", MODE_WHEN_OPEN).apply();
             syncReceiver();
-        });
-        host.showDialog(dialog);
+            DlnaServer activeSrv = server;
+            int activePort = activeSrv == null ? 0 : activeSrv.port();
+            boolean portBusy = activeSrv != null && !activeSrv.ssdpSearchBound();
+
+            LinearLayout root = new LinearLayout(host);
+            root.setOrientation(LinearLayout.HORIZONTAL);
+            root.setGravity(Gravity.CENTER_VERTICAL);
+            root.setFocusable(false);
+
+            LinearLayout radarCard = new LinearLayout(host);
+            radarCard.setOrientation(LinearLayout.VERTICAL);
+            radarCard.setGravity(Gravity.CENTER);
+            radarCard.setPadding(dp(14), dp(14), dp(14), dp(14));
+            GradientDrawable radarBg = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xFF233243, 0xFF1A232F});
+            radarBg.setCornerRadius(dp(16));
+            radarBg.setStroke(dp(1), 0x2EA9DCE2);
+            radarCard.setBackground(radarBg);
+
+            CastGraphicView radarHero = new CastGraphicView(host, CastGraphicView.KIND_RADAR_HERO, true);
+            radarCard.addView(radarHero, new LinearLayout.LayoutParams(dp(136), dp(136)));
+
+            TextView devName = new TextView(host);
+            devName.setText(friendlyName());
+            devName.setTextColor(Color.WHITE);
+            devName.setTextSize(15);
+            devName.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+            devName.setSingleLine(true);
+            devName.setEllipsize(TextUtils.TruncateAt.END);
+            devName.setIncludeFontPadding(false);
+            devName.setPadding(0, dp(8), 0, dp(3));
+            radarCard.addView(devName);
+
+            TextView addrText = new TextView(host);
+            addrText.setText(ip + (activePort > 0 ? ":" + activePort : ""));
+            addrText.setTextColor(0xFF9AB0C7);
+            addrText.setTextSize(12);
+            addrText.setSingleLine(true);
+            addrText.setIncludeFontPadding(false);
+            radarCard.addView(addrText);
+
+            TextView livePill = new TextView(host);
+            livePill.setText(activeSrv == null ? "● 服务启动失败" : portBusy ? "● 主动广播兼容模式" : "● 正在广播 DLNA 信号");
+            livePill.setTextColor(activeSrv == null ? 0xFFFF7B72 : portBusy ? 0xFFFFD166 : 0xFF63E69A);
+            livePill.setTextSize(11);
+            livePill.setSingleLine(true);
+            livePill.setIncludeFontPadding(false);
+            livePill.setPadding(dp(10), dp(4), dp(10), dp(4));
+            GradientDrawable liveBg = new GradientDrawable();
+            liveBg.setCornerRadius(dp(10));
+            liveBg.setColor(activeSrv == null ? 0x24FF7B72 : portBusy ? 0x24FFD166 : 0x2434C759);
+            liveBg.setStroke(dp(1), activeSrv == null ? 0x66FF7B72 : portBusy ? 0x66FFD166 : 0x6634C759);
+            livePill.setBackground(liveBg);
+            LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            liveLp.topMargin = dp(8);
+            radarCard.addView(livePill, liveLp);
+
+            root.addView(radarCard, new LinearLayout.LayoutParams(dp(248), dp(246)));
+
+            LinearLayout stepsCol = new LinearLayout(host);
+            stepsCol.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams stepsColLp = new LinearLayout.LayoutParams(0, dp(246), 1f);
+            stepsColLp.leftMargin = dp(12);
+
+            String[] stepTitles = {
+                    "连接同一局域网 / Wi-Fi",
+                    "打开手机视频 App 播放页",
+                    portBusy ? "点击「TV 投屏」（若未搜到请点刷新广播）" : "点击视频画面右上角「TV 投屏」"
+            };
+            String[] stepDescs = {
+                    "确认手机与电视连接在同一路由器下（本机 " + ip + "）",
+                    "支持哔哩哔哩、爱奇艺、腾讯视频、优酷、抖音、夸克等",
+                    portBusy
+                            ? "系统投屏占用了 1900 端口，已定时主动广播「" + friendlyName() + "」"
+                            : "在搜索列表中选择「" + friendlyName() + "」即可全屏播放"
+            };
+            int[] stepKinds = {
+                    CastGraphicView.KIND_STEP_WIFI,
+                    CastGraphicView.KIND_STEP_VIDEO,
+                    CastGraphicView.KIND_STEP_CAST
+            };
+
+            for (int i = 0; i < 3; i++) {
+                LinearLayout stepCard = new LinearLayout(host);
+                stepCard.setOrientation(LinearLayout.HORIZONTAL);
+                stepCard.setGravity(Gravity.CENTER_VERTICAL);
+                stepCard.setPadding(dp(14), dp(10), dp(14), dp(10));
+                GradientDrawable stepBg = new GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        new int[]{0xFF253242, 0xFF1D2733});
+                stepBg.setCornerRadius(dp(14));
+                stepBg.setStroke(dp(1), 0x22FFFFFF);
+                stepCard.setBackground(stepBg);
+
+                CastGraphicView stepIcon = new CastGraphicView(host, stepKinds[i], true);
+                stepCard.addView(stepIcon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+                LinearLayout stepText = new LinearLayout(host);
+                stepText.setOrientation(LinearLayout.VERTICAL);
+                stepText.setPadding(dp(12), 0, 0, 0);
+
+                TextView st = new TextView(host);
+                st.setText(stepTitles[i]);
+                st.setTextColor(Color.WHITE);
+                st.setTextSize(15);
+                st.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+                st.setSingleLine(true);
+                st.setIncludeFontPadding(false);
+                stepText.addView(st);
+
+                TextView sd = new TextView(host);
+                sd.setText(stepDescs[i]);
+                sd.setTextColor(0xFFA9B9CC);
+                sd.setTextSize(12);
+                sd.setSingleLine(true);
+                sd.setEllipsize(TextUtils.TruncateAt.END);
+                sd.setIncludeFontPadding(false);
+                sd.setPadding(0, dp(3), 0, 0);
+                stepText.addView(sd);
+
+                stepCard.addView(stepText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                LinearLayout.LayoutParams stepLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+                if (i > 0) stepLp.topMargin = dp(8);
+                stepsCol.addView(stepCard, stepLp);
+            }
+            root.addView(stepsCol, stepsColLp);
+
+            TvDialog dialog = new TvDialog.Builder(host).centered().setPageId("cast_waiting").setTitle("等待视频 App 投屏")
+                    .setView(root)
+                    .setPositiveButton("刷新广播信号", (d, w) -> {
+                        openingPage = true;
+                        try {
+                            refreshReceiver();
+                        } finally {
+                            openingPage = false;
+                        }
+                        host.toast("已重新广播投屏信号，请在手机端刷新搜索");
+                        showWaitingPage();
+                    })
+                    .setNeutralButton("手机扫码快投", (d, w) -> host.phone.show())
+                    .setNeutralButton("系统无线镜像", (d, w) -> openSystemMirroring())
+                    .setNegativeButton("返回", null).create();
+            dialog.onLeave(this::syncReceiver);
+            host.showDialog(dialog);
+        } finally {
+            openingPage = false;
+        }
+        syncReceiver();
+    }
+
+    void openSystemMirroring() {
+        SystemMirroringLauncher.open(host, this::showWaitingPage, this::show);
     }
 
     JSONObject statusJson() {
         JSONObject o = new JSONObject();
         try {
+            DlnaServer activeSrv = server;
             o.put("playing", isPlaying());
             o.put("state", transportState);
             o.put("title", currentTitle);
@@ -647,57 +721,74 @@ final class CastManager {
             o.put("photo", isPhotoCast);
             o.put("positionSec", currentPositionMs / 1000);
             o.put("durationSec", currentDurationMs / 1000);
-            o.put("dlnaActive", receiverRunning);
+            o.put("dlnaActive", activeSrv != null);
+            o.put("ssdpSearchBound", activeSrv != null && activeSrv.ssdpSearchBound());
             o.put("deviceName", friendlyName());
         } catch (Exception ignored) {}
         return o;
     }
 
     void stageAndPlayFile(File file, String title, String sourceIp) {
+        if (!host.foreground) {
+            if (file != null) file.delete();
+            return;
+        }
         if (stagedVideoFile != null && !stagedVideoFile.equals(file)) {
             stagedVideoFile.delete();
         }
+        externalHandoffAt = 0;
+        UpdateApkProvider.clearCastFile();
         stagedVideoFile = file;
         playVideo(Uri.fromFile(file).toString(), title, sourceIp, true);
     }
 
     void requestCastVideo(final String uri, final String title, final String sourceIp) {
-        if (uri == null || !(uri.startsWith("http://") || uri.startsWith("https://"))) return;
-        boolean autoAllow = !confirmUntrusted()
-                || trustedIps.contains(sourceIp)
-                || host.isPage("cast_waiting")
-                || host.isPage("cast")
-                || (host.phone != null && host.phone.active())
-                || isPlaying();
-        if (autoAllow) {
+        if (!host.foreground || !CastProtocol.isAllowedMediaUri(uri)) {
+            transportState = "STOPPED";
+            return;
+        }
+        boolean trusted = sourceIp != null && trustedIps.contains(sourceIp);
+        if (CastProtocol.shouldAutoAllowCast(confirmUntrusted(), trusted)) {
             trustIp(sourceIp);
             playVideo(uri, title, sourceIp, true);
             return;
         }
-        host.showDialog(new TvDialog.Builder(host).setPageId("cast_approve").setTitle("允许投屏到电视？")
+        String safeTitle = (title == null || title.trim().isEmpty()) ? "视频流" : title.trim();
+        if (safeTitle.length() > 100) safeTitle = safeTitle.substring(0, 100);
+        final String displayTitle = safeTitle;
+        TvDialog approve = new TvDialog.Builder(host).setPageId("cast_approve").setTitle("允许投屏到电视？")
                 .setMessage("请求设备：" + (sourceIp == null || sourceIp.isEmpty() ? "局域网设备" : sourceIp)
-                        + "\n投射内容：" + (title == null || title.isEmpty() ? "视频流" : title)
+                        + "\n投射内容：" + displayTitle
                         + "\n\n允许后本次运行期间不再重复询问该设备。")
                 .setPositiveButton("允许并播放", (d, w) -> {
                     trustIp(sourceIp);
-                    playVideo(uri, title, sourceIp, true);
+                    playVideo(uri, displayTitle, sourceIp, true);
                 })
                 .setNegativeButton("拒绝", (d, w) -> transportState = "STOPPED")
-                .create());
+                .create();
+        approve.onLeave(this::syncReceiver);
+        host.showDialog(approve);
     }
 
     void playVideo(String uri, String title, String sourceIp, boolean trusted) {
+        if (!host.foreground || uri == null || uri.isEmpty()) return;
+        if (!uri.startsWith("file:") && !CastProtocol.isAllowedMediaUri(uri)) return;
+        if (!uri.startsWith("file:")) {
+            clearStagedVideo();
+        }
         if (trusted && sourceIp != null) trustIp(sourceIp);
         host.home.setIdle(false);
         host.exitMenus();
         isPhotoCast = false;
         currentUri = uri;
+        currentOwnerIp = sourceIp == null ? "" : sourceIp;
         currentTitle = (title == null || title.trim().isEmpty()) ? "投屏视频" : title.trim();
         currentSource = (sourceIp == null || sourceIp.isEmpty()) ? "无线投屏" : "来自 " + sourceIp;
         currentPositionMs = 0;
         currentDurationMs = 0;
         transportState = "PLAYING";
         ensurePlayerDialog();
+        host.screensaver.cancel();
         if (photoView != null) photoView.setVisibility(View.GONE);
         if (videoView != null) {
             videoView.setVisibility(View.VISIBLE);
@@ -712,28 +803,38 @@ final class CastManager {
             } catch (RuntimeException e) {
                 Diagnostics.event("CAST_VIDEO_START_FAILED");
                 offerExternalPlayer("无法直接播放此视频流，可能包含特殊编码。");
+                return;
             }
         }
         showOsd(true);
         host.handler.removeCallbacks(progressTicker);
         host.handler.post(progressTicker);
+        syncReceiver();
         Diagnostics.event("CAST_VIDEO_STARTED");
     }
 
     void showPhoto(Bitmap bitmap, String title, String sourceIp) {
         if (bitmap == null || bitmap.isRecycled()) return;
+        if (!host.foreground) {
+            bitmap.recycle();
+            return;
+        }
+        clearStagedVideo();
         trustIp(sourceIp);
         host.home.setIdle(false);
         host.exitMenus();
         isPhotoCast = true;
         photoRotation = 0;
         currentUri = "";
+        nextUri = "";
+        currentOwnerIp = sourceIp == null ? "" : sourceIp;
         currentTitle = (title == null || title.trim().isEmpty()) ? "投屏照片" : title.trim();
         currentSource = (sourceIp == null || sourceIp.isEmpty()) ? "手机快投照片" : "来自 " + sourceIp + " · 照片投屏";
         currentPositionMs = 0;
         currentDurationMs = 0;
         transportState = "PLAYING";
         ensurePlayerDialog();
+        host.screensaver.cancel();
         if (videoView != null) {
             try { videoView.stopPlayback(); } catch (RuntimeException ignored) {}
             videoView.setVisibility(View.GONE);
@@ -749,6 +850,7 @@ final class CastManager {
         }
         if (old != null && old != bitmap && !old.isRecycled()) old.recycle();
         showOsd(true);
+        syncReceiver();
         Diagnostics.event("CAST_PHOTO_SHOWN");
     }
 
@@ -756,31 +858,32 @@ final class CastManager {
         if (cmd == null) return;
         switch (cmd) {
             case "toggle":
-                togglePlayPause();
+                if (host.foreground) togglePlayPause();
                 break;
             case "play":
-                resumePlayback();
+                if (host.foreground) resumePlayback();
                 break;
             case "pause":
                 pausePlayback();
                 break;
             case "stop":
-                stopPlayback();
+                stopPlayback(false);
                 break;
             case "seek_back":
-                seekByMs(-15000);
+                if (host.foreground) seekByMs(-15000);
                 break;
             case "seek_forward":
-                seekByMs(15000);
+                if (host.foreground) seekByMs(15000);
                 break;
             case "vol_up":
-                adjustVolume(1);
+                if (host.foreground) adjustVolume(1);
                 break;
             case "vol_down":
-                adjustVolume(-1);
+                if (host.foreground) adjustVolume(-1);
                 break;
             case "aspect":
             case "rotate":
+                if (!host.foreground) break;
                 if (isPhotoCast && photoView != null) {
                     photoRotation = (photoRotation + 90) % 360;
                     photoView.setRotation(photoRotation);
@@ -818,7 +921,7 @@ final class CastManager {
     }
 
     private void resumePlayback() {
-        if (!isPlaying() || isPhotoCast || videoView == null) return;
+        if (!host.foreground || !isPlaying() || isPhotoCast || videoView == null) return;
         try {
             if (!videoView.isPlaying()) videoView.start();
             transportState = "PLAYING";
@@ -871,23 +974,43 @@ final class CastManager {
     }
 
     void stopPlayback() {
+        stopPlayback(false);
+    }
+
+    private void stopPlayback(boolean keepStagedForExternal) {
         host.handler.removeCallbacks(progressTicker);
         host.handler.removeCallbacks(hideOsd);
         transportState = "STOPPED";
         currentPositionMs = 0;
         currentDurationMs = 0;
+        nextUri = "";
+        if (!keepStagedForExternal) {
+            currentUri = "";
+            currentOwnerIp = "";
+            clearStagedVideo();
+        }
         if (videoView != null) {
             try { videoView.stopPlayback(); } catch (RuntimeException ignored) {}
         }
-        if (playerDialog != null && playerDialog.isShowing()) {
-            try { playerDialog.dismiss(); } catch (RuntimeException ignored) {}
-        }
+        dismissPlayerWindowOnly();
         if (currentPhoto != null) {
             if (photoView != null) photoView.setImageBitmap(null);
             if (!currentPhoto.isRecycled()) currentPhoto.recycle();
             currentPhoto = null;
         }
         syncReceiver();
+        host.armIdle();
+    }
+
+    private void dismissPlayerWindowOnly() {
+        if (playerDialog != null) {
+            Dialog d = playerDialog;
+            playerDialog = null;
+            d.setOnDismissListener(null);
+            if (d.isShowing()) {
+                try { d.dismiss(); } catch (RuntimeException ignored) {}
+            }
+        }
     }
 
     private int dp(float v) {
@@ -900,7 +1023,9 @@ final class CastManager {
             @Override public boolean dispatchKeyEvent(KeyEvent event) {
                 int key = event.getKeyCode();
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER || key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                    if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
+                            || key == KeyEvent.KEYCODE_NUMPAD_ENTER || key == KeyEvent.KEYCODE_BUTTON_A
+                            || key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                         togglePlayPause();
                         return true;
                     }
@@ -936,7 +1061,7 @@ final class CastManager {
                     }
                 }
                 if (key == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                    stopPlayback();
+                    stopPlayback(false);
                     return true;
                 }
                 return super.dispatchKeyEvent(event);
@@ -1042,10 +1167,10 @@ final class CastManager {
             showOsd(true);
         });
         videoView.setOnCompletionListener(mp -> {
-            if (nextUri != null && !nextUri.isEmpty()) {
-                String next = nextUri;
-                nextUri = "";
-                playVideo(next, currentTitle + "（下一集）", "", true);
+            String next = nextUri;
+            nextUri = "";
+            if (next != null && CastProtocol.isAllowedMediaUri(next)) {
+                playVideo(next, currentTitle + "（下一集）", currentOwnerIp, true);
                 return;
             }
             transportState = "STOPPED";
@@ -1060,10 +1185,12 @@ final class CastManager {
 
         playerDialog.setContentView(root);
         playerDialog.setOnDismissListener(d -> {
+            playerDialog = null;
             transportState = "STOPPED";
             host.handler.removeCallbacks(progressTicker);
             host.handler.removeCallbacks(hideOsd);
             syncReceiver();
+            host.armIdle();
         });
         playerDialog.show();
     }
@@ -1111,7 +1238,7 @@ final class CastManager {
         if (dur > 0) {
             osdProgress.setIndeterminate(false);
             osdProgress.setProgress(Math.max(0, Math.min(1000, (int) (pos * 1000L / dur))));
-            osdTime.setText(formatTime(pos) + " / " + formatTime(dur)
+            osdTime.setText(CastProtocol.formatTime(pos) + " / " + CastProtocol.formatTime(dur)
                     + "    ·    确定：暂停/播放  ·  左右：快进快退  ·  上下：音量  ·  菜单键：画面与外部播放");
         } else {
             osdProgress.setProgress(0);
@@ -1129,10 +1256,13 @@ final class CastManager {
                     }, (d, w) -> {
                         if (w == 0) remoteControl("toggle");
                         else if (w == 1) remoteControl("rotate");
-                        else stopPlayback();
+                        else stopPlayback(false);
                     }).setNegativeButton("返回画面", null).create());
             return;
         }
+        final String retryUri = currentUri;
+        final String retryTitle = currentTitle;
+        final String retryOwner = currentOwnerIp;
         host.showDialog(new TvDialog.Builder(host).setPageId("cast_video_menu").setTitle("投屏播放选项")
                 .setMessage(currentTitle + "\n" + currentSource)
                 .setItems(new String[]{
@@ -1143,128 +1273,65 @@ final class CastManager {
                 }, (d, w) -> {
                     if (w == 0) remoteControl("aspect");
                     else if (w == 1) openInExternalPlayer();
-                    else if (w == 2) playVideo(currentUri, currentTitle, "", true);
-                    else stopPlayback();
+                    else if (w == 2) playVideo(retryUri, retryTitle, retryOwner, true);
+                    else stopPlayback(false);
                 }).setNegativeButton("继续播放", null).create());
     }
 
     private void offerExternalPlayer(String reason) {
-        host.showDialog(new TvDialog.Builder(host).setPageId("cast_error").setTitle("投屏播放提示")
+        final String retryUri = currentUri;
+        final String retryTitle = currentTitle;
+        final String retryOwner = currentOwnerIp;
+        host.handler.removeCallbacks(progressTicker);
+        host.handler.removeCallbacks(hideOsd);
+        if (videoView != null) {
+            try { videoView.stopPlayback(); } catch (RuntimeException ignored) {}
+        }
+        // Dismiss the black fullscreen player window before showing cast_error so the dialog
+        // is never occluded behind playerDialog and Back cleanly returns to the desktop.
+        dismissPlayerWindowOnly();
+        syncReceiver();
+        host.armIdle();
+
+        TvDialog errDialog = new TvDialog.Builder(host).setPageId("cast_error").setTitle("投屏播放提示")
                 .setMessage(reason + "\n\n可以调用电视上安装的其他播放器（如 Kodi、VLC、当贝播放器等）继续打开该视频流。")
                 .setItems(new String[]{"用外部播放器打开", "重试内置播放", "退出投屏"}, (d, w) -> {
                     if (w == 0) openInExternalPlayer();
-                    else if (w == 1) playVideo(currentUri, currentTitle, "", true);
-                    else stopPlayback();
-                }).setNegativeButton("返回", null).create());
+                    else if (w == 1) playVideo(retryUri, retryTitle, retryOwner, true);
+                    else stopPlayback(false);
+                }).setNegativeButton("返回", (d, w) -> stopPlayback(false)).create();
+        errDialog.onLeave(() -> {
+            if (!isPlaying() && externalHandoffAt == 0) clearStagedVideo();
+        });
+        host.showDialog(errDialog);
     }
 
     private void openInExternalPlayer() {
         if (currentUri == null || currentUri.isEmpty()) return;
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(Uri.parse(currentUri), "video/*");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            host.startActivity(intent);
-            stopPlayback();
+            if (currentUri.startsWith("file:")) {
+                if (stagedVideoFile == null || !stagedVideoFile.isFile()) {
+                    host.toast("本地投屏缓存文件已失效，请重新投射");
+                    return;
+                }
+                Uri contentUri = UpdateApkProvider.stageCastFile(host, stagedVideoFile);
+                intent.setDataAndType(contentUri, "video/*");
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                host.startActivity(intent);
+                externalHandoffAt = SystemClock.elapsedRealtime();
+                stopPlayback(true);
+            } else {
+                intent.setDataAndType(Uri.parse(currentUri), "video/*");
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                host.startActivity(intent);
+                stopPlayback(false);
+            }
         } catch (RuntimeException e) {
+            UpdateApkProvider.clearCastFile();
             host.toast("电视未安装可处理此视频流的外部播放器");
         }
     }
-
-    // --- Module 3: System / OEM Screen Mirroring Bridge ---
-
-    private static final class MirrorTarget {
-        final String label;
-        final Intent intent;
-        MirrorTarget(String label, Intent intent) {
-            this.label = label;
-            this.intent = intent;
-        }
-    }
-
-    void openSystemMirroring() {
-        PackageManager pm = host.getPackageManager();
-        ArrayList<MirrorTarget> targets = new ArrayList<>();
-        HashSet<String> seen = new HashSet<>();
-
-        String[][] knownPackages = {
-                {"com.xiaomi.mitv.smartshare", "小米无线投屏（Miracast / 米联）"},
-                {"com.duokan.airkan.tvbox", "小米多看投屏（AirPlay / DLNA）"},
-                {"com.xiaomi.mitv.miracast", "小米无线显示（Miracast）"},
-                {"com.hpplay.happycast", "乐播投屏"},
-                {"com.tcl.wfd", "TCL 无线投屏"},
-                {"com.hisense.multiscreen", "海信多屏互动"},
-                {"com.skyworth.miracast", "创维无线投屏"},
-                {"com.konka.miracast", "康佳无线投屏"},
-                {"com.changhong.miracast", "长虹无线投屏"}
-        };
-        for (String[] pair : knownPackages) {
-            Intent launch = pm.getLeanbackLaunchIntentForPackage(pair[0]);
-            if (launch == null) launch = pm.getLaunchIntentForPackage(pair[0]);
-            if (launch != null && seen.add(pair[0])) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                targets.add(new MirrorTarget(pair[1], launch));
-            }
-        }
-
-        for (ApplicationInfo app : pm.getInstalledApplications(0)) {
-            if (app.packageName.equals(host.getPackageName()) || seen.contains(app.packageName)) continue;
-            String label = String.valueOf(app.loadLabel(pm));
-            String lower = (label + " " + app.packageName).toLowerCase(Locale.ROOT);
-            if (lower.contains("miracast") || lower.contains("smartshare") || lower.contains("airkan")
-                    || label.contains("投屏") || label.contains("无线显示") || label.contains("多屏互动") || label.contains("屏幕镜像")) {
-                Intent launch = pm.getLeanbackLaunchIntentForPackage(app.packageName);
-                if (launch == null) launch = pm.getLaunchIntentForPackage(app.packageName);
-                if (launch != null && seen.add(app.packageName)) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    targets.add(new MirrorTarget(label, launch));
-                }
-            }
-        }
-
-        String[][] settingsActions = {
-                {"android.settings.WIFI_DISPLAY_SETTINGS", "系统无线显示设置（Miracast）"},
-                {"android.settings.CAST_SETTINGS", "系统投射设置（Cast）"}
-        };
-        for (String[] action : settingsActions) {
-            Intent intent = new Intent(action[0]).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ResolveInfo info = pm.resolveActivity(intent, 0);
-            if (info != null && info.activityInfo != null && info.activityInfo.exported
-                    && !info.activityInfo.name.endsWith("EmptyStubActivity")
-                    && seen.add(info.activityInfo.packageName + "/" + info.activityInfo.name)) {
-                targets.add(new MirrorTarget(action[1], intent));
-            }
-        }
-
-        if (targets.isEmpty()) {
-            host.showDialog(new TvDialog.Builder(host).setPageId("cast_mirror_none").setTitle("未检测到系统无线镜像入口")
-                    .setMessage("当前电视固件未开放独立的 Miracast / 无线显示页面。\n\n你仍然可以直接使用：\n"
-                            + "1. 视频 App 投屏（Marco TV 已内置 DLNA 接收器，无需外部软件）\n"
-                            + "2. Marco 互联手机扫码快投（直接投射手机相册照片、视频和直播链接）")
-                    .setPositiveButton("打开等待投屏页", (d, w) -> showWaitingPage())
-                    .setNegativeButton("返回", null).create());
-            return;
-        }
-        if (targets.size() == 1) {
-            try {
-                host.startActivity(targets.get(0).intent);
-                return;
-            } catch (RuntimeException ignored) {}
-        }
-        String[] names = new String[targets.size()];
-        for (int i = 0; i < targets.size(); i++) names[i] = targets.get(i).label;
-        host.showDialog(new TvDialog.Builder(host).setPageId("cast_mirror_list").setTitle("选择系统无线镜像入口")
-                .setMessage("整屏镜像（Miracast / AirPlay）由电视内置组件提供；视频 App 投屏可直接留在 Marco TV 内使用。")
-                .setItems(names, (d, w) -> {
-                    try {
-                        host.startActivity(targets.get(w).intent);
-                    } catch (RuntimeException e) {
-                        host.toast("系统未允许直接打开该镜像页面");
-                    }
-                }).setNegativeButton("返回", (d, w) -> show()).create());
-    }
-
-    // --- Module 1: DLNA / UPnP MediaRenderer (SSDP + HTTP SOAP) ---
 
     private String localAddress() {
         try {
@@ -1286,409 +1353,79 @@ final class CastManager {
         return null;
     }
 
-    private synchronized void startReceiver(final String ip) {
-        try {
-            InetAddress bindAddr = InetAddress.getByName(ip);
-            httpServer = new ServerSocket();
-            httpServer.setReuseAddress(true);
-            httpServer.bind(new InetSocketAddress(bindAddr, 0), 16);
-            activeIp = ip;
-            activePort = httpServer.getLocalPort();
-            receiverRunning = true;
-            ioPool = Executors.newCachedThreadPool();
-
-            try {
-                WifiManager wifi = (WifiManager) host.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                if (wifi != null) {
-                    multicastLock = wifi.createMulticastLock("marcotv-dlna");
-                    multicastLock.setReferenceCounted(false);
-                    multicastLock.acquire();
-                }
-            } catch (RuntimeException ignored) {}
-
-            final ServerSocket srv = httpServer;
-            Thread httpAccept = new Thread(() -> {
-                while (receiverRunning && !srv.isClosed()) {
-                    try {
-                        final Socket client = srv.accept();
-                        client.setSoTimeout(5000);
-                        ExecutorService pool = ioPool;
-                        if (pool != null) pool.execute(() -> handleHttpClient(client));
-                        else client.close();
-                    } catch (IOException ignored) {}
-                }
-            }, "MarcoDlnaHttp");
-            httpAccept.setDaemon(true);
-            httpAccept.start();
-
-            try {
-                ssdpSocket = new MulticastSocket(null);
-                ssdpSocket.setReuseAddress(true);
-                ssdpSocket.bind(new InetSocketAddress(SSDP_PORT));
-                NetworkInterface nif = NetworkInterface.getByInetAddress(bindAddr);
-                InetAddress group = InetAddress.getByName(SSDP_ADDRESS);
-                if (nif != null) ssdpSocket.joinGroup(new InetSocketAddress(group, SSDP_PORT), nif);
-                else ssdpSocket.joinGroup(group);
-
-                final MulticastSocket sock = ssdpSocket;
-                final int port = activePort;
-                final String uuid = udn();
-                Thread ssdpLoop = new Thread(() -> listenSsdp(sock, ip, port, uuid), "MarcoDlnaSsdp");
-                ssdpLoop.setDaemon(true);
-                ssdpLoop.start();
-            } catch (IOException ignored) {
-                // Even if UDP 1900 is occupied by another system service, outgoing SSDP NOTIFY announcements still work.
-            }
-
-            host.handler.removeCallbacks(ssdpAliveTicker);
-            host.handler.post(ssdpAliveTicker);
-        } catch (IOException e) {
-            stopReceiver();
-        }
-    }
-
-    private synchronized void stopReceiver() {
-        final String ip = activeIp;
-        final int port = activePort;
-        final String uuid = udn();
-        boolean wasRunning = receiverRunning;
-        receiverRunning = false;
-        activeIp = "";
-        activePort = 0;
-        host.handler.removeCallbacks(ssdpAliveTicker);
-        if (wasRunning && !ip.isEmpty() && port > 0) {
-            new Thread(() -> sendSsdpNotify(ip, port, uuid, false), "MarcoDlnaBye").start();
-        }
-        if (ssdpSocket != null) {
-            try { ssdpSocket.close(); } catch (RuntimeException ignored) {}
-            ssdpSocket = null;
-        }
-        if (httpServer != null) {
-            try { httpServer.close(); } catch (IOException ignored) {}
-            httpServer = null;
-        }
-        if (ioPool != null) {
-            ioPool.shutdownNow();
-            ioPool = null;
-        }
-        if (multicastLock != null) {
-            try { if (multicastLock.isHeld()) multicastLock.release(); } catch (RuntimeException ignored) {}
-            multicastLock = null;
-        }
-    }
-
-    private void listenSsdp(MulticastSocket sock, String ip, int port, String uuid) {
-        byte[] buf = new byte[2048];
-        while (receiverRunning && !sock.isClosed()) {
-            try {
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                sock.receive(pkt);
-                String msg = new String(pkt.getData(), pkt.getOffset(), pkt.getLength(), StandardCharsets.UTF_8);
-                if (!msg.startsWith("M-SEARCH * HTTP/1.1")) continue;
-                String lower = msg.toLowerCase(Locale.ROOT);
-                if (!lower.contains("ssdp:discover")) continue;
-                String st = extractHeader(msg, "ST");
-                if (st.isEmpty()) continue;
-                if (st.equals("ssdp:all")
-                        || st.equals("upnp:rootdevice")
-                        || st.equals("uuid:" + uuid)
-                        || st.contains("MediaRenderer:")
-                        || st.contains("AVTransport:")
-                        || st.contains("RenderingControl:")
-                        || st.contains("ConnectionManager:")) {
-                    String replyTarget = st.equals("ssdp:all") ? "urn:schemas-upnp-org:device:MediaRenderer:1" : st;
-                    String usn = "uuid:" + uuid + (replyTarget.startsWith("uuid:") ? "" : "::" + replyTarget);
-                    String response = "HTTP/1.1 200 OK\r\n"
-                            + "CACHE-CONTROL: max-age=1800\r\n"
-                            + "EXT:\r\n"
-                            + "LOCATION: http://" + ip + ":" + port + "/dlna/device.xml\r\n"
-                            + "SERVER: Android/" + Build.VERSION.RELEASE + " UPnP/1.0 MarcoTV/" + ProjectInfo.VERSION + "\r\n"
-                            + "ST: " + replyTarget + "\r\n"
-                            + "USN: " + usn + "\r\n"
-                            + "Content-Length: 0\r\n\r\n";
-                    byte[] data = response.getBytes(StandardCharsets.UTF_8);
-                    sock.send(new DatagramPacket(data, data.length, pkt.getAddress(), pkt.getPort()));
-                }
-            } catch (IOException ignored) {}
-        }
-    }
-
-    private static void sendSsdpNotify(String ip, int port, String uuid, boolean alive) {
-        String[] ntList = {
-                "upnp:rootdevice",
-                "uuid:" + uuid,
-                "urn:schemas-upnp-org:device:MediaRenderer:1",
-                "urn:schemas-upnp-org:service:AVTransport:1",
-                "urn:schemas-upnp-org:service:RenderingControl:1"
-        };
-        try (DatagramSocket sock = new DatagramSocket()) {
-            InetAddress group = InetAddress.getByName(SSDP_ADDRESS);
-            for (String nt : ntList) {
-                String usn = "uuid:" + uuid + (nt.startsWith("uuid:") ? "" : "::" + nt);
-                String msg = "NOTIFY * HTTP/1.1\r\n"
-                        + "HOST: " + SSDP_ADDRESS + ":" + SSDP_PORT + "\r\n"
-                        + "CACHE-CONTROL: max-age=1800\r\n"
-                        + "LOCATION: http://" + ip + ":" + port + "/dlna/device.xml\r\n"
-                        + "NT: " + nt + "\r\n"
-                        + "NTS: " + (alive ? "ssdp:alive" : "ssdp:byebye") + "\r\n"
-                        + "SERVER: Android/" + Build.VERSION.RELEASE + " UPnP/1.0 MarcoTV/" + ProjectInfo.VERSION + "\r\n"
-                        + "USN: " + usn + "\r\n"
-                        + "Content-Length: 0\r\n\r\n";
-                byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
-                sock.send(new DatagramPacket(bytes, bytes.length, group, SSDP_PORT));
-            }
-        } catch (IOException ignored) {}
-    }
-
-    static String extractHeader(String rawHttp, String name) {
-        String prefix = name.toLowerCase(Locale.ROOT) + ":";
-        for (String line : rawHttp.split("\r?\n")) {
-            if (line.toLowerCase(Locale.ROOT).startsWith(prefix)) {
-                return line.substring(prefix.length()).trim();
-            }
-        }
-        return "";
-    }
-
-    private void handleHttpClient(Socket socket) {
-        try (Socket s = socket;
-             InputStream in = new BufferedInputStream(s.getInputStream());
-             OutputStream out = s.getOutputStream()) {
-            ByteArrayOutputStream headBuf = new ByteArrayOutputStream();
-            int state = 0, b;
-            while ((b = in.read()) != -1) {
-                headBuf.write(b);
-                if (headBuf.size() > 16384) return;
-                if ((state == 0 || state == 2) && b == '\r') state++;
-                else if ((state == 1 || state == 3) && b == '\n') {
-                    state++;
-                    if (state == 4) break;
-                } else state = 0;
-            }
-            String headStr = new String(headBuf.toByteArray(), StandardCharsets.UTF_8);
-            String[] lines = headStr.split("\r\n");
-            if (lines.length == 0 || lines[0].isEmpty()) return;
-            String[] start = lines[0].split(" ");
-            if (start.length < 2) return;
-            String method = start[0].toUpperCase(Locale.ROOT);
-            String path = start[1];
-            int q = path.indexOf('?');
-            if (q >= 0) path = path.substring(0, q);
-
-            if (method.equals("SUBSCRIBE") || method.equals("UNSUBSCRIBE")) {
-                String subReply = "HTTP/1.1 200 OK\r\n"
-                        + "SID: uuid:marcotv-event-" + udn() + "\r\n"
-                        + "TIMEOUT: Second-1800\r\n"
-                        + "Content-Length: 0\r\n"
-                        + "Connection: close\r\n\r\n";
-                out.write(subReply.getBytes(StandardCharsets.UTF_8));
-                out.flush();
-                return;
-            }
-
-            if (method.equals("GET")) {
-                String xml;
-                if (path.equals("/dlna/device.xml")) xml = buildDeviceXml(friendlyName(), udn());
-                else if (path.equals("/dlna/avtransport.xml")) xml = AVTRANSPORT_SCPD;
-                else if (path.equals("/dlna/rendering.xml")) xml = RENDERING_SCPD;
-                else if (path.equals("/dlna/connection.xml")) xml = CONNECTION_SCPD;
-                else {
-                    out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                    return;
-                }
-                writeHttpXml(out, 200, xml);
-                return;
-            }
-
-            if (!method.equals("POST")) {
-                out.write("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.UTF_8));
-                return;
-            }
-
-            int contentLength = 0;
-            try {
-                contentLength = Integer.parseInt(extractHeader(headStr, "Content-Length"));
-            } catch (NumberFormatException ignored) {}
-            if (contentLength < 0 || contentLength > 262144) return;
-            byte[] bodyBytes = new byte[contentLength];
-            int read = 0;
-            while (read < contentLength) {
-                int n = in.read(bodyBytes, read, contentLength - read);
-                if (n < 0) break;
-                read += n;
-            }
-            String body = new String(bodyBytes, 0, read, StandardCharsets.UTF_8);
-            String soapAction = parseSoapAction(extractHeader(headStr, "SOAPAction"), body);
-            String remoteIp = s.getInetAddress() == null ? "" : s.getInetAddress().getHostAddress();
-            String responseXml = handleSoapAction(soapAction, body, remoteIp);
-            writeHttpXml(out, 200, responseXml);
-        } catch (Exception ignored) {}
-    }
-
-    private static void writeHttpXml(OutputStream out, int code, String xml) throws IOException {
-        byte[] bytes = xml.getBytes(StandardCharsets.UTF_8);
-        String header = "HTTP/1.1 " + code + " OK\r\n"
-                + "Content-Type: text/xml; charset=\"utf-8\"\r\n"
-                + "Content-Length: " + bytes.length + "\r\n"
-                + "EXT:\r\n"
-                + "Connection: close\r\n\r\n";
-        out.write(header.getBytes(StandardCharsets.UTF_8));
-        out.write(bytes);
-        out.flush();
-    }
-
-    static String parseSoapAction(String header, String body) {
-        if (header != null && !header.isEmpty()) {
-            String clean = header.replace("\"", "").trim();
-            int hash = clean.indexOf('#');
-            if (hash >= 0 && hash + 1 < clean.length()) return clean.substring(hash + 1).trim();
-        }
-        if (body != null) {
-            String[] known = {
-                    "SetAVTransportURI", "SetNextAVTransportURI", "Play", "Pause", "Stop", "Seek",
-                    "GetPositionInfo", "GetTransportInfo", "GetMediaInfo", "GetProtocolInfo",
-                    "GetCurrentTransportActions", "GetVolume", "SetVolume", "GetMute", "SetMute"
-            };
-            for (String act : known) {
-                if (body.contains(":" + act) || body.contains("<" + act)) return act;
-            }
-        }
-        return "";
-    }
-
-    static String extractXmlTag(String xml, String tag) {
-        if (xml == null || tag == null) return "";
-        String[] opens = {"<" + tag + ">", "<" + tag + " "};
-        for (String open : opens) {
-            int start = xml.indexOf(open);
-            if (start >= 0) {
-                int contentStart = xml.indexOf('>', start);
-                if (contentStart < 0) continue;
-                contentStart++;
-                int end = xml.indexOf("</" + tag + ">", contentStart);
-                if (end < 0) {
-                    int nsEnd = xml.indexOf(":" + tag + ">", contentStart);
-                    if (nsEnd > contentStart) {
-                        int closeOpen = xml.lastIndexOf("</", nsEnd);
-                        if (closeOpen >= contentStart) end = closeOpen;
-                    }
-                }
-                if (end >= contentStart) return unescapeXml(xml.substring(contentStart, end).trim());
-            }
-        }
-        // Check namespace-prefixed open tag e.g. <dc:title>
-        int colonTag = xml.indexOf(":" + tag + ">");
-        if (colonTag >= 0) {
-            int contentStart = colonTag + tag.length() + 2;
-            int end = xml.indexOf(":" + tag + ">", contentStart);
-            if (end > contentStart) {
-                int closeStart = xml.lastIndexOf("</", end);
-                if (closeStart >= contentStart) return unescapeXml(xml.substring(contentStart, closeStart).trim());
-            }
-        }
-        return "";
-    }
-
-    static String unescapeXml(String s) {
-        if (s == null || s.isEmpty()) return "";
-        return s.replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&apos;", "'")
-                .replace("&amp;", "&");
-    }
-
-    static String escapeXml(String s) {
-        if (s == null || s.isEmpty()) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
-    }
-
-    static int parseTimeMs(String target) {
-        if (target == null || target.isEmpty()) return 0;
-        String clean = target.trim();
-        int dot = clean.indexOf('.');
-        if (dot >= 0) clean = clean.substring(0, dot);
-        String[] parts = clean.split(":");
-        try {
-            if (parts.length == 3) {
-                return (Integer.parseInt(parts[0]) * 3600
-                        + Integer.parseInt(parts[1]) * 60
-                        + Integer.parseInt(parts[2])) * 1000;
-            }
-            if (parts.length == 2) {
-                return (Integer.parseInt(parts[0]) * 60 + Integer.parseInt(parts[1])) * 1000;
-            }
-            return Integer.parseInt(parts[0]) * 1000;
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    static String formatTime(int ms) {
-        int totalSec = Math.max(0, ms / 1000);
-        int h = totalSec / 3600;
-        int m = (totalSec % 3600) / 60;
-        int s = totalSec % 60;
-        return String.format(Locale.ROOT, "%02d:%02d:%02d", h, m, s);
-    }
-
-    private String handleSoapAction(String action, String body, final String remoteIp) {
-        String service = (action.contains("Volume") || action.contains("Mute"))
-                ? "urn:schemas-upnp-org:service:RenderingControl:1"
-                : action.equals("GetProtocolInfo")
-                ? "urn:schemas-upnp-org:service:ConnectionManager:1"
-                : "urn:schemas-upnp-org:service:AVTransport:1";
+    @Override public DlnaServer.SoapResult onSoapAction(String action, String body, final String remoteIp) {
+        String service = CastProtocol.serviceTypeForAction(action);
+        boolean trusted = remoteIp != null && trustedIps.contains(remoteIp);
+        boolean confirm = confirmUntrusted();
         String inner = "";
+
         switch (action) {
             case "SetAVTransportURI": {
-                final String uri = extractXmlTag(body, "CurrentURI");
-                String meta = extractXmlTag(body, "CurrentURIMetaData");
-                String metaTitle = extractXmlTag(meta, "title");
-                final String title = metaTitle.isEmpty() ? "DLNA 投屏视频" : metaTitle;
-                if (!uri.isEmpty()) {
-                    currentUri = uri;
-                    transportState = "PLAYING";
-                    host.handler.post(() -> requestCastVideo(uri, title, remoteIp));
+                final String uri = CastProtocol.extractXmlTag(body, "CurrentURI").trim();
+                if (!CastProtocol.isAllowedMediaUri(uri)) {
+                    return DlnaServer.SoapResult.fault(716, "Resource not found or unsupported URI scheme");
                 }
+                if (!host.foreground) {
+                    return DlnaServer.SoapResult.fault(701, "Transition not available in background");
+                }
+                String meta = CastProtocol.extractXmlTag(body, "CurrentURIMetaData");
+                String metaTitle = CastProtocol.extractXmlTag(meta, "title");
+                final String title = metaTitle.isEmpty() ? "DLNA 投屏视频" : metaTitle;
+                if (CastProtocol.shouldAutoAllowCast(confirm, trusted)) {
+                    transportState = "TRANSITIONING";
+                }
+                host.handler.post(() -> requestCastVideo(uri, title, remoteIp));
                 break;
             }
             case "SetNextAVTransportURI": {
-                nextUri = extractXmlTag(body, "NextURI");
+                if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    return DlnaServer.SoapResult.fault(701, "Device not authorized");
+                }
+                String candidate = CastProtocol.extractXmlTag(body, "NextURI").trim();
+                if (!candidate.isEmpty() && !CastProtocol.isAllowedMediaUri(candidate)) {
+                    return DlnaServer.SoapResult.fault(716, "Unsupported NextURI scheme");
+                }
+                nextUri = candidate;
                 break;
             }
             case "Play": {
-                transportState = "PLAYING";
+                if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    return DlnaServer.SoapResult.fault(701, "Device not authorized");
+                }
                 host.handler.post(this::resumePlayback);
                 break;
             }
             case "Pause": {
-                transportState = "PAUSED_PLAYBACK";
+                if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    return DlnaServer.SoapResult.fault(701, "Device not authorized");
+                }
                 host.handler.post(this::pausePlayback);
                 break;
             }
             case "Stop": {
-                transportState = "STOPPED";
-                host.handler.post(this::stopPlayback);
+                if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    return DlnaServer.SoapResult.fault(701, "Device not authorized");
+                }
+                host.handler.post(() -> stopPlayback(false));
                 break;
             }
             case "Seek": {
-                String target = extractXmlTag(body, "Target");
-                final int ms = parseTimeMs(target);
+                if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    return DlnaServer.SoapResult.fault(701, "Device not authorized");
+                }
+                String target = CastProtocol.extractXmlTag(body, "Target");
+                final int ms = CastProtocol.parseTimeMs(target);
                 host.handler.post(() -> seekToMs(ms));
                 break;
             }
             case "GetPositionInfo": {
-                String dur = formatTime(currentDurationMs);
-                String pos = formatTime(currentPositionMs);
-                String uri = escapeXml(currentUri);
+                String dur = CastProtocol.formatTime(currentDurationMs);
+                String pos = CastProtocol.formatTime(currentPositionMs);
+                String safeUri = CastProtocol.escapeXml(CastProtocol.sanitizeEchoUri(currentUri, currentOwnerIp, remoteIp));
                 inner = "<Track>1</Track>"
                         + "<TrackDuration>" + dur + "</TrackDuration>"
                         + "<TrackMetaData></TrackMetaData>"
-                        + "<TrackURI>" + uri + "</TrackURI>"
+                        + "<TrackURI>" + safeUri + "</TrackURI>"
                         + "<RelTime>" + pos + "</RelTime>"
                         + "<AbsTime>" + pos + "</AbsTime>"
                         + "<RelCount>2147483647</RelCount>"
@@ -1702,13 +1439,14 @@ final class CastManager {
                 break;
             }
             case "GetMediaInfo": {
-                String dur = formatTime(currentDurationMs);
-                String uri = escapeXml(currentUri);
+                String dur = CastProtocol.formatTime(currentDurationMs);
+                String safeCur = CastProtocol.escapeXml(CastProtocol.sanitizeEchoUri(currentUri, currentOwnerIp, remoteIp));
+                String safeNext = CastProtocol.escapeXml(CastProtocol.sanitizeEchoUri(nextUri, currentOwnerIp, remoteIp));
                 inner = "<NrTracks>1</NrTracks>"
                         + "<MediaDuration>" + dur + "</MediaDuration>"
-                        + "<CurrentURI>" + uri + "</CurrentURI>"
+                        + "<CurrentURI>" + safeCur + "</CurrentURI>"
                         + "<CurrentURIMetaData></CurrentURIMetaData>"
-                        + "<NextURI>" + escapeXml(nextUri) + "</NextURI>"
+                        + "<NextURI>" + safeNext + "</NextURI>"
                         + "<NextURIMetaData></NextURIMetaData>"
                         + "<PlayMedium>NETWORK</PlayMedium>"
                         + "<RecordMedium>NOT_IMPLEMENTED</RecordMedium>"
@@ -1738,19 +1476,25 @@ final class CastManager {
                 break;
             }
             case "SetVolume": {
-                String desired = extractXmlTag(body, "DesiredVolume");
+                if (!host.foreground || !CastProtocol.canControlSession(confirm, trusted, isPlaying(), true)) {
+                    return DlnaServer.SoapResult.fault(501, "Volume control requires active authorized cast");
+                }
+                String desired = CastProtocol.extractXmlTag(body, "DesiredVolume");
                 try {
                     final int pct = Math.max(0, Math.min(100, Integer.parseInt(desired)));
                     host.handler.post(() -> {
+                        if (!host.foreground) return;
                         try {
                             AudioManager audio = (AudioManager) host.getSystemService(Context.AUDIO_SERVICE);
                             if (audio != null) {
                                 int max = Math.max(1, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-                                audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(pct * max / 100f), 0);
+                                audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(pct * max / 100f), AudioManager.FLAG_SHOW_UI);
                             }
                         } catch (RuntimeException ignored) {}
                     });
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException e) {
+                    return DlnaServer.SoapResult.fault(402, "Invalid DesiredVolume");
+                }
                 break;
             }
             case "GetMute": {
@@ -1758,455 +1502,14 @@ final class CastManager {
                 break;
             }
             case "SetMute": {
+                if (!host.foreground || !CastProtocol.canControlSession(confirm, trusted, isPlaying(), true)) {
+                    return DlnaServer.SoapResult.fault(501, "Mute control requires active authorized cast");
+                }
                 break;
             }
+            default:
+                return DlnaServer.SoapResult.fault(401, "Invalid Action");
         }
-        String respTag = action.isEmpty() ? "ActionResponse" : action + "Response";
-        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                + "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">"
-                + "<s:Body><u:" + respTag + " xmlns:u=\"" + service + "\">"
-                + inner
-                + "</u:" + respTag + "></s:Body></s:Envelope>";
-    }
-
-    static String buildDeviceXml(String friendlyName, String uuid) {
-        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                + "<root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
-                + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-                + "<device>"
-                + "<deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>"
-                + "<friendlyName>" + escapeXml(friendlyName) + "</friendlyName>"
-                + "<manufacturer>Pilipala</manufacturer>"
-                + "<modelName>Marco TV</modelName>"
-                + "<modelNumber>" + ProjectInfo.VERSION + "</modelNumber>"
-                + "<UDN>uuid:" + escapeXml(uuid) + "</UDN>"
-                + "<serviceList>"
-                + "<service>"
-                + "<serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>"
-                + "<SCPDURL>/dlna/avtransport.xml</SCPDURL>"
-                + "<controlURL>/dlna/avtransport/control</controlURL>"
-                + "<eventSubURL>/dlna/avtransport/event</eventSubURL>"
-                + "</service>"
-                + "<service>"
-                + "<serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>"
-                + "<SCPDURL>/dlna/rendering.xml</SCPDURL>"
-                + "<controlURL>/dlna/rendering/control</controlURL>"
-                + "<eventSubURL>/dlna/rendering/event</eventSubURL>"
-                + "</service>"
-                + "<service>"
-                + "<serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>"
-                + "<SCPDURL>/dlna/connection.xml</SCPDURL>"
-                + "<controlURL>/dlna/connection/control</controlURL>"
-                + "<eventSubURL>/dlna/connection/event</eventSubURL>"
-                + "</service>"
-                + "</serviceList>"
-                + "</device></root>";
-    }
-
-    private static final String AVTRANSPORT_SCPD = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-            + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
-            + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-            + "<actionList>"
-            + "<action><name>SetAVTransportURI</name></action>"
-            + "<action><name>SetNextAVTransportURI</name></action>"
-            + "<action><name>Play</name></action>"
-            + "<action><name>Pause</name></action>"
-            + "<action><name>Stop</name></action>"
-            + "<action><name>Seek</name></action>"
-            + "<action><name>GetPositionInfo</name></action>"
-            + "<action><name>GetTransportInfo</name></action>"
-            + "<action><name>GetMediaInfo</name></action>"
-            + "<action><name>GetCurrentTransportActions</name></action>"
-            + "</actionList><serviceStateTable></serviceStateTable></scpd>";
-
-    private static final String RENDERING_SCPD = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-            + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
-            + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-            + "<actionList>"
-            + "<action><name>GetVolume</name></action>"
-            + "<action><name>SetVolume</name></action>"
-            + "<action><name>GetMute</name></action>"
-            + "<action><name>SetMute</name></action>"
-            + "</actionList><serviceStateTable></serviceStateTable></scpd>";
-
-    private static final String CONNECTION_SCPD = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-            + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
-            + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-            + "<actionList><action><name>GetProtocolInfo</name></action></actionList>"
-            + "<serviceStateTable></serviceStateTable></scpd>";
-
-    /** Procedural vector graphics & animated radar views for the Casting Center. */
-    static final class CastGraphicView extends View {
-        static final int KIND_STATUS_BEACON = 0;
-        static final int KIND_CARD_DLNA = 1;
-        static final int KIND_CARD_PHONE = 2;
-        static final int KIND_CARD_MIRROR = 3;
-        static final int KIND_ICON_DLNA_SWITCH = 4;
-        static final int KIND_ICON_RADAR_SWITCH = 5;
-        static final int KIND_ICON_SHIELD_SWITCH = 6;
-        static final int KIND_RADAR_HERO = 7;
-        static final int KIND_STEP_WIFI = 8;
-        static final int KIND_STEP_VIDEO = 9;
-        static final int KIND_STEP_CAST = 10;
-
-        private final int kind;
-        private boolean active;
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF rect = new RectF();
-        private final Path path = new Path();
-
-        CastGraphicView(Context context, int kind, boolean active) {
-            super(context);
-            this.kind = kind;
-            this.active = active;
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setStrokeJoin(Paint.Join.ROUND);
-        }
-
-        void setActive(boolean value) {
-            if (this.active != value) {
-                this.active = value;
-                invalidate();
-            }
-        }
-
-        @Override protected void onDraw(Canvas c) {
-            super.onDraw(c);
-            int w = getWidth(), h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            float cx = w * 0.5f, cy = h * 0.5f;
-            float u = Math.min(w, h) / 48f;
-
-            switch (kind) {
-                case KIND_STATUS_BEACON:
-                    drawStatusBeacon(c, cx, cy, u);
-                    break;
-                case KIND_CARD_DLNA:
-                    drawCardDlna(c, cx, cy, u);
-                    break;
-                case KIND_CARD_PHONE:
-                    drawCardPhone(c, cx, cy, u);
-                    break;
-                case KIND_CARD_MIRROR:
-                    drawCardMirror(c, cx, cy, u);
-                    break;
-                case KIND_ICON_DLNA_SWITCH:
-                    drawSwitchDlna(c, cx, cy, u);
-                    break;
-                case KIND_ICON_RADAR_SWITCH:
-                    drawSwitchRadar(c, cx, cy, u);
-                    break;
-                case KIND_ICON_SHIELD_SWITCH:
-                    drawSwitchShield(c, cx, cy, u);
-                    break;
-                case KIND_RADAR_HERO:
-                    drawRadarHero(c, cx, cy, u);
-                    break;
-                case KIND_STEP_WIFI:
-                    drawStepBadge(c, cx, cy, u, 1);
-                    break;
-                case KIND_STEP_VIDEO:
-                    drawStepBadge(c, cx, cy, u, 2);
-                    break;
-                case KIND_STEP_CAST:
-                    drawStepBadge(c, cx, cy, u, 3);
-                    break;
-            }
-        }
-
-        private void drawStatusBeacon(Canvas c, float cx, float cy, float u) {
-            float phase = (SystemClock.uptimeMillis() % 2200L) / 2200f;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(active ? 0x2234C759 : 0x1E6C7A8E);
-            c.drawCircle(cx, cy, 22 * u, paint);
-            if (active) {
-                float r = (10 + phase * 12) * u;
-                int alpha = Math.max(0, Math.min(255, Math.round((1f - phase) * 140)));
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(2.2f * u);
-                paint.setColor((alpha << 24) | 0x48E59A);
-                c.drawCircle(cx, cy, r, paint);
-            }
-            // Mini TV frame + cast arcs
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.4f * u);
-            paint.setColor(active ? 0xFF8BE8F5 : 0xFF8393A7);
-            rect.set(cx - 12 * u, cy - 9 * u, cx + 12 * u, cy + 8 * u);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-            c.drawLine(cx - 5 * u, cy + 12 * u, cx + 5 * u, cy + 12 * u, paint);
-
-            paint.setColor(active ? 0xFF48E59A : 0xFF718096);
-            paint.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx - 7 * u, cy + 3 * u, 2f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2f * u);
-            rect.set(cx - 12 * u, cy - 2 * u, cx - 2 * u, cy + 8 * u);
-            c.drawArc(rect, -90, 90, false, paint);
-            rect.set(cx - 16 * u, cy - 6 * u, cx + 2 * u, cy + 12 * u);
-            c.drawArc(rect, -90, 90, false, paint);
-            if (active && isAttachedToWindow()) postInvalidateDelayed(40);
-        }
-
-        private void drawCardDlna(Canvas c, float cx, float cy, float u) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x225CE1E6);
-            c.drawCircle(cx, cy, 23 * u, paint);
-
-            // Widescreen TV monitor
-            paint.setColor(0x285CE1E6);
-            rect.set(cx - 15 * u, cy - 12 * u, cx + 15 * u, cy + 8 * u);
-            c.drawRoundRect(rect, 4 * u, 4 * u, paint);
-
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.4f * u);
-            paint.setColor(0xFFB4ECF7);
-            c.drawRoundRect(rect, 4 * u, 4 * u, paint);
-            c.drawLine(cx - 6 * u, cy + 13 * u, cx + 6 * u, cy + 13 * u, paint);
-            c.drawLine(cx, cy + 8 * u, cx, cy + 13 * u, paint);
-
-            // Play triangle inside TV
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF5CE1E6);
-            path.reset();
-            path.moveTo(cx - 1.5f * u, cy - 6.5f * u);
-            path.lineTo(cx + 6.5f * u, cy - 2f * u);
-            path.lineTo(cx - 1.5f * u, cy + 2.5f * u);
-            path.close();
-            c.drawPath(path, paint);
-
-            // DLNA Cast arcs at bottom-left
-            paint.setColor(0xFF48E59A);
-            c.drawCircle(cx - 11 * u, cy + 4.5f * u, 1.8f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(1.9f * u);
-            rect.set(cx - 15.5f * u, cy, cx - 6.5f * u, cy + 9 * u);
-            c.drawArc(rect, -90, 90, false, paint);
-            rect.set(cx - 19f * u, cy - 3.5f * u, cx - 3f * u, cy + 12.5f * u);
-            c.drawArc(rect, -90, 90, false, paint);
-        }
-
-        private void drawCardPhone(Canvas c, float cx, float cy, float u) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x2264DFDF);
-            c.drawCircle(cx, cy, 23 * u, paint);
-
-            // Mini TV frame at top-right
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2f * u);
-            paint.setColor(0x998BE8F5);
-            rect.set(cx - 3 * u, cy - 14 * u, cx + 16 * u, cy - 1 * u);
-            c.drawRoundRect(rect, 3 * u, 3 * u, paint);
-
-            // Smartphone body at bottom-left
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF233647);
-            rect.set(cx - 15 * u, cy - 7 * u, cx + 1 * u, cy + 15 * u);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.3f * u);
-            paint.setColor(0xFFB4ECF7);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-
-            // Media badge on phone screen
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF5CE1E6);
-            c.drawCircle(cx - 7 * u, cy + 4 * u, 3.2f * u, paint);
-
-            // Flying cast arrow from phone to TV
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.3f * u);
-            paint.setColor(0xFF48E59A);
-            c.drawLine(cx - 3 * u, cy, cx + 7 * u, cy - 8 * u, paint);
-            c.drawLine(cx + 2 * u, cy - 8 * u, cx + 7 * u, cy - 8 * u, paint);
-            c.drawLine(cx + 7 * u, cy - 8 * u, cx + 7 * u, cy - 3 * u, paint);
-        }
-
-        private void drawCardMirror(Canvas c, float cx, float cy, float u) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x228EC5FC);
-            c.drawCircle(cx, cy, 23 * u, paint);
-
-            // Rear TV screen
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x267FB8D8);
-            rect.set(cx - 16 * u, cy - 12 * u, cx + 10 * u, cy + 6 * u);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.2f * u);
-            paint.setColor(0xFF9ACCE6);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-
-            // Front overlapping mirrored screen
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF21374A);
-            rect.set(cx - 4 * u, cy - 4 * u, cx + 16 * u, cy + 13 * u);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.3f * u);
-            paint.setColor(0xFF5CE1E6);
-            c.drawRoundRect(rect, 3.5f * u, 3.5f * u, paint);
-
-            // Sync wave bars inside front screen
-            paint.setStrokeWidth(2f * u);
-            paint.setColor(0xFF48E59A);
-            c.drawLine(cx + 1 * u, cy + 3 * u, cx + 11 * u, cy + 3 * u, paint);
-            c.drawLine(cx + 3 * u, cy + 7 * u, cx + 9 * u, cy + 7 * u, paint);
-        }
-
-        private void drawSwitchDlna(Canvas c, float cx, float cy, float u) {
-            int mainColor = active ? 0xFF48E59A : 0xFF7B8B9E;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(active ? 0x2248E59A : 0x1A7B8B9E);
-            c.drawCircle(cx, cy, 22 * u, paint);
-
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(3.2f * u);
-            paint.setColor(mainColor);
-            rect.set(cx - 13 * u, cy - 10 * u, cx + 13 * u, cy + 10 * u);
-            c.drawRoundRect(rect, 4 * u, 4 * u, paint);
-
-            paint.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx - 8 * u, cy + 5 * u, 2.2f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.6f * u);
-            rect.set(cx - 14 * u, cy - 1 * u, cx - 2 * u, cy + 11 * u);
-            c.drawArc(rect, -90, 90, false, paint);
-        }
-
-        private void drawSwitchRadar(Canvas c, float cx, float cy, float u) {
-            int mainColor = active ? 0xFF5CE1E6 : 0xFF7B8B9E;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(active ? 0x225CE1E6 : 0x1A7B8B9E);
-            c.drawCircle(cx, cy, 22 * u, paint);
-
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.8f * u);
-            paint.setColor(mainColor);
-            c.drawCircle(cx, cy, 13 * u, paint);
-            paint.setStrokeWidth(2.2f * u);
-            c.drawCircle(cx, cy, 7 * u, paint);
-            paint.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx, cy, 2.8f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.6f * u);
-            c.drawLine(cx, cy, cx + 9 * u, cy - 9 * u, paint);
-        }
-
-        private void drawSwitchShield(Canvas c, float cx, float cy, float u) {
-            int mainColor = active ? 0xFF48E59A : 0xFF7B8B9E;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(active ? 0x2248E59A : 0x1A7B8B9E);
-            c.drawCircle(cx, cy, 22 * u, paint);
-
-            path.reset();
-            path.moveTo(cx, cy - 14 * u);
-            path.lineTo(cx + 12 * u, cy - 9 * u);
-            path.lineTo(cx + 11 * u, cy + 3 * u);
-            path.quadTo(cx + 9 * u, cy + 12 * u, cx, cy + 15 * u);
-            path.quadTo(cx - 9 * u, cy + 12 * u, cx - 11 * u, cy + 3 * u);
-            path.lineTo(cx - 12 * u, cy - 9 * u);
-            path.close();
-
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(3f * u);
-            paint.setColor(mainColor);
-            c.drawPath(path, paint);
-
-            // Checkmark inside shield
-            c.drawLine(cx - 5 * u, cy + 1 * u, cx - 1 * u, cy + 5 * u, paint);
-            c.drawLine(cx - 1 * u, cy + 5 * u, cx + 6 * u, cy - 3 * u, paint);
-        }
-
-        private void drawRadarHero(Canvas c, float cx, float cy, float u) {
-            float t = (SystemClock.uptimeMillis() % 3000L) / 3000f;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x165CE1E6);
-            c.drawCircle(cx, cy, 22 * u, paint);
-
-            // 3 animated expanding radar waves
-            paint.setStyle(Paint.Style.STROKE);
-            for (int i = 0; i < 3; i++) {
-                float p = (t + i / 3f) % 1f;
-                float r = (7f + p * 16.5f) * u;
-                int alpha = Math.max(0, Math.min(255, Math.round((1f - p) * 165)));
-                paint.setStrokeWidth((2.4f - p * 1.2f) * u);
-                paint.setColor((alpha << 24) | 0x5CE1E6);
-                c.drawCircle(cx, cy, r, paint);
-            }
-
-            // Center glowing core circle
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF233B4E);
-            c.drawCircle(cx, cy, 10.5f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(1.6f * u);
-            paint.setColor(0xFF7BE4F2);
-            c.drawCircle(cx, cy, 10.5f * u, paint);
-
-            // Central TV + Cast emblem
-            rect.set(cx - 6.2f * u, cy - 4.8f * u, cx + 6.2f * u, cy + 3.6f * u);
-            paint.setStrokeWidth(1.5f * u);
-            paint.setColor(Color.WHITE);
-            c.drawRoundRect(rect, 1.8f * u, 1.8f * u, paint);
-            c.drawLine(cx - 2.8f * u, cy + 5.8f * u, cx + 2.8f * u, cy + 5.8f * u, paint);
-
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF48E59A);
-            c.drawCircle(cx - 3.6f * u, cy + 1.5f * u, 1.1f * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(1.2f * u);
-            rect.set(cx - 6.2f * u, cy - 1.1f * u, cx - 1f * u, cy + 4.1f * u);
-            c.drawArc(rect, -90, 90, false, paint);
-
-            if (isAttachedToWindow()) postInvalidateDelayed(36);
-        }
-
-        private void drawStepBadge(Canvas c, float cx, float cy, float u, int step) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x245CE1E6);
-            c.drawCircle(cx, cy, 22 * u, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.2f * u);
-            paint.setColor(0x885CE1E6);
-            c.drawCircle(cx, cy, 21 * u, paint);
-
-            if (step == 1) {
-                // Wi-Fi arcs
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(0xFF5CE1E6);
-                c.drawCircle(cx, cy + 7 * u, 2.5f * u, paint);
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(2.6f * u);
-                rect.set(cx - 7 * u, cy, cx + 7 * u, cy + 14 * u);
-                c.drawArc(rect, -135, 90, false, paint);
-                rect.set(cx - 12 * u, cy - 5 * u, cx + 12 * u, cy + 19 * u);
-                c.drawArc(rect, -135, 90, false, paint);
-            } else if (step == 2) {
-                // Play triangle
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(0xFF5CE1E6);
-                path.reset();
-                path.moveTo(cx - 4 * u, cy - 8 * u);
-                path.lineTo(cx + 8 * u, cy);
-                path.lineTo(cx - 4 * u, cy + 8 * u);
-                path.close();
-                c.drawPath(path, paint);
-            } else {
-                // TV + Cast
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(2.5f * u);
-                paint.setColor(0xFF48E59A);
-                rect.set(cx - 11 * u, cy - 8 * u, cx + 11 * u, cy + 7 * u);
-                c.drawRoundRect(rect, 3 * u, 3 * u, paint);
-                paint.setStyle(Paint.Style.FILL);
-                c.drawCircle(cx - 6 * u, cy + 3 * u, 2f * u, paint);
-                paint.setStyle(Paint.Style.STROKE);
-                rect.set(cx - 11 * u, cy - 2 * u, cx - 1 * u, cy + 8 * u);
-                c.drawArc(rect, -90, 90, false, paint);
-            }
-        }
+        return DlnaServer.SoapResult.ok(service, action, inner);
     }
 }

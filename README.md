@@ -6,7 +6,7 @@
 
 > **本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。**
 
-作者：**Pilipala** · 版本：**0.15.0（正式版）** · 协议：[GPL-3.0-only](LICENSE)
+作者：**Pilipala** · 当前版本：**0.16.0** · 协议：[GPL-3.0-only](LICENSE)
 
 [![Marco TV 桌面，示例卡片与实机界面](docs/showcase/assets/89-desktop-motion.png)](https://pilipala9919.github.io/MarcoTV/showcase/)
 
@@ -14,20 +14,26 @@
 
 3 张 0.14.4 实机截图、4 张 0.14.2 实机截图、11 张 0.14.1 实机截图、9 张 0.14.0 实机截图与标明版本的历史截图，按日常桌面、外观与操作、系统与媒体、维护与隐私分类。支持搜索、切换截图和放大查看。桌面及播放使用示例内容，私人应用、网络与记录已遮挡。
 
-0.15.0 优化顶部连续焦点、设置进退场和 Magic Desktop 实时绘制；滚动列表增加柔和边界。当前正式版包含在线更新、Marco 互联、持续设置窗口与可撤销的实时预览。验证以小米 Android 9 为主，其他型号、实体手机浏览器及长时间运行的覆盖范围见[验证记录](docs/验证范围.md)。新版设置、Wi-Fi 与预览已更新，菜单路径见[使用说明](docs/使用说明.md)。
+0.16.0 补齐跨 Android 版本兼容、视口 DPI 与字号归一化、无线投屏中心安全加固、低内存/存储治理及可选问题反馈闭环；当前正式版包含在线更新、Marco 互联、无线投屏中心、持续设置窗口与可撤销的实时预览。实机基线以小米 Android 9 为主，0.16.0 主机自动化验收及其他型号、实体手机浏览器的覆盖范围见[验证记录](docs/验证范围.md)。新版设置、Wi-Fi 与预览已更新，菜单路径见[使用说明](docs/使用说明.md)。
 
 ## 下载与说明
 
-- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/restricted-test-0.14.4-20261101)**：面向安装报错含 `not signature by tcl` 的设备，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
+- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/v0.16.0)**：面向安装报错含 `not signature by tcl` 的设备，提供 `MarcoTV-0.16.0-Restricted.apk`，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
 
 - **[没有 U 盘？打开安装向导](https://marcotv.wlj9919.top/install/)**：Windows 电脑 / 安卓手机助手、电视浏览器、厂商接收入口，按条件选择路线。
-- [安装助手 1.0.0 使用说明](installer/README.md)：内含 0.12.0 正式包，普通网络 ADB；无线配对码暂不支持。
+- [安装助手使用说明](installer/README.md)：**1.0.1** 内置经摘要校验的 **0.16.0** 正式安装包，支持 `/8`–`/30` 私有网段查找与普通网络 ADB；无线配对码暂不支持。
 
 - [下载安装包（Releases）](https://github.com/Pilipala9919/MarcoTV/releases/latest)
 - [详细安装说明](docs/安装说明.md)：识别电视 → 开发者模式 → 未知来源 → ADB → 安装和授权 → 默认桌面 → 验收与撤销。
-- [详细使用说明](docs/使用说明.md)：遥控器、分类操作栏、卡片、壁纸、时钟、屏保、实时预览、设置排序。
+- [详细使用说明](docs/使用说明.md)：遥控器、分类操作栏、卡片、壁纸、时钟、屏保、无线投屏、实时预览、设置排序。
 - [各品牌电视设置入口](docs/各品牌电视设置入口.md)：按系统与固件区分入口，标明资料与实测范围。
 - [常见问题](docs/常见问题.md) · [隐私说明](docs/隐私说明.md) · [构建说明](docs/构建说明.md)
+
+## 0.16.0 更新要点
+
+- **跨版本与多设备适配**：补齐 `TaskBridgeServer` 在 Android 6–14 的 4 代 Binder `IContentProvider.call` 签名与 `List`/`ParceledListSlice` 兼容、`/mnt/expand/` 扩容存储及 Android 11+ `~~` 路径支持、FBE 开机锁屏（Direct Boot）保护、系统桌面 `ResolverActivity` 兜底枚举；新增视口 DPI 与字号归一化（修复廉价盒子 `160dpi` 缩水与超大字号裁切，标准 `1080p@320dpi` 与 `4K@640dpi` 保持像素一致）以及 `NUMPAD_ENTER`、手柄 `BUTTON_A`、`repeatCount` 长按兼容。
+- **无线投屏中心模块化与安全加固**：提供局域网 DLNA 影视接收、Miracast 系统镜像入口跳转及 Marco 互联网页/本地视频推送；采用有界线程池、单 IP 速率限制、严格 `Host`/`Origin`/`SOAPAction`/`Content-Type` 校验（阻断浏览器 CSRF 与 DNS 重绑定）、陌生设备电视弹窗确认、URI 回显脱敏与受控 `FileProvider` 外部播放器授权。
+- **低配内存、存储与反馈闭环**：消除 256 MB 投屏上传双倍拷贝与孤儿封面/导出缓存残留，收紧 1 GB 低内存设备图片驻留并补齐 Android 4.x Lite 位图回收；补齐投屏与最近任务开关的备份恢复；修复问题反馈电视直传与扫码提交编号冲突，并通过 `networkSecurityConfig` 强制云端更新与反馈仅走 HTTPS。
 
 ## 0.15.0 桌面启用
 
@@ -79,7 +85,7 @@
 
 ## 快速开始
 
-1. 在 Releases 免费下载 `MarcoTV-0.15.0.apk`（或最新版本）。
+1. 在 Releases 免费下载 `MarcoTV-0.16.0.apk`（或最新版本）。
 2. 按安装说明确认系统，通过安装向导选择助手、电视浏览器、文件接收、U 盘或 ADB 安装。
 3. 从原桌面的应用列表打开 **Marco TV**，先验证遥控器和应用启动。
 4. 打开首页 **Magic Desktop**，调整壁纸、时钟和卡片；系统功能仍在左上设置齿轮中。

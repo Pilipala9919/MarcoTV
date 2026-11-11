@@ -61,6 +61,16 @@ public final class SettingsMigrationChecks {
                 &&SettingsCatalog.allowed("cards","cover:com.example.tv")
                 &&"s".equals(SettingsCatalog.expectedType("cards","cover:com.example.tv"))
                 &&!SettingsCatalog.allowed("cards","cover:")
+                &&SettingsCatalog.allowed("home","recent_enabled")
+                &&"b".equals(SettingsCatalog.expectedType("home","recent_enabled"))
+                &&SettingsCatalog.allowed("home","recent_wake")
+                &&"b".equals(SettingsCatalog.expectedType("home","recent_wake"))
+                &&SettingsCatalog.allowed("cast","cast_mode")
+                &&"i".equals(SettingsCatalog.expectedType("cast","cast_mode"))
+                &&Arrays.equals(SettingsCatalog.range("cast_mode"),new int[]{0,2})
+                &&SettingsCatalog.allowed("cast","cast_confirm")
+                &&"b".equals(SettingsCatalog.expectedType("cast","cast_confirm"))
+                &&!SettingsCatalog.allowed("cast","cast_uuid")
                 &&!SettingsCatalog.allowed("menu_order","unknown_page"));
         String validCover="cover-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.jpg";
         check("backup_image_name_allowlist_blocks_traversal_and_bad_names",

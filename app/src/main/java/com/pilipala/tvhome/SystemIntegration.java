@@ -104,8 +104,34 @@ final class SystemIntegration {
         String home = currentHome(context);
         ComponentName component = ComponentName.unflattenFromString(home);
         if (component != null && !component.getPackageName().equals(context.getPackageName())
-                && !component.getPackageName().equals("android")) prefs(context).edit().putString("original_home", home)
-                .apply();
+                && !component.getPackageName().equals("android")
+                && !component.getPackageName().equals("com.android.settings")
+                && !component.getPackageName().equals("com.android.tv.settings")) {
+            prefs(context).edit().putString("original_home", home).apply();
+            return;
+        }
+        // When Android returns ResolverActivity ("android") because no default launcher was locked yet,
+        // discover the sole enabled system launcher if unambiguous so window/wake fallback still works.
+        try {
+            List<ResolveInfo> homes = context.getPackageManager().queryIntentActivities(
+                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0);
+            String candidate = "";
+            for (ResolveInfo r : homes) {
+                ActivityInfo a = r.activityInfo;
+                if (a == null || !a.enabled || !a.exported || a.applicationInfo == null || !a.applicationInfo.enabled) continue;
+                if ((a.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0) continue;
+                String pkg = a.packageName;
+                if (pkg.equals(context.getPackageName()) || pkg.equals("android")
+                        || pkg.equals("com.android.settings") || pkg.equals("com.android.tv.settings")) continue;
+                String flat = new ComponentName(pkg, a.name).flattenToString();
+                if (candidate.isEmpty()) candidate = flat;
+                else if (!ComponentName.unflattenFromString(candidate).getPackageName().equals(pkg)) {
+                    candidate = "";
+                    break;
+                }
+            }
+            if (!candidate.isEmpty()) prefs(context).edit().putString("original_home", candidate).apply();
+        } catch (RuntimeException ignored) { }
     }
     static void refreshHomeService(Context context) {
         SharedPreferences p = prefs(context);

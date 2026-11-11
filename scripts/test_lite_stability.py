@@ -6,15 +6,17 @@ from pathlib import Path
 from build import ROOT,JDK,TOOLS,env,executable,run
 from build_lite import SDK14
 def main():
- p=argparse.ArgumentParser();p.add_argument('--adb',required=True);p.add_argument('--serial',required=True);a=p.parse_args()
- if not a.serial.startswith('emulator-'):raise RuntimeError('This first-stage suite requires an emulator; real TVs need separate explicit validation.')
+ p=argparse.ArgumentParser();p.add_argument('--adb',default='adb');p.add_argument('--serial');p.add_argument('--compile-only',action='store_true');a=p.parse_args()
+ if not a.compile_only:
+  if not a.serial:p.error('--serial is required unless --compile-only is set')
+  if not a.serial.startswith('emulator-'):raise RuntimeError('This first-stage suite requires an emulator; real TVs need separate explicit validation.')
  adb=[a.adb,'-s',a.serial]
  def call(*args):
   args=list(args)
   if args[0]=='shell':args.insert(1,'-x')
   if args[0]=='install':args.insert(1,'--no-streaming')
   return subprocess.check_output(adb+args,timeout=180).decode('utf8',errors='replace')
- if call('shell','getprop','ro.build.version.sdk').strip()!='14':raise RuntimeError('This suite specifically validates Android API 14')
+ if not a.compile_only and call('shell','getprop','ro.build.version.sdk').strip()!='14':raise RuntimeError('This suite specifically validates Android API 14')
  f=ROOT/'build/lite-stability-tests'
  for folder in ['classes','dex']:(f/folder).mkdir(parents=True,exist_ok=True)
  (f/'manifest.xml').write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pilipala.tvhome.lite.tests"><uses-sdk android:minSdkVersion="14" android:targetSdkVersion="28"/><application/><instrumentation android:name="com.pilipala.tvhome.LiteStabilityChecks" android:targetPackage="com.pilipala.tvhome.lite"/></manifest>',encoding='utf8')
@@ -28,6 +30,8 @@ def main():
   out.write(f/'dex/classes.dex','classes.dex')
  run(executable(TOOLS,'zipalign'),'-f','4',f/'unsigned.apk',f/'aligned.apk');env.setdefault('MARCOTV_STORE_PASSWORD','android')
  run(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','sign','--min-sdk-version','14','--ks',os.environ.get('MARCOTV_KEYSTORE',str(ROOT/'private/development.p12')),'--ks-key-alias',os.environ.get('MARCOTV_KEY_ALIAS','tvhome'),'--ks-pass','env:MARCOTV_STORE_PASSWORD','--out',f/'tests.apk',f/'aligned.apk')
+ if a.compile_only:
+  print('Lite stability test APK compiled; no emulator connected or changed.');return
  print(call('install','-r',str(f/'tests.apk')),flush=True)
  try:
   result=call('shell','am','instrument','-w','com.pilipala.tvhome.lite.tests/com.pilipala.tvhome.LiteStabilityChecks');(f/'result.txt').write_text(result,encoding='utf8');print(result)

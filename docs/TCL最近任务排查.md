@@ -1,8 +1,10 @@
 # TCL 75T8G Max · 最近任务与 Home 排查
 
-作者：Pilipala · Marco TV 0.14.2 · 2026-10-29
+作者：Pilipala · Marco TV 0.16.0 · 2026-11-11
 
 用户反馈的系统为 Android 11。反馈中“双击出现界面但服务未连接”和“长按 Home 不再出现原厂任务界面”是两条不同链路，不能混为系统没有后台任务。
+
+0.16.0 已针对 Android 11（API 30 六参数 `attributionTag`）及 Android 12+（`AttributionSource`）补齐 `TaskBridgeServer` 的 `IContentProvider.call` Binder 握手反射签名，并支持 Android 11+ `/data/app/~~...` 随机加密安装路径与 `/mnt/expand/` 扩容存储路径（旧版仅匹配 Android 9/10 的 4/5 参数签名，在 Android 11+ 上会导致任务辅助进程启动后无法完成 Binder 注册）。此修改已通过主机跨版本反射单测，但仍待 TCL 75T8G Max 实机复测确认。
 
 0.13.0 将 Home 短按和长按区分：短按在松开时返回桌面，长按默认请求系统最近任务；可在「系统与启动 → Home 长按与原厂兼容」改为 Marco 最近任务、不执行操作，或完整放行原厂 Home 按键。原厂模式可能经过原桌面，双击行为受固件控制。
 

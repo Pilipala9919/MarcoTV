@@ -19,7 +19,7 @@ from build import ROOT, BUILD, SOURCE, JDK, ANDROID, TOOLS, env, executable, run
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--adb', default='adb')
-    parser.add_argument('--serial', required=True)
+    parser.add_argument('--serial')
     parser.add_argument('--compile-only', action='store_true', help='Build the test APK without connecting to or changing a device')
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--bridge-only', action='store_true', help='Read-only task bridge checks; does not open TV UI')
@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--candidate', help='Device-readable path to a newer same-signed Marco TV APK, required for --updates-only')
     parser.add_argument('--wrong-signer', help='Device-readable path to the same candidate signed with a different test key; never installed')
     args = parser.parse_args()
+    if not args.compile_only and not args.serial:parser.error('--serial is required unless --compile-only is set')
     if args.updates_only and (not args.candidate or not args.wrong_signer):parser.error('--candidate and --wrong-signer are required for --updates-only')
     folder = BUILD / 'device-regression'
     for name in ['', 'classes', 'dex']:

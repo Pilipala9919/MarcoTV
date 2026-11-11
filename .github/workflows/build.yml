@@ -21,55 +21,35 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/cache@v4
         with:
           path: .tools
           key: marcotv-tools-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.py', 'scripts/bootstrap_lite.py') }}
-      - name: Prepare official toolchain
-        run: python scripts/bootstrap.py
-      - name: Build and verify APK
-        run: python scripts/build.py
-      - name: Build restricted firmware APK and verify edition isolation
+      - name: Prepare official toolchains (API 28 + API 14 Lite + test libraries)
         run: |
+          python scripts/bootstrap.py
+          python scripts/bootstrap_lite.py
+      - name: Build and verify Standard, Restricted, and Lite APKs
+        run: |
+          python scripts/build.py
           python scripts/build.py --restricted
-          python scripts/test_restricted.py
-      - name: Home setup policy and local authorization transport checks
-        run: python scripts/test_home_setup.py
-      - name: Automatic HOME routing and recovery checks
-        run: python scripts/test_home_auto.py
-      - name: Device guidance and return continuation checks
-        run: python scripts/test_home_guide.py
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Feedback consent, filtering and SQLite persistence checks
+          python scripts/build_lite.py
+      - name: Run all offline host, transport, feedback, Lite, and release checks
+        run: python scripts/test_offline.py
+      - name: Verify web installation route guide
+        run: python installer/tests/test_web_guide.py
+      - name: Compile-only guard for all device instrumentation suites
         run: |
-          python scripts/test_feedback.py
-          python scripts/test_feedback_transport.py
-      - name: Motion checks
-        run: python scripts/test_motion.py
-      - name: Interrupted motion lifecycle checks
-        run: python scripts/test_motion_lifecycle.py
-      - name: Visual transaction and loading queue checks
-        run: python scripts/test_core_consistency.py
-      - name: Background playback ownership and weather refresh policies
-        run: python scripts/test_ambient_weather.py
-      - name: Release tool regression checks
-        run: python scripts/test_release_tools.py
-      - name: Settings migration checks
-        run: python scripts/test_settings.py
-      - name: Update policy checks
-        run: python scripts/test_updates.py
-      - name: Local phone transport checks
-        run: python scripts/test_phone_http.py
-      - name: Public source checks
-        run: python scripts/check_release.py
-      - name: Prepare Android 4.0 Lite toolchain
-        run: python scripts/bootstrap_lite.py
-      - name: Compile isolated Lite against API 14 and verify APK
-        run: python scripts/build_lite.py
-      - name: Lite layout and isolation checks
-        run: python scripts/test_lite.py
+          python scripts/test_device_regressions.py --compile-only
+          python scripts/test_home_setup_device.py --compile-only
+          python scripts/test_home_setup_device.py --feedback --compile-only
+          python scripts/test_drawer_home.py --compile-only
+          python scripts/test_ui_motion.py --compile-only
+          python scripts/test_lite_device.py --compile-only
+          python scripts/test_lite_stability.py --compile-only
       - name: Package source
         run: python scripts/package.py
       - uses: actions/upload-artifact@v4

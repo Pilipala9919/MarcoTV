@@ -1,10 +1,30 @@
 # 更新记录
 
-## 未发布
+## 0.16.0 · 2026-11-11
 
-- 新增可选问题反馈：脱敏预览、电视提交、手机扫码、服务端回执与处理状态查询。
-- 自动提交默认关闭，需单独同意；异常触发、每天限频、相同报告去重，失败使用固定编号重试。
-- 接收端使用 Cloudflare Pages Functions 与专用 D1 数据库，不公开报告正文。
+- **跨版本系统兼容与 Direct Boot 防护**：
+  - `TaskBridgeServer` 补齐 Android 11（API 30 六参数）与 Android 12+（API 31+ `AttributionSource`）`IContentProvider.call` 握手签名，兼容 Android 6–7.1 `getRecentTasks` 直接返回 `List` 的固件，并降低空闲状态下的唤醒监测轮询开销。
+  - `HomeShellSetup` 与 `start_task_bridge.py` 支持 `/mnt/expand/` 扩容存储（Adopted Storage）与 Android 11+ `~~` 随机加密目录 APK 路径，`setup_system.py` 动态读取当前多用户 ID。
+  - `SystemIntegration`、`HomeKeyService`、`AmbientIntegration` 增加 `UserManager.isUserUnlocked()` 文件级加密（FBE Direct Boot）解锁前保护；当系统默认桌面返回 `android`（选择框）时自动枚举候选原生桌面，避免 `original_home` 记录为空。
+- **无线投屏中心模块化与局域网安全加固**：
+  - 将投屏模块拆分为 `CastProtocol`、`DlnaServer`、`CastGraphicView`、`SystemMirroringLauncher` 与 `CastManager`，修复 `DialogStack` 页面切换/返回时提前触发 `onLeave` 导致 DLNA 服务误停的问题，移除未实现的 AirPlay 宣传字样。
+  - DLNA HTTP 控制端改为有界线程池与单 IP 并发限流，严格校验 `Host`、`Origin`、`Content-Type` 与 `SOAPAction` 请求头（阻断浏览器跨站 CSRF 与 DNS 重绑定），修复「陌生设备投屏前需确认」默认失效问题，补齐音量/停止/下一曲的会话信任与 `http(s)` 地址校验，并对 `GetPositionInfo`/`GetMediaInfo` 回显地址脱敏。
+  - 支持带命名空间属性与 `<![CDATA[...]]>` 的 DIDL-Lite 元数据解析及 6 类 SSDP 目标发现；本地上传视频调用外部播放器改走只读受控 `UpdateApkProvider` 临时授权，避免 Android 7.0+ `FileUriExposedException`；修复 `MainActivity` 暂停挂钩与待机常亮耦合问题。
+- **多设备显示归一化、遥控器兼容与内存/存储治理**：
+  - `MainActivity` 新增电视视口 `density` 与 `fontScale` 归一化（标准 `1080p@320dpi` 与 `4K@640dpi` 保持像素一致，自动修正廉价盒子 `160dpi` 缩水与系统超大字号裁切），补齐配置变更声明。
+  - 完整版与 Lite 版统一支持小键盘回车 `NUMPAD_ENTER`、游戏手柄 `BUTTON_A` 及无 `FLAG_LONG_PRESS` 红外/蓝牙适配器的 `repeatCount` 长按；修复 Lite 版非默认桌面时的 `BACK` 键退出与 `iconLimit` 排序前截断问题。
+  - `PhoneManager` 本地视频投屏改用原子移动消除最大 256 MB 双倍拷贝，并在停播及启动时清理 `cast-upload-*` 与 `cache/exports/*` 临时文件；`CardStore` 清理孤儿自定义封面；`ArtworkCache` 在 1 GB 及以下低内存设备禁用强引用驻留；解除全部应用抽屉 64 图标上限并在关闭抽屉、屏保及 Lite 时钟重建时及时回收 `Bitmap`。
+- **互联备份、可选问题反馈、网络安全与测试防线**：
+  - 备份与设置目录新增 `"cast"` 分组及 `recent_enabled` / `recent_wake`，统一 `wallpaper_dim` 滑块上限，修复电视配对弹窗按返回键锁死会话的问题。
+  - 新增可选问题反馈（脱敏预览、电视直传、手机扫码、服务端回执与处理进度查询；自动提交默认关闭），并为扫码快照派生独立确定性编号避免与电视直传触发 `409 id_conflict`，补齐 Cloudflare D1 限流过期索引。
+  - 新增 `network_security_config.xml`，对 `marcotv.wlj9919.top` 及 GitHub 域名强制启用 HTTPS（禁止明文 HTTP），仅保留局域网媒体播放与互联所需的本地明文兼容。
+  - 离线验证套件扩充至 18 项，GitHub Actions 接入全量离线套件、网页向导测试与 7 个真机测试 APK 的 `--compile-only` 编译守卫。
+
+## 安装助手 1.0.1 · 2026-11-11
+
+- 内置校验 `MarcoTV-0.16.0.apk` 正式签名安装包，并同步更新无 U 盘网页安装向导下载入口。
+- Windows 与 Android 助手统一支持 `/8`–`/30` 私有 IPv4 子网掩码前缀扫描（围绕本机网段最多扫描 508 个候选地址的 5555 端口），修复非 `/24` 家庭或校园网段无法查找电视的问题。
+- 缩短非 ADB 端口首包握手前超时至 8 秒，避免误填端口时界面长时间卡顿。
 
 ## 0.15.0 · 2026-11-03
 

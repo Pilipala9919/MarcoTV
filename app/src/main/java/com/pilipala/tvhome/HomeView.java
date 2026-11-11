@@ -322,6 +322,7 @@ final class HomeView extends View {
 
     @Override protected void onDetachedFromWindow() {
         stopMotion();
+        clockScene.release();
         overviewRenderer.detach();
         super.onDetachedFromWindow();
     }
@@ -673,11 +674,15 @@ final class HomeView extends View {
         }
         animateFocus();
     }
+    static boolean isConfirmKey(int code){
+        return code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER
+                ||code==KeyEvent.KEYCODE_NUMPAD_ENTER||code==KeyEvent.KEYCODE_BUTTON_A;
+    }
     @Override public boolean onKeyDown(int code, KeyEvent event) {
         if(host.recents.visible)return host.recents.key(code,event);
         boolean navigation = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
                 || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
-                || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+                || isConfirmKey(code)
                 || code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU;
         if (!navigation) return super.onKeyDown(code, event);
         if (idleMode) {
@@ -700,13 +705,13 @@ final class HomeView extends View {
             invalidate();
             return true;
         }
-        if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
+        if (isConfirmKey(code)) {
             if (event.getRepeatCount() == 0) {
                 longPressed = false;
                 event.startTracking();
                 pressSelected(true);
             }
-            else if (event.isLongPress() && !longPressed && row >= 0) {
+            else if ((event.isLongPress() || event.getRepeatCount() >= 3) && !longPressed && row >= 0) {
                 longPressed = true;
                 pressSelected(false);
                 host.tileOptions();
@@ -781,11 +786,11 @@ final class HomeView extends View {
             wakingKey = false;
             return true;
         }
-        if(edgeOpen&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER)){
+        if(edgeOpen&&isConfirmKey(code)){
             edgeAction();
             return true;
         }
-        if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
+        if (isConfirmKey(code)) {
             pressSelected(false);
             if (longPressed) {
                 longPressed = false;

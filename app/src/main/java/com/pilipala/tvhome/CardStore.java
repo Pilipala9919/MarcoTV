@@ -39,6 +39,27 @@ final class CardStore {
     }
     void cover(String id, String style) {
         prefs.edit().putString("cover:" + id, style).apply();
+        if (!"image".equals(style)) {
+            ArtworkCache.remove("cover:" + id);
+            new AtomicFile(imageFile(id)).delete();
+        }
+    }
+    static void pruneOrphanCovers(Context context) {
+        SharedPreferences p = context.getSharedPreferences("cards", Context.MODE_PRIVATE);
+        Set<String> active = new HashSet<>();
+        CardStore store = new CardStore(context);
+        for (Map.Entry<String, ?> entry : p.getAll().entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("cover:") && "image".equals(entry.getValue())) {
+                active.add(store.imageFile(key.substring(6)).getName());
+            }
+        }
+        File[] files = context.getFilesDir().listFiles(f -> f.getName().matches("cover-[a-f0-9]{64}\\.jpg"));
+        if (files != null) {
+            for (File f : files) {
+                if (!active.contains(f.getName())) new AtomicFile(f).delete();
+            }
+        }
     }
     Set<String> set(String key) {
         return new LinkedHashSet<>(prefs.getStringSet(key, Collections.emptySet()));

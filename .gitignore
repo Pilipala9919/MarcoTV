@@ -88,3 +88,7 @@ CLAUDE.md
 !scripts/AmbientWeatherChecks.java
 !scripts/test_ambient_weather.py
 !scripts/test_offline.py
+!scripts/CastProtocolChecks.java
+!scripts/test_cast_protocol.py
+!scripts/TaskBridgeCompatChecks.java
+!scripts/test_task_bridge.py
