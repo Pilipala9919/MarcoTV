@@ -17,11 +17,23 @@ final class MotionScrollView extends ScrollView {
     private final UiMotion motion;
     private final Paint edgePaint=new Paint();
     private int fadeHeight;
+    private int fadeColor = 0xFF171B23;
     private LinearGradient topFade,bottomFade;
     MotionScrollView(Context context){
         super(context);
         setSmoothScrollingEnabled(false);
         motion=new UiMotion(this,0,28,v->scrollTo(0,Math.round(v)));
+    }
+    void setFadeColor(int color){
+        if(fadeColor!=color){
+            fadeColor=color;
+            fadeHeight=-1;
+            invalidate();
+        }
+    }
+    void snapTop(){
+        motion.snap(0);
+        scrollTo(0,0);
     }
     private void follow(int before,int target){
         if(before==target)return;
@@ -50,11 +62,13 @@ final class MotionScrollView extends ScrollView {
     @Override protected void dispatchDraw(Canvas canvas){
         super.dispatchDraw(canvas);
         int h=getHeight(),y=getScrollY();
-        float fade=12*getResources().getDisplayMetrics().density;
+        float fade=18*getResources().getDisplayMetrics().density;
         if(fadeHeight!=h){
             fadeHeight=h;
-            topFade=new LinearGradient(0,0,0,fade,0xFF1D2028,0x001D2028,Shader.TileMode.CLAMP);
-            bottomFade=new LinearGradient(0,h-fade,0,h,0x001D2028,0xFF1D2028,Shader.TileMode.CLAMP);
+            int opaque=(fadeColor&0x00FFFFFF)|0xFF000000;
+            int transparent=fadeColor&0x00FFFFFF;
+            topFade=new LinearGradient(0,0,0,fade,opaque,transparent,Shader.TileMode.CLAMP);
+            bottomFade=new LinearGradient(0,h-fade,0,h,transparent,opaque,Shader.TileMode.CLAMP);
         }
         int save=canvas.save();
         canvas.translate(0,y);

@@ -71,7 +71,48 @@ final class CardStore {
         Set<String> values = set(key);
         if (enabled) values.add(id);
         else values.remove(id);
-        prefs.edit().putStringSet(key, values).apply();
+        SharedPreferences.Editor edit = prefs.edit().putStringSet(key, values);
+        if ("pinned".equals(key) && !enabled) edit.putString("pin_order", removeOrder(pinOrder(), id));
+        edit.apply();
+    }
+    List<String> pinOrder() {
+        String raw = prefs.getString("pin_order", "");
+        ArrayList<String> out = new ArrayList<>();
+        if (raw != null && !raw.isEmpty()) {
+            for (String item : raw.split("\\|")) if (!item.isEmpty() && !out.contains(item)) out.add(item);
+        }
+        return out;
+    }
+    void pinFirst(String id) {
+        Set<String> pinned = set("pinned");
+        pinned.add(id);
+        List<String> order = pinOrder();
+        order.remove(id);
+        order.add(0, id);
+        prefs.edit().putStringSet("pinned", pinned).putString("pin_order", joinOrder(order)).apply();
+    }
+    void unpin(String id) {
+        toggle("pinned", id, false);
+    }
+    void syncPinOrder(List<Tile> tiles) {
+        Set<String> pinned = set("pinned");
+        ArrayList<String> next = new ArrayList<>();
+        for (Tile t : tiles) if (pinned.contains(t.id) && !next.contains(t.id)) next.add(t.id);
+        for (String existing : pinOrder()) if (pinned.contains(existing) && !next.contains(existing)) next.add(existing);
+        prefs.edit().putString("pin_order", joinOrder(next)).apply();
+    }
+    private static String removeOrder(List<String> list, String id) {
+        list.remove(id);
+        return joinOrder(list);
+    }
+    private static String joinOrder(List<String> list) {
+        StringBuilder out = new StringBuilder();
+        for (String item : list) {
+            if (item == null || item.isEmpty()) continue;
+            if (out.length() > 0) out.append('|');
+            out.append(item);
+        }
+        return out.toString();
     }
     void reset(String id) {
         prefs.edit().remove("name:" + id).remove("cover:" + id).apply();

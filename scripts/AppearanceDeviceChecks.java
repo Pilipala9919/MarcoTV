@@ -37,37 +37,41 @@ final class AppearanceDeviceChecks {
             Thread.sleep(1800);ui(inst,()->{try{TvDialog child=(TvDialog)field(host.dialogs,"activeDialog");check.accept("settings_reuse_same_native_window",child.getWindow()==dialog[0].getWindow());child.onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(80);ui(inst,()->check.accept("cached_parent_replays_return_animation",panel.getAlpha()==1&&panel.getTranslationX()<0));
             Thread.sleep(1800);
-            final View[] parentFocus={null},childFocus={null};final TvDialog[] settingsRoot={null};final int[] rootLeft={0};
+            final View[] parentFocus={null},childFocus={null};final TvDialog[] settingsRoot={null};
             ui(inst,()->{try{
                 host.exitMenus();host.navigator.settings();settingsRoot[0]=(TvDialog)field(host.dialogs,"activeDialog");
-                parentFocus[0]=PhoneDeviceChecks.find((View)field(settingsRoot[0],"panel"),"维护与帮助");parentFocus[0].requestFocus();
+                View panelView=(View)field(settingsRoot[0],"panel");
+                View label=PhoneDeviceChecks.find(panelView,"系统与关于");
+                parentFocus[0]=(View)label.getParent();
+                parentFocus[0].requestFocus();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
-            ui(inst,()->{try{rootLeft[0]=((View)field(settingsRoot[0],"panel")).getLeft();parentFocus[0].performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("settings_detail_uses_compact_width",root.getChildAt(0).getWidth()<=361*host.getResources().getDisplayMetrics().density);
-                check.accept("settings_child_replaces_parent_in_same_position",root.getChildCount()==1&&root.getChildAt(0).getLeft()==rootLeft[0]);
+                check.accept("settings_root_uses_fullscreen_canvas",root.getChildCount()==1&&root.getChildAt(0).getWidth()>=host.home.getWidth()-2);
+                android.graphics.drawable.Drawable rootBg=root.getBackground();
+                check.accept("settings_canvas_is_fully_opaque",rootBg instanceof android.graphics.drawable.ColorDrawable&&Color.alpha(((android.graphics.drawable.ColorDrawable)rootBg).getColor())==255);
+                View aboutLabel=PhoneDeviceChecks.find(root,"关于 Marco TV");
+                childFocus[0]=(View)aboutLabel.getParent();
+                childFocus[0].requestFocus();
+                childFocus[0].performClick();
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
+            ui(inst,()->{try{
+                android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
+                check.accept("settings_detail_uses_centered_width",root.getChildCount()==1&&root.getChildAt(0).getWidth()<=545*host.getResources().getDisplayMetrics().density&&host.isPage("about"));
                 check.accept("settings_parent_is_detached",((View)field(settingsRoot[0],"panel")).getParent()==null);
-                childFocus[0]=PhoneDeviceChecks.find(root,"关于 Marco TV");childFocus[0].requestFocus();childFocus[0].performClick();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
-            ui(inst,()->{try{
-                android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("deeper_page_does_not_stack_panels",root.getChildCount()==1&&host.isPage("about"));
                 ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
-                check.accept("nested_back_restores_clicked_row",host.isPage("maintenance")&&childFocus[0].isFocused());
-                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
-            ui(inst,()->{try{
-                check.accept("root_back_restores_clicked_nonfirst_row",host.isPage("main")&&parentFocus[0].isFocused());
-                parentFocus[0].performClick();
+                check.accept("nested_back_restores_clicked_row",host.isPage("main")&&childFocus[0].isFocused());
+                childFocus[0].performClick();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
-                check.accept("repeated_return_keeps_same_focus",parentFocus[0].isFocused());
+                check.accept("repeated_return_keeps_same_focus",host.isPage("main")&&childFocus[0].isFocused());
+                ((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();
+                check.accept("right_pane_back_returns_to_active_category",host.isPage("main")&&parentFocus[0].isFocused());
                 host.navigator.slider("卡片圆角","card_radius",0,80,32,"");
             }catch(Exception e){throw new RuntimeException(e);}});
             Thread.sleep(1800);
@@ -93,7 +97,8 @@ final class AppearanceDeviceChecks {
             Thread.sleep(1800);
             ui(inst,()->{try{
                 check.accept("preview_releases_surface_on_exit",field(host.home.overviewRenderer,"overviewBitmap")==null);
-                check.accept("preview_exit_releases_wallpaper_blur",field(field(host.home.overviewRenderer,"overviewBackdrop"),"blurred")==null);
+                Bitmap retainedBlur=(Bitmap)field(field(host.home.overviewRenderer,"overviewBackdrop"),"blurred");
+                check.accept("preview_exit_keeps_only_bounded_wallpaper_blur",retainedBlur==null||(retainedBlur.getWidth()<=160&&retainedBlur.getHeight()<=160));
                 check.accept("preview_exit_restores_full_desktop",(Float)field(host.home,"overview")==0f);
                 host.network.show();
             }catch(Exception e){throw new RuntimeException(e);}});

@@ -49,7 +49,7 @@ final class UpdatePanel {
     private void refresh(){
         if(!resumed)return;
         if(host.isPage("updates")&&page!=null)page.updateMessage(summary());
-        else if(host.canShowUpdateNotice()&&updates.consumeNotice())host.toast("发现 Marco TV 新版，可到维护与帮助 → 软件更新查看");
+        else if(host.canShowUpdateNotice()&&updates.consumeNotice())host.toast("发现 Marco TV 新版，可到设置 → 系统与关于 → 软件更新查看");
     }
     void show(){
         page=new TvDialog.Builder(host).setPageId("updates").setTitle("软件更新").setMessage(summary())

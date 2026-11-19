@@ -16,4 +16,11 @@ final class HomeInputGate {
     boolean allow(boolean interactive,long now){
         return interactive&&!screenOff&&now>=settleUntil;
     }
+    boolean isScreenOff(){
+        return screenOff;
+    }
+    long remainingSettleMs(long now){
+        if(screenOff)return Long.MAX_VALUE;
+        return settleUntil>now?settleUntil-now:0L;
+    }
 }

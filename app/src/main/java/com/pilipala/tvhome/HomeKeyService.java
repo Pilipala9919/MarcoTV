@@ -81,14 +81,81 @@ public final class HomeKeyService extends AccessibilityService {
     }
     private boolean handlingHome;
     private boolean receiverRegistered;
+    private boolean wakeOriginalSeen;
+    private boolean wakeOtherAppSeen;
+    private boolean wasOriginalHomeBeforeSleep;
+    private String lastActivePackage = "";
+    private long lastOriginalHomeAt = -10000;
+    private boolean isInteractive(){
+        android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
+        return power!=null&&power.isInteractive();
+    }
+    private boolean isOriginalHomePackage(String shown){
+        if(shown==null||getPackageName().equals(shown))return false;
+        ComponentName original=ComponentName.unflattenFromString(SystemIntegration.prefs(this).getString("original_home",""));
+        if(original==null||getPackageName().equals(original.getPackageName()))return false;
+        return original.getPackageName().equals(shown)
+                ||(original.getPackageName().equals("com.mitv.tvhome")&&shown.equals("com.xiaomi.eetv.litehome"));
+    }
+    private static boolean isWakeSystemOverlay(String pkg){
+        return "com.android.systemui".equals(pkg)||"com.xiaomi.mitv.systemui".equals(pkg)||"android".equals(pkg);
+    }
+    private boolean wakePreferenceEnabled(){
+        return !HomeSetup.unlocked(this)||getSharedPreferences("home",0).getBoolean("recent_wake",true);
+    }
+    private void scheduleWakeCheck(long delayMs){
+        handler.removeCallbacks(wakeCheck);
+        handler.postDelayed(wakeCheck,delayMs);
+    }
+    private void markServiceStoppedCleanly(){
+        android.content.SharedPreferences p=SystemIntegration.prefs(this);
+        if(p.getBoolean("compat_service_active",false))p.edit().putBoolean("compat_service_active",false).apply();
+    }
+    private final Runnable wakeCheck=()->{
+        long now=SystemClock.elapsedRealtime();
+        long remaining=inputGate.remainingSettleMs(now);
+        if(isInteractive()&&!inputGate.isScreenOff()&&remaining>0&&remaining<=2000){
+            scheduleWakeCheck(remaining+100);
+            return;
+        }
+        boolean standbyReturn=SystemIntegration.consumeStandbyWakeReturn(this);
+        boolean originalSeen=wakeOriginalSeen||wasOriginalHomeBeforeSleep;
+        boolean otherSeen=wakeOtherAppSeen;
+        wakeOriginalSeen=false;
+        wakeOtherAppSeen=false;
+        wasOriginalHomeBeforeSleep=false;
+        if(!HomeSetupPolicy.wakeFallback(wakePreferenceEnabled(),HomeSetup.paused(this),
+                SystemIntegration.homeIsOurs(this),
+                SystemIntegration.prefs(this).getBoolean("home_compat",false),
+                nativeHome(),HomeSetup.unlocked(this),
+                canRedirect()&&now>=suppressUntil,otherSeen,originalSeen||standbyReturn))return;
+        try{
+            startActivity(SystemIntegration.homeIntent(this).putExtra("wake_recovery",true));
+            Diagnostics.event("HOME_WAKE_RECOVERY");
+            Log.i("MarcoTVSystem","HOME wake recovery");
+        }catch(RuntimeException e){
+            Log.w("MarcoTVSystem","Home wake recovery failed",e);
+        }
+    };
     private final BroadcastReceiver homeBroadcast = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if(Intent.ACTION_SCREEN_OFF.equals(i.getAction())||Intent.ACTION_SCREEN_ON.equals(i.getAction())){
                 boolean on=Intent.ACTION_SCREEN_ON.equals(i.getAction());
-                inputGate.screen(on,SystemClock.elapsedRealtime());
+                long now=SystemClock.elapsedRealtime();
+                inputGate.screen(on,now);
                 resetPress();
                 homePressTracker.reset();
                 handler.removeCallbacks(fallback);
+                handler.removeCallbacks(wakeCheck);
+                if(on){
+                    wakeOriginalSeen=now-lastOriginalHomeAt<=1500;
+                    wakeOtherAppSeen=false;
+                    scheduleWakeCheck(900);
+                }else{
+                    wasOriginalHomeBeforeSleep=isOriginalHomePackage(lastActivePackage);
+                    wakeOriginalSeen=false;
+                    wakeOtherAppSeen=false;
+                }
                 Diagnostics.event(on?"SCREEN_ON_HOME_SETTLING":"SCREEN_OFF_HOME_SUSPENDED");
                 return;
             }
@@ -125,6 +192,16 @@ public final class HomeKeyService extends AccessibilityService {
             filter.addAction(Intent.ACTION_SCREEN_ON);
             registerReceiver(homeBroadcast,filter);
             receiverRegistered = true;
+        }
+        android.content.SharedPreferences p=SystemIntegration.prefs(this);
+        if(p.getBoolean("home_compat",false)&&!HomeSetup.paused(this)
+                &&(!p.getBoolean("compat_service_active",false)||!p.getBoolean("compat_seen_present",false))){
+            p.edit().putBoolean("compat_service_active",true).putBoolean("compat_seen_present",true).apply();
+        }
+        if(!isInteractive()){
+            inputGate.screen(false,SystemClock.elapsedRealtime());
+        }else if(SystemIntegration.hasStandbyWakeReturn(this)){
+            scheduleWakeCheck(900);
         }
         Diagnostics.event("HOME_SERVICE_CONNECTED");
         Log.i("MarcoTVSystem", "HOME key filter ready; capabilities=" + info.getCapabilities() + "; flags=" + info.flags);
@@ -193,6 +270,31 @@ public final class HomeKeyService extends AccessibilityService {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getPackageName() == null) return;
         if(HomeSetup.paused(this))return;
         String shown = event.getPackageName().toString();
+        long now = SystemClock.elapsedRealtime();
+        boolean interactive = isInteractive();
+        boolean originalWindow = isOriginalHomePackage(shown);
+        if (getPackageName().equals(shown)) {
+            lastActivePackage = shown;
+            wakeOriginalSeen = false;
+            wakeOtherAppSeen = false;
+            wasOriginalHomeBeforeSleep = false;
+            handler.removeCallbacks(wakeCheck);
+            if (interactive) SystemIntegration.clearStandbyWakeReturn(this);
+        } else if (originalWindow) {
+            lastActivePackage = shown;
+            lastOriginalHomeAt = now;
+            wakeOriginalSeen = true;
+            wakeOtherAppSeen = false;
+        } else if (!isWakeSystemOverlay(shown)) {
+            lastActivePackage = shown;
+            if (interactive) {
+                wakeOriginalSeen = false;
+                wakeOtherAppSeen = true;
+                wasOriginalHomeBeforeSleep = false;
+                handler.removeCallbacks(wakeCheck);
+                SystemIntegration.clearStandbyWakeReturn(this);
+            }
+        }
         if(!canRedirect()){
             handler.removeCallbacks(fallback);
             return;
@@ -212,11 +314,6 @@ public final class HomeKeyService extends AccessibilityService {
         }
         if (!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
         if(nativeHome()||handlingHome||SystemClock.elapsedRealtime()<suppressUntil)return;
-        ComponentName original = ComponentName.unflattenFromString(SystemIntegration.prefs(this).getString("original_home", ""));
-        if (original == null || event.getPackageName() == null || getPackageName().equals(original.getPackageName())) return;
-        // This Xiaomi firmware dispatches HOME through tvhome into its separate lite launcher.
-        boolean originalWindow = original.getPackageName().equals(shown)
-                || (original.getPackageName().equals("com.mitv.tvhome") && shown.equals("com.xiaomi.eetv.litehome"));
         if (!originalWindow){
             handler.removeCallbacks(fallback);
             return;
@@ -226,8 +323,14 @@ public final class HomeKeyService extends AccessibilityService {
         handler.removeCallbacks(fallback);
         handler.postDelayed(fallback, 60);
     }
+    @Override public boolean onUnbind(Intent intent) {
+        connected=false;
+        markServiceStoppedCleanly();
+        return super.onUnbind(intent);
+    }
     @Override public void onDestroy() {
         connected=false;
+        markServiceStoppedCleanly();
         if(instance==this)instance=null;
         handler.removeCallbacksAndMessages(null);
         if (receiverRegistered) unregisterReceiver(homeBroadcast);

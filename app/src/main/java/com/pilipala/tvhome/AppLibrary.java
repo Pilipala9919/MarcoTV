@@ -70,7 +70,7 @@ final class AppLibrary {
                 host.handler.post(()->{
                     if(host.isDestroyed()||epoch!=host.menuEpoch)return;
                     host.showDialog(new TvDialog.Builder(host).setTitle(advanced?"高级应用入口":"添加应用")
-                            .setMessage(query.isEmpty()?(advanced?"系统组件可能没有可用页面；只列出允许外部打开的入口。":"选择应用加入 TV 应用，最近从桌面打开的优先。未找到时可进入高级列表。"):"搜索结果："+query)
+                            .setMessage(query.isEmpty()?(advanced?"系统组件可能没有可用页面；只列出允许外部打开的入口。":"选择应用加入我的应用，最近从桌面打开的优先。未找到时可进入高级列表。"):"搜索结果："+query)
                             .setItems(labels,(d,w)->{
                         if(w==0)search(query,advanced);
                         else if(w==1)show(query,!advanced);
@@ -108,7 +108,7 @@ final class AppLibrary {
                 ComponentName entry=new ComponentName(first.packageName,first.name);
                 host.showDialog(new TvDialog.Builder(host).setPageId("add:"+app.packageName).setTitle("添加 · "+app.loadLabel(host.getPackageManager()))
                         .setMessage("已找到系统启动入口。也可选择其他公开页面；实际能否打开以电视结果为准。")
-                        .setItems(new String[]{"添加到 TV 应用","选择其他公开页面","查看入口检查信息"},(d,w)->{
+                        .setItems(new String[]{"添加到我的应用","选择其他公开页面","查看入口检查信息"},(d,w)->{
                     if(w==0)add(entry);
                     else if(w==1)entries(app,scan);
                     else entryReport(app,scan);
@@ -151,7 +151,7 @@ final class AppLibrary {
             host.focusAfterLoad=id;
             host.exitMenus();
             host.loadApplications();
-            host.toast("已加入 TV 应用");
+            host.toast("已加入我的应用");
             Diagnostics.event("APP_MANUALLY_ADDED");
         }catch(Exception error){
             Diagnostics.event("APP_ADD_FAILED");

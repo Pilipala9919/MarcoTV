@@ -6,7 +6,9 @@ from build import ROOT,JDK,executable
 
 folder=ROOT/'build/home-setup-policy';folder.mkdir(parents=True,exist_ok=True)
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-d',str(folder),
-    str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeSetupPolicy.java'),str(ROOT/'scripts/HomeSetupChecks.java')],check=True)
+    str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeSetupPolicy.java'),
+    str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeInputGate.java'),
+    str(ROOT/'scripts/HomeSetupChecks.java')],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),'-cp',str(folder),'com.pilipala.tvhome.HomeSetupChecks'],check=True,capture_output=True,text=True)
 (folder/'result.txt').write_text(result.stdout,encoding='utf8');print(result.stdout)
 

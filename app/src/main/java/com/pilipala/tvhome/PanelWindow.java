@@ -16,6 +16,7 @@ final class PanelWindow extends Dialog {
     private View activeContent;
     private final java.util.IdentityHashMap<View,PageMotion> motions=new java.util.IdentityHashMap<>();
     private UiMotion shade;
+    private int shadeR = 11, shadeG = 14, shadeB = 20;
     private int generation;
     private boolean closing;
     private final class PageMotion {
@@ -51,7 +52,7 @@ final class PanelWindow extends Dialog {
         };
         setContentView(root);
         setCanceledOnTouchOutside(false);
-        shade=new UiMotion(root,0,24,v->root.setBackgroundColor(Color.argb(Math.round(122*v),5,11,19)));
+        shade=new UiMotion(root,0,24,v->root.setBackgroundColor(Color.argb(Math.max(0,Math.min(255,Math.round(v))),shadeR,shadeG,shadeB)));
         Window w=getWindow();
         w.setBackgroundDrawableResource(android.R.color.transparent);
         w.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
@@ -79,22 +80,48 @@ final class PanelWindow extends Dialog {
         }
         current=page;
         activeContent=content;
-        shade.to(preview||network?0:1);
-        root.setOnClickListener(network?v->page.onBackPressed():null);
-        root.setClickable(network);
+        boolean fullscreen=page.isFullscreen();
+        boolean inSettings=fullscreen||host.dialogs.hasPage("main");
+        boolean floatingNetwork=network&&!inSettings;
+        if(preview||floatingNetwork){
+            shade.to(0);
+        }else if(inSettings){
+            shadeR=11;shadeG=14;shadeB=20;
+            shade.to(255);
+        }else if(centered){
+            shadeR=5;shadeG=7;shadeB=11;
+            shade.to(148);
+        }else{
+            shadeR=0;shadeG=0;shadeB=0;
+            shade.to(64);
+        }
+        root.setOnClickListener(floatingNetwork?v->page.onBackPressed():null);
+        root.setClickable(floatingNetwork);
         int width=getContext().getResources().getDisplayMetrics().widthPixels;
         int height=getContext().getResources().getDisplayMetrics().heightPixels;
         content.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         if(content instanceof ViewGroup)((ViewGroup)content).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.min(dp(page.isPersonalization()?276:preview?276:centered?800:network?300:356),
-                width-dp(48)),Math.min(dp(page.isPersonalization()?516:preview?252:centered?476:network?page.networkHeight():516),height-dp(24)));
-        p.gravity=centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
-        p.rightMargin=centered?0:dp(page.isPersonalization()||preview?20:24);
-        if(network){
-            p.gravity=Gravity.TOP|Gravity.LEFT;
+        FrameLayout.LayoutParams p;
+        if(fullscreen){
+            p=new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
+            p.gravity=Gravity.FILL;
+        }else if(inSettings&&!preview){
+            int targetW=centered?800:network?460:540;
+            int targetH=centered?476:network?Math.max(page.networkHeight()+44,340):476;
+            p=new FrameLayout.LayoutParams(Math.min(dp(targetW),width-dp(64)),Math.min(dp(targetH),height-dp(36)));
+            p.gravity=Gravity.CENTER;
             p.rightMargin=0;
-            p.leftMargin=Math.max(dp(16),Math.min(width-p.width-dp(16),Math.round(host.home.wifiAnchorX()-p.width*.5f)));
-            p.topMargin=Math.min(Math.round(host.home.wifiAnchorY()+dp(27)),height-p.height-dp(16));
+        }else{
+            p=new FrameLayout.LayoutParams(Math.min(dp(page.isPersonalization()?276:preview?276:centered?800:floatingNetwork?300:360),
+                    width-dp(48)),Math.min(dp(page.isPersonalization()?516:preview?252:centered?476:floatingNetwork?page.networkHeight():516),height-dp(24)));
+            p.gravity=centered?Gravity.CENTER:Gravity.RIGHT|Gravity.CENTER_VERTICAL;
+            p.rightMargin=centered?0:dp(page.isPersonalization()||preview?20:24);
+            if(floatingNetwork){
+                p.gravity=Gravity.TOP|Gravity.LEFT;
+                p.rightMargin=0;
+                p.leftMargin=Math.max(dp(16),Math.min(width-p.width-dp(16),Math.round(host.home.wifiAnchorX()-p.width*.5f)));
+                p.topMargin=Math.min(Math.round(host.home.wifiAnchorY()+dp(27)),height-p.height-dp(16));
+            }
         }
         boolean attached=content.getParent()==root;
         if(!attached){
@@ -111,8 +138,8 @@ final class PanelWindow extends Dialog {
             motions.put(content,enter);
         }
         if(!attached){
-            enter.x.snap(network?0:dp(page.isReturning()?-20:28));
-            enter.y.snap(network?-dp(8):0);
+            enter.x.snap(floatingNetwork?0:dp(page.isReturning()?-20:28));
+            enter.y.snap(floatingNetwork?-dp(8):0);
             enter.alpha.snap(1);
         }
         enter.x.to(0);

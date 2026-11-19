@@ -28,4 +28,27 @@ final class HomeSetupPolicy {
                                          boolean ownWrite, boolean servicePresent) {
         return enabled && hasEvidence && !ownWrite && !servicePresent;
     }
+    static boolean restoreCompatAfterStandby(boolean authorized, boolean unlocked, boolean paused,
+                                             boolean compat, boolean accessibilityPending,
+                                             boolean seenPresent, boolean serviceWasActive,
+                                             boolean compatResetPending, boolean serviceEnabled,
+                                             boolean interactive) {
+        return authorized && unlocked && !paused && compat && !accessibilityPending
+                && seenPresent && serviceWasActive && !compatResetPending
+                && !serviceEnabled && !interactive;
+    }
+    static boolean compatResetAfterStop(boolean unlocked, boolean paused, boolean compat,
+                                        boolean accessibilityPending, boolean seenPresent,
+                                        boolean serviceWasActive, boolean serviceEnabled,
+                                        boolean serviceConnected) {
+        return unlocked && !paused && compat && !accessibilityPending
+                && seenPresent && serviceWasActive && !serviceEnabled && !serviceConnected;
+    }
+    static boolean wakeFallback(boolean wakeEnabled, boolean paused, boolean nativeHome,
+                                boolean compat, boolean nativeKeys, boolean unlocked,
+                                boolean canRedirect, boolean otherAppSeen,
+                                boolean originalHomeOrStandbyReturn) {
+        return wakeEnabled && !paused && !nativeHome && compat && !nativeKeys
+                && unlocked && canRedirect && !otherAppSeen && originalHomeOrStandbyReturn;
+    }
 }

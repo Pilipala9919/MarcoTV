@@ -16,8 +16,11 @@ import java.util.ArrayList;
 /** Remote-first Marco TV panel. No platform AlertDialog layouts or buttons. */
 final class TvDialog extends Dialog {
     interface ConfirmGuard {boolean allow();}
+    interface BackHandler {boolean onBack();}
+    interface KeyHandler {boolean onKey(KeyEvent event);}
     private ConfirmGuard confirmGuard;
     void confirmGuard(ConfirmGuard guard){confirmGuard=guard;}
+    void setSavedFocus(View view){savedFocus=view;}
     private final Builder spec;
     private LinearLayout body;
     private LinearLayout panel;
@@ -122,6 +125,9 @@ final class TvDialog extends Dialog {
     boolean isPersonalization(){
         return "personalization".equals(pageKey());
     }
+    boolean isFullscreen(){
+        return spec.fullscreen;
+    }
     int networkHeight(){
         return Math.min(350,94+(spec.items==null?0:spec.items.length)*43);
     }
@@ -133,6 +139,7 @@ final class TvDialog extends Dialog {
             finishMove();
             return;
         }
+        if(spec.backHandler!=null&&spec.backHandler.onBack())return;
         if(backAction!=null)backAction.run();
         else super.onBackPressed();
     }
@@ -156,23 +163,43 @@ final class TvDialog extends Dialog {
         panel.setOrientation(LinearLayout.VERTICAL);
         // Let the window renderer update scrolling rows without a panel-sized software cache.
         panel.setLayerType(View.LAYER_TYPE_NONE, null);
-        boolean preview=spec.preview!=null;
-        panel.setPadding(dp(spec.network?14:preview?14:18), dp(spec.network?14:preview?12:18), dp(spec.network?14:preview?14:18), dp(spec.network?10:preview?12:14));
         panel.setClickable(true);
-        GradientDrawable bg = background(0xF51D2028, dp(24));
-        bg.setStroke(dp(1), 0x20FFFFFF);
+        if (spec.fullscreen) {
+            panel.setPadding(0, 0, 0, 0);
+            panel.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xFF0A0D13, 0xFF121722, 0xFF0C1018}));
+            if (spec.view != null) {
+                panel.addView(spec.view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                choices.add(spec.view);
+            }
+            setContentView(panel);
+            Window w = getWindow();
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            w.getDecorView().setSystemUiVisibility(5894);
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+            w.setLayout(-1, -1);
+            if (!choices.isEmpty()) choices.get(0).requestFocus();
+            return;
+        }
+        boolean preview=spec.preview!=null;
+        panel.setPadding(dp(spec.network?14:preview?14:22), dp(spec.network?14:preview?12:20), dp(spec.network?14:preview?14:22), dp(spec.network?10:preview?12:16));
+        GradientDrawable bg = background(0xFF171B23, dp(22));
+        bg.setStroke(dp(1), 0x22FFFFFF);
         panel.setBackground(bg);
-        TextView brand = text("M A R C O T V", 10, 0xFFB0B8C6);
-        brand.setLetterSpacing(.1f);
+        TextView brand = text("M A R C O T V", 10, 0xFF8390A3);
+        brand.setLetterSpacing(.12f);
         if(!preview&&!spec.network)panel.addView(brand);
         TextView title = text(spec.title, preview||spec.network?18:22, Color.WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", 0));
         title.setMaxLines(2);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         title.setLineSpacing(dp(2), 1f);
-        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:6), 0, dp(preview||spec.network?6:10));
+        title.setPadding(dp(spec.network?6:0), dp(preview||spec.network?0:6), 0, dp(preview||spec.network?6:12));
         panel.addView(title);
-        ScrollView scroll = new MotionScrollView(getContext());
+        MotionScrollView scroll = new MotionScrollView(getContext());
+        scroll.setFadeColor(0xFF171B23);
         scroll.setFillViewport(false);
         scroll.setClipToPadding(true);
         scroll.setVerticalScrollBarEnabled(false);
@@ -181,7 +208,7 @@ final class TvDialog extends Dialog {
         body.setPadding(dp(3), dp(3), dp(3), dp(3));
         scroll.addView(body);
         if (spec.message != null && !preview) {
-            TextView message = text(spec.message, spec.network?12:15, 0xFFBDC4CF);
+            TextView message = text(spec.message, spec.network?12:14, 0xFFAAB4C4);
             message.setLineSpacing(dp(spec.network?2:4), 1);
             messageView=message;
             message.setPadding(dp(4),0,dp(4),dp(spec.network?8:12));
@@ -377,6 +404,7 @@ final class TvDialog extends Dialog {
         return surface!=null?surface.dispatchKeyEvent(event):super.dispatchKeyEvent(event);
     }
     boolean handlePageKey(KeyEvent event){
+        if(spec.keyHandler!=null&&spec.keyHandler.onKey(event))return true;
         int key=event.getKeyCode();
         // Some TV remotes report a long hold as a repeated key event rather than
         // allowing the View's delayed long-click callback to run first.
@@ -448,15 +476,18 @@ final class TvDialog extends Dialog {
         return p;
     }
     private TextView row(String value, boolean checked) {
-        TextView t = text(value, 16, checked ? 0xFFE0EBFF : 0xFFDCE1E9);
-        t.setMinHeight(dp(42));
+        final int restBg = checked ? 0xFF25354A : 0xFF222733;
+        final int restText = checked ? 0xFF8CCBFF : 0xFFE8EEF5;
+        final int focusedText = checked ? 0xFF0A5FD1 : 0xFF101318;
+        TextView t = text(value, 16, restText);
+        t.setTypeface(Typeface.create("sans-serif-medium", 0));
+        t.setMinHeight(dp(44));
         t.setLineSpacing(dp(2), 1f);
         t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(dp(14), dp(8), dp(14), dp(8));
+        t.setPadding(dp(15), dp(9), dp(15), dp(9));
         t.setFocusable(true);
         t.setFocusableInTouchMode(true);
         t.setClickable(true);
-        t.setBackground(background(checked ? 0xFF344258 : 0xFF292E38, dp(12)));
         t.setOnTouchListener((v, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 v.requestFocus();
@@ -468,12 +499,13 @@ final class TvDialog extends Dialog {
             }
             return true;
         });
-        final GradientDrawable fill=background(checked?0xFF344258:0xFF292E38,dp(12));
+        final GradientDrawable fill=background(restBg,dp(12));
+        if(checked)fill.setStroke(dp(1),0x405AC8FA);
         t.setBackground(fill);
-        UiMotion focusMotion=new UiMotion(t,0,30,progress->{
-            fill.setColor((Integer)COLORS.evaluate(progress,checked?0xFF344258:0xFF292E38,0xFF3A586C));
-            fill.setStroke(dp(1),(Integer)COLORS.evaluate(progress,0x00ABD6DF,0xFFABD6DF));
-            t.setTextColor((Integer)COLORS.evaluate(progress,0xFFDCE1E9,Color.WHITE));
+        UiMotion focusMotion=new UiMotion(t,0,32,progress->{
+            fill.setColor((Integer)COLORS.evaluate(progress,restBg,0xFFF4F6FA));
+            fill.setStroke(dp(1),(Integer)COLORS.evaluate(progress,checked?0x405AC8FA:0x00FFFFFF,0xFFFFFFFF));
+            t.setTextColor((Integer)COLORS.evaluate(progress,restText,focusedText));
         });
         t.setOnFocusChangeListener((v, focus) -> {
             if(focus&&v.getTag() instanceof Integer)lastItem=(Integer)v.getTag();
@@ -499,9 +531,11 @@ final class TvDialog extends Dialog {
         String title="", message;
         String[] items;
         int selected=-1;
-        boolean single,centered,network;
+        boolean single,centered,network,fullscreen;
         Boolean wifiEnabled;
         View view;
+        BackHandler backHandler;
+        KeyHandler keyHandler;
         DialogInterface.OnClickListener itemClick;
         boolean[] secured,connected;
         String pageId,orderKey,preview;
@@ -530,6 +564,18 @@ final class TvDialog extends Dialog {
         }
         Builder centered(){
             centered=true;
+            return this;
+        }
+        Builder fullscreen(){
+            fullscreen=true;
+            return this;
+        }
+        Builder setBackHandler(BackHandler h){
+            backHandler=h;
+            return this;
+        }
+        Builder setKeyHandler(KeyHandler h){
+            keyHandler=h;
             return this;
         }
         Builder network(){

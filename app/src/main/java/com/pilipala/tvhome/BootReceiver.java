@@ -20,6 +20,7 @@ public final class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
             // Firmware boot resets must be handled before reconcile(), which would
             // otherwise read them as an external change and switch boot opening off.
+            SystemIntegration.clearStandbyWakeReturn(context);
             SystemIntegration.restoreCompatAfterBoot(context);
             nativeReset = HomeSetup.markNativeResetAtBoot(context);
             HomeSetup.reconcile(context);

@@ -210,7 +210,8 @@ final class SystemIntegration {
                 Diagnostics.event("ADB_SWITCH_RESTORED");
                 Log.i(TAG, "Restored adb_enabled=1");
             }
-            if (unlocked && !HomeSetup.paused(context) && p.getBoolean("home_compat", false)) {
+            if (unlocked && !HomeSetup.paused(context) && p.getBoolean("home_compat", false)
+                    && !p.getBoolean("setup_compat_reset_pending", false)) {
                 Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
                 if (p.getBoolean("home_compat", false)) {
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
@@ -233,7 +234,8 @@ final class SystemIntegration {
     static boolean respectExternalHomeServiceOff(Context context, boolean observedChange) {
         SharedPreferences p = prefs(context);
         if (!HomeSetup.unlocked(context) || !p.getBoolean("home_compat", false) || HomeSetup.paused(context)
-                || p.getBoolean("setup_accessibility_pending", false)) return false;
+                || p.getBoolean("setup_accessibility_pending", false)
+                || p.getBoolean("setup_compat_reset_pending", false)) return false;
         String services = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         int enabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
         String normalized = services == null ? "" : services;
@@ -257,6 +259,7 @@ final class SystemIntegration {
         SharedPreferences p = prefs(context);
         if (!authorized(context) || !HomeSetup.unlocked(context) || HomeSetup.paused(context)
                 || !p.getBoolean("home_compat", false) || p.getBoolean("setup_accessibility_pending", false)
+                || p.getBoolean("setup_compat_reset_pending", false)
                 || !p.getBoolean("compat_seen_present", false) || HomeSetup.serviceEnabled(context)) return false;
         try {
             Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
@@ -264,13 +267,98 @@ final class SystemIntegration {
             wanted.add(OWN_SERVICE);
             writeServices(context, wanted);
             boolean restored = HomeSetup.serviceEnabled(context);
-            if (restored) p.edit().putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。").apply();
+            if (restored) {
+                p.edit().remove("setup_compat_reset_pending").remove("standby_wake_return")
+                        .putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。").apply();
+            }
             Diagnostics.event(restored ? "HOME_SERVICE_RESTORED_AFTER_BOOT" : "HOME_SERVICE_BOOT_RESTORE_REJECTED");
             return restored;
         } catch (RuntimeException e) {
             Log.w(TAG, "Boot restore of home service failed", e);
             return false;
         }
+    }
+    private static boolean isInteractive(Context context) {
+        android.os.PowerManager power = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        return power == null || power.isInteractive();
+    }
+    /**
+     * Called when a system-bound service restarts our process while the TV is asleep
+     * after firmware force-stopped Marco TV on standby (clearing accessibility via
+     * AccessibilityManagerService.onHandleForceStop). Restores only our own entry.
+     */
+    static boolean restoreCompatAfterStandbyKill(Context context) {
+        SharedPreferences p = prefs(context);
+        if (!HomeSetupPolicy.restoreCompatAfterStandby(authorized(context), HomeSetup.unlocked(context),
+                HomeSetup.paused(context), p.getBoolean("home_compat", false),
+                p.getBoolean("setup_accessibility_pending", false),
+                p.getBoolean("compat_seen_present", false),
+                p.getBoolean("compat_service_active", false),
+                p.getBoolean("setup_compat_reset_pending", false),
+                HomeSetup.serviceEnabled(context), isInteractive(context))) return false;
+        try {
+            Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
+            for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
+            wanted.add(OWN_SERVICE);
+            writeServices(context, wanted);
+            boolean restored = HomeSetup.serviceEnabled(context);
+            if (restored) {
+                p.edit().putBoolean("compat_seen_present", true)
+                        .putBoolean("standby_wake_return", true)
+                        .putString("last_notice", "电视待机时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。")
+                        .apply();
+                Diagnostics.event("HOME_SERVICE_RESTORED_AFTER_STANDBY");
+                Log.i(TAG, "Restored home service after standby force-stop");
+                startRecovery(context);
+            } else {
+                Diagnostics.event("HOME_SERVICE_STANDBY_RESTORE_REJECTED");
+                HomeSetup.markCompatResetIfInterrupted(context);
+            }
+            return restored;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Standby restore of home service failed", e);
+            return false;
+        }
+    }
+    static boolean restoreCompatOnUserConfirm(Context context) {
+        HomeSetup.clearCompatReset(context);
+        if (!authorized(context) || !HomeSetup.unlocked(context)) return false;
+        SharedPreferences p = prefs(context);
+        p.edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putBoolean("setup_paused", false).remove("setup_pause_reason")
+                .remove("setup_accessibility_pending").remove("standby_wake_return").apply();
+        try {
+            Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
+            for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
+            wanted.add(OWN_SERVICE);
+            writeServices(context, wanted);
+            boolean restored = HomeSetup.serviceEnabled(context);
+            p.edit().putBoolean("compat_seen_present", restored).apply();
+            if (restored) {
+                p.edit().putString("last_notice", "已按你的确认重新启用 Home 兼容服务，其他辅助服务未改动。").apply();
+                Diagnostics.event("HOME_SERVICE_RESTORED_BY_USER");
+                startRecovery(context);
+            }
+            return restored;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "User-confirmed restore of home service failed", e);
+            return false;
+        }
+    }
+    static boolean hasStandbyWakeReturn(Context context) {
+        return prefs(context).getBoolean("standby_wake_return", false);
+    }
+    static boolean consumeStandbyWakeReturn(Context context) {
+        SharedPreferences p = prefs(context);
+        if (!p.getBoolean("standby_wake_return", false)) return false;
+        p.edit().remove("standby_wake_return").apply();
+        return true;
+    }
+    static void clearStandbyWakeReturn(Context context) {
+        SharedPreferences p = prefs(context);
+        if (p.getBoolean("standby_wake_return", false)) p.edit().remove("standby_wake_return").apply();
     }
     static void enableHome(Context context, boolean enabled) {
         if(BuildEdition.RESTRICTED)return;
@@ -299,6 +387,59 @@ final class SystemIntegration {
                 .setNeutralButton("手机查看向导", (d,w)->((MainActivity)activity).defaultHome.assistant())
                 .setNegativeButton("稍后", null).create());
     }
+    static void disableHomeCompat(Activity activity) {
+        HomeSetup.pause(activity, "你已关闭 Home 兼容；重新开启前不会恢复。");
+        Set<String> wanted = services(Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
+        for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
+        if (authorized(activity)) writeServices(activity, wanted);
+        startRecovery(activity);
+    }
+    static void toggleAdbRestore(Activity activity, DialogHost host, Runnable onChanged) {
+        SharedPreferences p = prefs(activity);
+        boolean next = !p.getBoolean("adb_restore", false);
+        if (next && !authorized(activity)) {
+            permissionHelp(activity, host);
+            return;
+        }
+        if (next) host.show(new TvDialog.Builder(activity).setTitle("开启 ADB 自动恢复")
+                .setMessage("开机后恢复调试开关，运行期间被关闭时也会恢复。\n\n调试开关打开期间，同一网络中的设备可以请求连接电视（仍需在电视上确认授权）。建议只在需要时开启：默认 24 小时后自动停止恢复，调试开关保持当时状态。\n\n网络 ADB 还需系统保留端口配置；本功能不会关闭设备授权验证。")
+                .setPositiveButton("开启 24 小时", (dialog, button) -> {
+                    p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", System.currentTimeMillis() + ADB_RESTORE_WINDOW)
+                            .remove("last_notice").apply();
+                    recover(activity);
+                    startRecovery(activity);
+                    if (onChanged != null) onChanged.run();
+                })
+                .setNeutralButton("长期开启", (dialog, button) -> {
+                    p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", 0).remove("last_notice")
+                            .apply();
+                    recover(activity);
+                    startRecovery(activity);
+                    if (onChanged != null) onChanged.run();
+                })
+                .setNegativeButton("返回", null).create());
+        else {
+            p.edit().putBoolean("adb_restore", false).remove("adb_restore_until").apply();
+            startRecovery(activity);
+            if (onChanged != null) onChanged.run();
+        }
+    }
+    static void confirmRecoverNow(Activity activity, DialogHost host) {
+        host.show(new TvDialog.Builder(activity).setPageId("recovery_confirm").setTitle("执行已启用的恢复？")
+                .setMessage("仅执行当前已启用的 ADB / Home 恢复设置，可能重新打开调试开关或恢复自身 Home 服务；不新增授权。唤醒恢复另外需要 Home 兼容和已连接的任务辅助服务。")
+                .setPositiveButton("执行恢复", (dialog, button) -> {
+                    recover(activity);
+                    startRecovery(activity);
+                    status(activity, host);
+                })
+                .setNegativeButton("取消", null).create());
+    }
+    static void showDebugHelp(Activity activity, DialogHost host) {
+        host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
+                .setMessage("可在「桌面启用」中尝试一键设置。需要时在电视打开网络调试并允许连接；不支持本机授权的电视可使用手机或电脑助手。\n\n卸载应用或恢复出厂设置后可能需要重新授权。持续调试恢复需另行开启，端口能否恢复取决于电视固件。")
+                .setPositiveButton("查看授权方法", (dialog, button) -> permissionHelp(activity, host))
+                .setNegativeButton("返回", null).create());
+    }
     static void show(Activity activity, DialogHost host) {
         SharedPreferences p = prefs(activity);
         rememberHome(activity);
@@ -319,33 +460,7 @@ final class SystemIntegration {
                 activity.getWindow().getDecorView().post(() -> {
             switch (which) {
                 case 0:
-                    boolean next = !p.getBoolean("adb_restore", false);
-                    if (next && !authorized(activity)) {
-                    permissionHelp(activity, host);
-                    break;
-                    }
-                    if (next) host.show(new TvDialog.Builder(activity).setTitle("开启 ADB 自动恢复")
-                            .setMessage("开机后恢复调试开关，运行期间被关闭时也会恢复。\n\n调试开关打开期间，同一网络中的设备可以请求连接电视（仍需在电视上确认授权）。建议只在需要时开启：默认 24 小时后自动停止恢复，调试开关保持当时状态。\n\n网络 ADB 还需系统保留端口配置；本功能不会关闭设备授权验证。")
-                            .setPositiveButton("开启 24 小时", (dialog, button) -> {
-                    p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", System.currentTimeMillis() + ADB_RESTORE_WINDOW)
-                            .remove("last_notice").apply();
-                    recover(activity);
-                    startRecovery(activity);
-                    show(activity,host);
-                    })
-                            .setNeutralButton("长期开启", (dialog, button) -> {
-                    p.edit().putBoolean("adb_restore", true).putLong("adb_restore_until", 0).remove("last_notice")
-                            .apply();
-                    recover(activity);
-                    startRecovery(activity);
-                    show(activity,host);
-                    })
-                            .setNegativeButton("返回", null).create());
-                    else {
-                    p.edit().putBoolean("adb_restore", false).remove("adb_restore_until").apply();
-                    startRecovery(activity);
-                    show(activity,host);
-                    }
+                    toggleAdbRestore(activity, host, () -> show(activity, host));
                     break;
                 case 1:
                     status(activity, host);
@@ -359,12 +474,8 @@ final class SystemIntegration {
                     break;
                 case 4:
                     if (p.getBoolean("home_compat", false)) {
-                    HomeSetup.pause(activity, "你已关闭 Home 兼容；重新开启前不会恢复。");
-                    Set<String> wanted = services(Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
-                    for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
-                    if (authorized(activity)) writeServices(activity, wanted);
-                    startRecovery(activity);
-                    show(activity,host);
+                        disableHomeCompat(activity);
+                        show(activity,host);
                     } else ((MainActivity)activity).defaultHome.compatibility();
                     break;
                 case 5:
@@ -377,23 +488,13 @@ final class SystemIntegration {
                     show(activity,host);
                     break;
                 case 7:
-                    host.show(new TvDialog.Builder(activity).setPageId("recovery_confirm").setTitle("执行已启用的恢复？")
-                            .setMessage("仅执行当前已启用的 ADB / Home 恢复设置，可能重新打开调试开关或恢复自身 Home 服务；不新增授权。唤醒恢复另外需要 Home 兼容和已连接的任务辅助服务。")
-                            .setPositiveButton("执行恢复",(dialog,button)->{
-                    recover(activity);
-                    startRecovery(activity);
-                    status(activity,host);
-                    })
-                            .setNegativeButton("取消",null).create());
+                    confirmRecoverNow(activity, host);
                     break;
                 case 9:
                     homeGestures(activity,host);
                     break;
                 case 8:
-                    host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
-                            .setMessage("可在「桌面启用」中尝试一键设置。需要时在电视打开网络调试并允许连接；不支持本机授权的电视可使用手机或电脑助手。\n\n卸载应用或恢复出厂设置后可能需要重新授权。持续调试恢复需另行开启，端口能否恢复取决于电视固件。")
-                            .setPositiveButton("查看授权方法", (dialog, button) -> permissionHelp(activity, host))
-                            .setNegativeButton("返回", null).create());
+                    showDebugHelp(activity, host);
                     break;
             }
         })).setNegativeButton("返回", null).create());

@@ -72,7 +72,7 @@ final class AppCatalog {
         host.appReads.execute(() -> {
             if(generation!=loadGeneration||Thread.currentThread().isInterrupted())return;
             ArrayList<Row> result = new ArrayList<>();
-            Row apps = new Row("TV 应用", "\ue333");
+            Row apps = new Row("我的应用", "\ue333");
             Row inputs = new Row("输入源", "\ue890");
             Row others = new Row("其他应用", "\ue5c3");
             PackageManager pm = host.getPackageManager();
@@ -215,7 +215,15 @@ final class AppCatalog {
                         }
                     }
                     if(host.focusAfterLoad!=null){
-                        for(int i=0;i<result.size();i++)if(result.get(i).orderKey.equals("order_tv"))for(int j=0;j<result.get(i).tiles.size();j++)if(result.get(i).tiles.get(j).id.equals(host.focusAfterLoad)){
+                        boolean focused=false;
+                        if(focusedRow!=null){
+                            for(int i=0;i<result.size();i++)if(result.get(i).orderKey.equals(focusedRow))for(int j=0;j<result.get(i).tiles.size();j++)if(result.get(i).tiles.get(j).id.equals(host.focusAfterLoad)){
+                                host.home.row=i;
+                                result.get(i).selected=j;
+                                focused=true;
+                            }
+                        }
+                        if(!focused)for(int i=0;i<result.size();i++)if(result.get(i).orderKey.equals("order_tv"))for(int j=0;j<result.get(i).tiles.size();j++)if(result.get(i).tiles.get(j).id.equals(host.focusAfterLoad)){
                             host.home.row=i;
                             result.get(i).selected=j;
                         }
@@ -246,8 +254,15 @@ final class AppCatalog {
     }
     private void sortSaved(Row row) {
         final List<String> order = Arrays.asList(host.preferences.getString(row.orderKey, "").split("\\|"));
+        final List<String> pinOrder = host.cards.pinOrder();
         Collections.sort(row.tiles, (a, b) -> {
             if(a.pinned!=b.pinned)return a.pinned?-1:1;
+            if(a.pinned){
+                int ap=pinOrder.indexOf(a.id),bp=pinOrder.indexOf(b.id);
+                if(ap<0)ap=Integer.MAX_VALUE;
+                if(bp<0)bp=Integer.MAX_VALUE;
+                if(ap!=bp)return Integer.compare(ap,bp);
+            }
             int ai = order.indexOf(a.id), bi = order.indexOf(b.id);
             if (ai < 0) ai = 1000;
             if (bi < 0) bi = 1000;

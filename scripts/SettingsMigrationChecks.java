@@ -58,6 +58,8 @@ public final class SettingsMigrationChecks {
                 &&"s".equals(SettingsCatalog.expectedType("home","tv_sort"))
                 &&SettingsCatalog.allowed("cards","favorites")
                 &&"set".equals(SettingsCatalog.expectedType("cards","favorites"))
+                &&SettingsCatalog.allowed("cards","pin_order")
+                &&"s".equals(SettingsCatalog.expectedType("cards","pin_order"))
                 &&SettingsCatalog.allowed("cards","cover:com.example.tv")
                 &&"s".equals(SettingsCatalog.expectedType("cards","cover:com.example.tv"))
                 &&!SettingsCatalog.allowed("cards","cover:")
@@ -81,6 +83,42 @@ public final class SettingsMigrationChecks {
                 &&!SettingsCatalog.imageName(validCover.toUpperCase(Locale.ROOT))
                 &&!SettingsCatalog.imageName("cover-0123.jpg")
                 &&!SettingsCatalog.imageName("wallpaper-image.png"));
+        // Verify Apple TV-style reorganized settings taxonomy integrity.
+        check("taxonomy_has_five_flat_categories",SettingsTaxonomy.CATEGORIES.length==5
+                &&SettingsTaxonomy.indexOfCategory("general")==0
+                &&SettingsTaxonomy.indexOfCategory("apps")==1
+                &&SettingsTaxonomy.indexOfCategory("home")==2
+                &&SettingsTaxonomy.indexOfCategory("network")==3
+                &&SettingsTaxonomy.indexOfCategory("system")==4);
+        Set<String> catIds=new HashSet<>(),itemKeys=new HashSet<>();
+        boolean taxonomyValid=true;
+        int inlineToggles=0;
+        for(SettingsTaxonomy.Category cat:SettingsTaxonomy.CATEGORIES){
+            taxonomyValid&=cat.id!=null&&!cat.id.isEmpty()&&catIds.add(cat.id)
+                    &&cat.title!=null&&!cat.title.isEmpty()
+                    &&cat.subtitle!=null&&!cat.subtitle.isEmpty()
+                    &&cat.summary!=null&&!cat.summary.isEmpty()
+                    &&cat.sections.length>0;
+            for(SettingsTaxonomy.Section sec:cat.sections){
+                taxonomyValid&=sec.title!=null&&!sec.title.isEmpty()&&sec.items.length>0;
+                for(SettingsTaxonomy.Item item:sec.items){
+                    taxonomyValid&=item.key!=null&&!item.key.isEmpty()&&itemKeys.add(item.key)
+                            &&item.title!=null&&!item.title.isEmpty()
+                            &&item.hint!=null&&!item.hint.isEmpty()
+                            &&item.kind>=0&&item.kind<=3;
+                    if(item.kind==SettingsTaxonomy.Item.TOGGLE)inlineToggles++;
+                }
+            }
+        }
+        check("taxonomy_categories_sections_and_items_are_unique_and_complete",taxonomyValid&&SettingsTaxonomy.totalItems()==itemKeys.size()&&inlineToggles>=6);
+        boolean coreCovered=true;
+        for(String required:new String[]{"magic_desktop","wallpaper","ambient_enabled","ambient_sleep","ambient_preview",
+                "add_app","all_apps","tv_sort","pinned_cards","favorite_cards","hidden_cards","now_playing","playback_source",
+                "default_home","home_compat","home_gestures","restore_home","boot_home","recent_wake","recent_enabled","recent_open","recent_style",
+                "wifi","cast","phone","sound","updates","health_status","backup","diagnostics","adb_restore","guide","device_info","about"}){
+            coreCovered&=SettingsTaxonomy.findItem(required)!=null;
+        }
+        check("taxonomy_covers_every_existing_launcher_setting",coreCovered);
         System.out.println("OK "+passed+" settings migration checks");
     }
 }

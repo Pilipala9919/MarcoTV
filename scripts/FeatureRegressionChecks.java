@@ -42,7 +42,7 @@ final class FeatureRegressionChecks {
             menus.edit().putString("main_v2","device|maintenance").putString("appearance","cards|wallpaper").commit();
             prefs.edit().putInt("recent_size",110).putBoolean("recent_enabled",true).putBoolean("recent_wake",true).commit();JSONObject recent=BackupStore.capture(context,false);
             check.accept("backup_includes_task_card_appearance",recent.getJSONObject("home").getJSONObject("recent_size").getInt("value")==110);
-            check.accept("backup_excludes_task_activation",!recent.getJSONObject("home").has("recent_enabled")&&!recent.getJSONObject("home").has("recent_wake"));
+            check.accept("backup_includes_task_activation",recent.getJSONObject("home").has("recent_enabled")&&recent.getJSONObject("home").has("recent_wake"));
             check.accept("backup_excludes_system_permissions",!original.has("system_integration")&&!original.getJSONObject("home").has("saved_dream"));
             try(BackupStore.PreparedInput input=new BackupStore.PreparedInput(context,archive)){
                 check.accept("backup_image_roundtrip",input.value.images.size()==1);
@@ -97,7 +97,8 @@ final class FeatureRegressionChecks {
         try{
             runner.runOnMainSync(()->{try{java.lang.reflect.Method add=AppLibrary.class.getDeclaredMethod("add",ComponentName.class);add.setAccessible(true);add.invoke(host.library,new ComponentName(id,DeviceRegressionChecks.FixtureActivity.class.getName()));}catch(Throwable e){failed[0]=e;}});
             if(failed[0]!=null)throw new AssertionError(failed[0]);
-            host.loader.submit(()->{}).get();runner.waitForIdleSync();
+            for(int i=0;i<30;i++){final boolean[] ready={false};runner.runOnMainSync(()->{if(host.home.row>=0&&host.home.row<host.home.rows.size()){Row cur=host.home.rows.get(host.home.row);ready[0]=!cur.tiles.isEmpty()&&cur.tiles.get(cur.selected).id.equals(id);}});if(ready[0])break;Thread.sleep(100);}
+            runner.waitForIdleSync();
             runner.runOnMainSync(()->{try{
                 Row row=host.home.rows.get(host.home.row);check.accept("manual_add_focuses_new_card",row.tiles.get(row.selected).id.equals(id));
                 boolean realApps=true;for(Tile t:row.tiles)realApps&=t.kind==0&&t.intent!=null;check.accept("app_row_contains_only_real_apps",realApps);
@@ -124,7 +125,8 @@ final class FeatureRegressionChecks {
             }catch(Throwable e){failed[0]=e;}});if(failed[0]!=null)throw new AssertionError(failed[0]);
         }finally{
             runner.runOnMainSync(()->{host.cards.toggle("manual_apps",id,false);host.cards.toggle("hidden",id,false);host.cards.toggle("pinned",id,false);host.getSharedPreferences("cards",0).edit().remove("manual:"+id).apply();host.loadApplications();});
-            host.loader.submit(()->{}).get();runner.waitForIdleSync();
+            for(int i=0;i<30;i++){final boolean[] ready={false};runner.runOnMainSync(()->{if(host.home.row>=0&&host.home.row<host.home.rows.size()){Row cur=host.home.rows.get(host.home.row);ready[0]=!cur.tiles.isEmpty()&&cur.tiles.get(cur.selected).id.equals(id);}});if(ready[0])break;Thread.sleep(100);}
+            runner.waitForIdleSync();
         }
     }
     private static byte[] zip(String name,byte[] bytes)throws Exception{ByteArrayOutputStream out=new ByteArrayOutputStream();try(ZipOutputStream z=new ZipOutputStream(out)){z.putNextEntry(new ZipEntry(name));z.write(bytes);z.closeEntry();}return out.toByteArray();}

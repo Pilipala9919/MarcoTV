@@ -28,7 +28,7 @@ final class SignalDrawable extends Drawable {
     @Override public void draw(Canvas canvas) {
         boolean focused = false;
         for (int state : getState()) if (state == android.R.attr.state_focused) focused = true;
-        int color = focused ? Color.WHITE : 0xFFDCE1E9;
+        int color = focused ? 0xFF101318 : 0xFFDCE1E9;
         Rect bounds = getBounds();
         float unit = Math.min(bounds.width()/28f, bounds.height()/24f);
         canvas.save();

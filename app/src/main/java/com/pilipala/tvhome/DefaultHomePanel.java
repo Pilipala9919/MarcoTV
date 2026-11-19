@@ -13,6 +13,7 @@ final class DefaultHomePanel {
     boolean compatibilityPending;
     private boolean returnToHelp;
     private boolean bootResetOffered;
+    private boolean compatResetOffered;
     private int pendingEpoch;
     private LocalHomeAuthorizer authorizer;
     private final HomeDeviceGuide.ReturnGate guideReturn = new HomeDeviceGuide.ReturnGate();
@@ -87,6 +88,11 @@ final class DefaultHomePanel {
             host.handler.post(()->{if(host.foreground&&!host.dialogs.open())bootReset();});
             return;
         }
+        if(!compatResetOffered&&HomeSetup.compatResetPending(host)&&!host.dialogs.open()){
+            compatResetOffered=true;
+            host.handler.post(()->{if(host.foreground&&!host.dialogs.open())compatReset();});
+            return;
+        }
         if(guideReturn.take(host.menuEpoch,host.foreground)){
             host.handler.post(()->{
                 if(host.foreground&&host.menuEpoch==pendingEpoch&&host.isPage("home_device_guide"))runAutomatic(false);
@@ -117,6 +123,28 @@ final class DefaultHomePanel {
                     if(w==2){HomeSetup.pause(host,"你选择保持当前默认桌面。");SystemIntegration.startRecovery(host);host.exitMenus();return;}
                     HomeSetup.clearNativeReset(host);
                     if(w==0)start();else compatibility();
+                }).setNegativeButton("稍后",null).create());
+    }
+    /** Offered once per launch after an abrupt stop cleared HomeKeyService; never re-applies silently. */
+    void compatReset(){
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_compat_reset").setTitle("Home 兼容服务已被系统关闭")
+                .setMessage("上次待机或应用被系统停止时，Home 兼容服务被关闭了。Marco TV 无法确认是否来自你自己的操作，所以先来问你。\n\n"
+                        +"重新启用只恢复 Marco TV 自身的 Home 服务，不会改动其他辅助服务。")
+                .setItems(new String[]{"重新启用 Home 兼容","暂停自动恢复，不再提醒"},(d,w)->{
+                    if(w==1){
+                        HomeSetup.pause(host,"你选择暂停 Home 兼容恢复。");
+                        SystemIntegration.startRecovery(host);
+                        host.exitMenus();
+                        return;
+                    }
+                    if(SystemIntegration.authorized(host)){
+                        boolean ok=SystemIntegration.restoreCompatOnUserConfirm(host);
+                        host.exitMenus();
+                        host.toast(ok?"已重新启用 Home 兼容服务":"系统未允许恢复，请从桌面启用重新检查");
+                    }else{
+                        HomeSetup.clearCompatReset(host);
+                        compatibility();
+                    }
                 }).setNegativeButton("稍后",null).create());
     }
     void compatibility(){

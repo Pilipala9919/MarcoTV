@@ -61,6 +61,9 @@ final class HomeSetup {
                 .remove("setup_home_deadline").remove("setup_accessibility_pending")
                 .remove("setup_boot_observed").remove("setup_boot_confirmed")
                 .remove("setup_native_reset_pending")
+                .remove("setup_compat_reset_pending")
+                .remove("compat_service_active")
+                .remove("standby_wake_return")
                 .putInt("setup_boot_armed", bootCount(c)).apply();
     }
     /**
@@ -82,6 +85,30 @@ final class HomeSetup {
     }
     static void clearNativeReset(Context c) {
         prefs(c).edit().remove("setup_native_reset_pending").apply();
+    }
+    /**
+     * Some firmware force-stops foreground apps on standby, causing Android's
+     * AccessibilityManagerService.onHandleForceStop() to remove our service while
+     * the process is dead. Ask once when reopened instead of silently pausing.
+     */
+    static boolean markCompatResetIfInterrupted(Context c) {
+        SharedPreferences p = prefs(c);
+        if (p.getBoolean("setup_compat_reset_pending", false)) return false;
+        if (!HomeSetupPolicy.compatResetAfterStop(unlocked(c), paused(c),
+                p.getBoolean("home_compat", false), p.getBoolean("setup_accessibility_pending", false),
+                p.getBoolean("compat_seen_present", false), p.getBoolean("compat_service_active", false),
+                serviceEnabled(c), HomeKeyService.connected)) return false;
+        p.edit().putBoolean("setup_compat_reset_pending", true)
+                .putBoolean("compat_service_active", false)
+                .remove("standby_wake_return").apply();
+        Diagnostics.event("HOME_COMPAT_RESET_AFTER_STOP");
+        return true;
+    }
+    static boolean compatResetPending(Context c) {
+        return prefs(c).getBoolean("setup_compat_reset_pending", false) && !paused(c);
+    }
+    static void clearCompatReset(Context c) {
+        prefs(c).edit().remove("setup_compat_reset_pending").apply();
     }
     static void acceptNative(Context c) {
         if (!prefs(c).getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
@@ -105,13 +132,20 @@ final class HomeSetup {
                 .putBoolean("managed_home", false).remove("setup_home_deadline")
                 .remove("setup_accessibility_pending").remove("setup_home_seen")
                 .remove("setup_boot_confirmed").remove("setup_native_reset_pending")
-                .remove("compat_seen_present").apply();
+                .remove("setup_compat_reset_pending")
+                .remove("compat_seen_present")
+                .remove("compat_service_active")
+                .remove("standby_wake_return").apply();
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
     static void reconcile(Context c) {
         SharedPreferences p = prefs(c);
         if (!unlocked(c) || paused(c)) return;
+        if (p.getBoolean("setup_compat_reset_pending", false)) {
+            if (serviceEnabled(c)) clearCompatReset(c);
+            return;
+        }
         if (p.getBoolean("home_compat", false) && !p.getBoolean("setup_accessibility_pending", false) && !serviceEnabled(c)) {
             pause(c, "Home 服务不可用，需确认后继续恢复。");
             return;
@@ -165,6 +199,7 @@ final class HomeSetup {
         if (p.contains("setup_boot_observed")) boot = "记录到重启后返回，等待你确认";
         if (p.contains("setup_boot_confirmed")) boot = "已确认一次重启返回；系统升级后仍需复核";
         if (nativeResetPending(c)) boot = "本次开机时默认桌面被系统改回，等待你确认";
+        if (compatResetPending(c)) boot = "待机或系统停止时 Home 服务被关闭，等待你确认";
         if (paused(c)) boot = "已暂停自动恢复";
         return (BuildEdition.RESTRICTED ? "受限系统兼容版 · 无系统默认桌面入口\n" : "") + "桌面方式  ·  " + mode + "\nHome 返回  ·  " + (p.contains("setup_home_seen") ? "已记录返回" : "等待检查")
                 + "\n开机恢复  ·  " + boot

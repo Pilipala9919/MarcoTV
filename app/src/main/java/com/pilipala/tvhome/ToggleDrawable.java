@@ -35,7 +35,7 @@ final class ToggleDrawable extends Drawable {
         for(int state:getState())if(state==android.R.attr.state_focused){
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(unit);
-            paint.setColor(0xFFE4F4FF);
+            paint.setColor(0x28101318);
             track.inset(-1.5f*unit,-1.5f*unit);
             canvas.drawRoundRect(track,16*unit,16*unit,paint);
             break;

@@ -45,6 +45,7 @@ final class CardMover {
             android.content.SharedPreferences.Editor edit=host.preferences.edit().putString(movingRow.orderKey,order.toString());
             if(movingRow.orderKey.equals("order_tv"))edit.putString("tv_sort","custom");
             edit.apply();
+            host.cards.syncPinOrder(movingRow.tiles);
         }else{
             movingRow.tiles=moveOriginal;
             movingRow.selected=moveOriginalIndex;

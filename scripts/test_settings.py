@@ -14,7 +14,7 @@ output=root/'build/settings-checks'
 output.mkdir(parents=True,exist_ok=True)
 source=root/'app/src/main/java/com/pilipala/tvhome'
 subprocess.run([str(jdk/('bin/javac'+suffix)),'-encoding','UTF-8','-d',str(output),
-                str(source/'SettingsCatalog.java'),str(source/'MenuOrder.java'),str(root/'scripts/SettingsMigrationChecks.java')],check=True)
+                str(source/'SettingsCatalog.java'),str(source/'SettingsTaxonomy.java'),str(source/'MenuOrder.java'),str(root/'scripts/SettingsMigrationChecks.java')],check=True)
 result=subprocess.run([str(jdk/('bin/java'+suffix)),'-cp',str(output),'com.pilipala.tvhome.SettingsMigrationChecks'],check=True,capture_output=True,text=True)
 print(result.stdout)
 (root/'verification').mkdir(exist_ok=True)

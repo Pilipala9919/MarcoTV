@@ -24,7 +24,7 @@ final class Tile {
     // 0 installed application, 1 TV input
 }
 
-/** A horizontal shelf of tiles such as "TV 应用" or "输入源". */
+/** A horizontal shelf of tiles such as "我的应用" or "输入源". */
 final class Row {
     String title, symbol, orderKey;
     ArrayList<Tile> tiles = new ArrayList<>();
@@ -33,7 +33,7 @@ final class Row {
     Row(String title, String symbol) {
         this.title = title;
         this.symbol = symbol;
-        orderKey = title.equals("TV 应用") ? "order_tv" : title.equals("输入源") ? "order_inputs"
+        orderKey = (title.equals("我的应用") || title.equals("TV 应用")) ? "order_tv" : title.equals("输入源") ? "order_inputs"
                 : title.equals("收藏") ? "order_favorites" : "order_other";
     }
 }
@@ -65,6 +65,7 @@ final class HomeView extends View {
     private final RectF rect = new RectF();
     private final RectF iconBounds = new RectF();
     private final Path playbackClip = new Path();
+    private final Path iconPath = new Path();
     private String lastPlaybackTitle, clippedPlaybackTitle = "";
     private String lastPlaybackSource, clippedPlaybackSource = "";
     private final Matrix artworkMatrix = new Matrix();
@@ -111,15 +112,46 @@ final class HomeView extends View {
     private float overview;
     private UiMotion overviewAnimation;
     boolean previewDirty=true;
-    private final MotionSpring headerLeft=new MotionSpring(100,26,.05f),headerRight=new MotionSpring(310,26,.05f),headerAlpha=new MotionSpring(0,
+    private final MotionSpring headerLeft=new MotionSpring(88,26,.05f),headerRight=new MotionSpring(302,26,.05f),headerAlpha=new MotionSpring(0,
             26,.001f);
-    private final float[] headerX={132,370,635,950};
-    private final float[] headerEnd={303,523,824,1066};
+    private static final float HEADER_ANCHOR_X=88f;
+    private static final float HEADER_START_X=112f;
+    private static final float HEADER_ICON_GAP=14f;
+    private static final float HEADER_ITEM_GAP=72f;
+    private static final float HEADER_PILL_PAD_X=24f;
+    private final float[] headerIconX=new float[4];
+    private final float[] headerTextX=new float[4];
+    private final float[] headerContentLeft=new float[4];
+    private final float[] headerContentRight=new float[4];
+    private float headerTotalRight=1040f;
+    private void measureHeader(){
+        float[] iconLeft={17f,21f,19f,14f};
+        float[] iconRight={17f,21f,19f,14f};
+        String[] labels={"MARCO TV","Marco 互联","Magic Desktop","全部应用"};
+        float cursor=HEADER_START_X;
+        for(int i=0;i<4;i++){
+            headerContentLeft[i]=Math.round(cursor);
+            headerIconX[i]=Math.round(headerContentLeft[i]+iconLeft[i]);
+            headerTextX[i]=Math.round(headerIconX[i]+iconRight[i]+HEADER_ICON_GAP);
+            paint.setTypeface(normal);
+            paint.setTextSize(23);
+            float textWidth=paint.measureText(labels[i]);
+            if(i==0){
+                paint.setTextSize(14);
+                textWidth=Math.max(textWidth,paint.measureText("by Pilipala"));
+            }
+            headerContentRight[i]=Math.round(headerTextX[i]+textWidth);
+            cursor=headerContentRight[i]+HEADER_ITEM_GAP;
+        }
+        headerTotalRight=headerContentRight[3]+HEADER_PILL_PAD_X;
+    }
     private float headerFit(){
-        return Math.min(1,Math.max(.76f,(clockScene.left(host.appearance())-140-100)/1000f));
+        float available=clockScene.left(host.appearance())-132f-HEADER_ANCHOR_X;
+        float needed=Math.max(1f,headerTotalRight-HEADER_ANCHOR_X);
+        return Math.min(1f,Math.max(.76f,available/needed));
     }
     private float headerPosition(float x){
-        return 100+(x-100)*headerFit();
+        return HEADER_ANCHOR_X+(x-HEADER_ANCHOR_X)*headerFit();
     }
     private void previewTransform(float value){
         overview=value;
@@ -189,6 +221,7 @@ final class HomeView extends View {
         // Keep the window GPU renderer, without caching the entire animated screen
         // in an extra hardware layer on memory-constrained television GPUs.
         setLayerType(View.LAYER_TYPE_NONE, null);
+        measureHeader();
         refreshAppearance();
     }
 
@@ -211,7 +244,7 @@ final class HomeView extends View {
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
                 setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
-        else setContentDescription("TV 应用，暂无应用，按左键展开菜单添加应用");
+        else setContentDescription("我的应用，暂无应用，按左键展开菜单添加应用");
     }
 
     void resetToApps() {
@@ -253,8 +286,8 @@ final class HomeView extends View {
     }
 
     void animateFocus() {
-        float left=topSelected<4?headerPosition(headerX[topSelected]-30):clockScene.left(host.appearance())-102;
-        float right=topSelected<4?headerPosition(headerEnd[topSelected]+18):clockScene.left(host.appearance())-38;
+        float left=topSelected<4?headerPosition(headerContentLeft[topSelected]-HEADER_PILL_PAD_X):clockScene.left(host.appearance())-102;
+        float right=topSelected<4?headerPosition(headerContentRight[topSelected]+HEADER_PILL_PAD_X):clockScene.left(host.appearance())-38;
         if(headerAlpha.value==0){
             headerLeft.snap(left);
             headerRight.snap(right);
@@ -376,40 +409,43 @@ final class HomeView extends View {
             int muted = alphaColor(0xC0FFFFFF, contentAlpha);
             if(headerAlpha.value>.001f){
                 paint.setColor(alphaColor(0x28FFFFFF,contentAlpha*headerAlpha.value));
-                rect.set(headerLeft.value,76,headerRight.value,158);
-                canvas.drawRoundRect(rect,25,25,paint);
+                rect.set(headerLeft.value,74,headerRight.value,152);
+                canvas.drawRoundRect(rect,24,24,paint);
             }
             int headerSave=canvas.save();
             float fit=headerFit();
-            canvas.translate(100*(1-fit),0);
+            canvas.translate(HEADER_ANCHOR_X*(1-fit),0);
             canvas.scale(fit,1);
+            paint.setTypeface(normal);
+            paint.setTextSize(23);
+            float labelBaseline=113f-(paint.ascent()+paint.descent())/2f;
             for(int i=0;i<4;i++){
-                int color=alphaColor(i==topSelected&&row==-1?Color.WHITE:0xC0FFFFFF,contentAlpha);
-                float x=headerX[i];
+                int color=alphaColor(i==topSelected&&row==-1?Color.WHITE:0xD4FFFFFF,contentAlpha);
+                float ix=headerIconX[i],tx=headerTextX[i];
                 if(i==0){
-                    icon(canvas,"\ue8b8",x,110,40,color);
-                    text(canvas,"MARCO TV",x+46,119,23,normal,color,Paint.Align.LEFT);
-                    text(canvas,"by Pilipala",x+46,145,14,normal,alphaColor(0x78FFFFFF,contentAlpha),Paint.Align.LEFT);
+                    settingsIcon(canvas,ix,113,color);
+                    text(canvas,"MARCO TV",tx,110,23,normal,color,Paint.Align.LEFT);
+                    text(canvas,"by Pilipala",tx,134,14,normal,alphaColor(0x78FFFFFF,contentAlpha),Paint.Align.LEFT);
                 }
                 else if(i==1){
-                    connectIcon(canvas,x,110,color);
-                    text(canvas,"Marco 互联",x+35,119,23,normal,color,Paint.Align.LEFT);
+                    connectIcon(canvas,ix,112,color);
+                    text(canvas,"Marco 互联",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
                 else if(i==2){
-                    magicIcon(canvas,x,110,color);
-                    text(canvas,"Magic Desktop",x+34,119,23,normal,color,Paint.Align.LEFT);
+                    magicIcon(canvas,ix,112,color);
+                    text(canvas,"Magic Desktop",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
                 else{
-                    icon(canvas,"\ue5c3",x,110,36,color);
-                    text(canvas,"全部应用",x+34,119,21,normal,color,Paint.Align.LEFT);
+                    allAppsIcon(canvas,ix,113,color);
+                    text(canvas,"全部应用",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
             }
             if(host.phone!=null&&host.phone.active()){
                 paint.setColor(0xFF9FE0C4);
-                canvas.drawCircle(headerX[1]+15,90,5,paint);
+                canvas.drawCircle(headerIconX[1]+20,95,4.5f,paint);
             }
             canvas.restoreToCount(headerSave);
-            icon(canvas,"\ue63e",wifiX,110,38,row==-1&&topSelected==4?alphaColor(Color.WHITE,contentAlpha):muted);
+            wifiIcon(canvas,Math.round(wifiX),113,row==-1&&topSelected==4?alphaColor(Color.WHITE,contentAlpha):muted);
             if(mover.active())text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
             if(host.playback!=null&&host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE,
@@ -432,8 +468,8 @@ final class HomeView extends View {
                 int next = Math.max(0, row) + 1;
                 if (next < rows.size()) {
                     Row r = rows.get(next);
-                    icon(canvas, r.symbol, 136, 1003, 48, alphaColor(Color.WHITE, contentAlpha * .3f));
-                    text(canvas, r.title, 176, 1010, 34, bold, alphaColor(Color.WHITE, contentAlpha * .3f), Paint.Align.LEFT);
+                    drawShelfIcon(canvas, r.orderKey, 130, 1000, contentAlpha * .34f);
+                    text(canvas, r.title, 166, 1011, 34, bold, alphaColor(Color.WHITE, contentAlpha * .34f), Paint.Align.LEFT);
                 }
             }
             if(edge.value>.002f&&previewKey==null)drawEdge(canvas,contentAlpha);
@@ -503,50 +539,210 @@ final class HomeView extends View {
         canvas.drawText(text, x, y, paint);
     }
 
-    private void magicIcon(Canvas canvas,float x,float y,int color){
-        float spread=2*Math.max(0,Math.min(1,magicFocus.value));
+    private void settingsIcon(Canvas canvas,float x,float y,int color){
         canvas.save();
-        canvas.translate(x,y);
+        canvas.translate(Math.round(x),Math.round(y));
+        paint.setShader(null);
+        paint.setColor(color);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3.2f);
+        canvas.drawCircle(0,0,9.5f,paint);
+        paint.setStrokeWidth(3.6f);
+        for(int i=0;i<8;i++){
+            double rad=i*Math.PI/4.0;
+            float cos=(float)Math.cos(rad),sin=(float)Math.sin(rad);
+            canvas.drawLine(cos*11.6f,sin*11.6f,cos*15.4f,sin*15.4f,paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(0,0,3.6f,paint);
+        canvas.restore();
+    }
+    private void magicIcon(Canvas canvas,float x,float y,int color){
+        float spread=Math.round(2*Math.max(0,Math.min(1,magicFocus.value)));
+        float alpha=Color.alpha(color)/255f;
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
         magicPaint.setShader(null);
-        magicPaint.setColor(color);
+        magicPaint.setStrokeCap(Paint.Cap.ROUND);
+        magicPaint.setStrokeJoin(Paint.Join.ROUND);
+        // Back card (clean open stroke so it never muddies behind the front card)
         magicPaint.setStyle(Paint.Style.STROKE);
-        magicPaint.setStrokeWidth(2.2f);
-        rect.set(-20-spread,-15-spread,14-spread,10-spread);
-        canvas.drawRoundRect(rect,5,5,magicPaint);
-        canvas.translate(spread,spread);
-        rect.set(-11,-7,23,18);
+        magicPaint.setStrokeWidth(2.6f);
+        magicPaint.setColor(alphaColor(0xBBFFFFFF,alpha));
+        float bx1=-18-spread,by1=-13-spread,bx2=10-spread,by2=7-spread;
+        iconPath.reset();
+        iconPath.moveTo(-10+spread,by2);
+        iconPath.lineTo(bx1+4,by2);
+        iconPath.quadTo(bx1,by2,bx1,by2-4);
+        iconPath.lineTo(bx1,by1+4);
+        iconPath.quadTo(bx1,by1,bx1+4,by1);
+        iconPath.lineTo(bx2-4,by1);
+        iconPath.quadTo(bx2,by1,bx2,by1+4);
+        iconPath.lineTo(bx2,-7+spread);
+        canvas.drawPath(iconPath,magicPaint);
+        // Front glass card with crisp stroke and sharp 4-point sparkle
+        rect.set(-9+spread,-6+spread,18+spread,14+spread);
         magicPaint.setStyle(Paint.Style.FILL);
-        magicPaint.setColor(alphaColor(0xFF172A3B,Color.alpha(color)/255f));
-        canvas.drawRoundRect(rect,5,5,magicPaint);
-        magicPaint.setShader(magicGradient);
-        magicPaint.setAlpha(Color.alpha(color));
-        canvas.drawRoundRect(rect,5,5,magicPaint);
-        magicPaint.setShader(null);
+        magicPaint.setColor(alphaColor(0x308CD6F0,alpha));
+        canvas.drawRoundRect(rect,4.5f,4.5f,magicPaint);
         magicPaint.setStyle(Paint.Style.STROKE);
+        magicPaint.setStrokeWidth(2.6f);
         magicPaint.setColor(color);
-        canvas.drawRoundRect(rect,5,5,magicPaint);
+        canvas.drawRoundRect(rect,4.5f,4.5f,magicPaint);
+        // Crisp 4-point star sparkle centered on front card
+        float sx=4.5f+spread,sy=4f+spread,sr=5.2f,si=1.7f;
+        iconPath.reset();
+        iconPath.moveTo(sx,sy-sr);
+        iconPath.lineTo(sx+si,sy-si);
+        iconPath.lineTo(sx+sr,sy);
+        iconPath.lineTo(sx+si,sy+si);
+        iconPath.lineTo(sx,sy+sr);
+        iconPath.lineTo(sx-si,sy+si);
+        iconPath.lineTo(sx-sr,sy);
+        iconPath.lineTo(sx-si,sy-si);
+        iconPath.close();
         magicPaint.setStyle(Paint.Style.FILL);
+        magicPaint.setColor(color);
+        canvas.drawPath(iconPath,magicPaint);
         canvas.restore();
     }
     private void connectIcon(Canvas canvas,float x,float y,int color){
         canvas.save();
-        canvas.translate(x,y);
+        canvas.translate(Math.round(x),Math.round(y));
+        paint.setShader(null);
         paint.setColor(color);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2.5f);
-        // Leave a gap around the overlapping phone instead of painting an opaque patch.
-        canvas.save();
-        canvas.clipRect(1,-12,26,24,android.graphics.Region.Op.DIFFERENCE);
-        rect.set(-23,-15,13,9);
-        canvas.drawRoundRect(rect,3.5f,3.5f,paint);
-        canvas.restore();
-        canvas.drawLine(-7,10,-7,15,paint);
-        canvas.drawLine(-15,15,0,15,paint);
-        rect.set(4,-9,23,23);
-        canvas.drawRoundRect(rect,4.5f,4.5f,paint);
+        paint.setStrokeWidth(2.6f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        // Open-path TV display leaving clean space for the overlapping phone (no blurry clipRect)
+        iconPath.reset();
+        iconPath.moveTo(2,7);
+        iconPath.lineTo(-17,7);
+        iconPath.quadTo(-20,7,-20,4);
+        iconPath.lineTo(-20,-10);
+        iconPath.quadTo(-20,-13,-17,-13);
+        iconPath.lineTo(8,-13);
+        iconPath.quadTo(11,-13,11,-10);
+        iconPath.lineTo(11,-8);
+        canvas.drawPath(iconPath,paint);
+        // Crisp TV stand
+        canvas.drawLine(-7,7,-7,12,paint);
+        canvas.drawLine(-13,12,-1,12,paint);
+        // Crisp phone outline
+        rect.set(5,-6,20,15);
+        canvas.drawRoundRect(rect,3.8f,3.8f,paint);
+        // Crisp speaker & home pill
         paint.setStyle(Paint.Style.FILL);
-        rect.set(10,-5.2f,17,-2.8f);
-        canvas.drawRoundRect(rect,1.2f,1.2f,paint);
+        rect.set(10,-3.2f,15,-1.4f);
+        canvas.drawRoundRect(rect,1f,1f,paint);
+        rect.set(9.5f,10.8f,15.5f,12.4f);
+        canvas.drawRoundRect(rect,1f,1f,paint);
+        canvas.restore();
+    }
+    private void allAppsIcon(Canvas canvas,float x,float y,int color){
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
+        paint.setShader(null);
+        paint.setColor(color);
+        paint.setStyle(Paint.Style.FILL);
+        float[] pos={-13,-3,7};
+        for(float py:pos)for(float px:pos){
+            rect.set(px,py,px+6,py+6);
+            canvas.drawRoundRect(rect,1.8f,1.8f,paint);
+        }
+        canvas.restore();
+    }
+    private void wifiIcon(Canvas canvas,float x,float y,int color){
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
+        paint.setShader(null);
+        paint.setColor(color);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(0,9,2.8f,paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.8f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for(int i=1;i<=3;i++){
+            float rad=4+i*6.2f;
+            rect.set(-rad,9-rad,rad,9+rad);
+            canvas.drawArc(rect,228,84,false,paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+        canvas.restore();
+    }
+    private void drawShelfIcon(Canvas canvas,String orderKey,float x,float y,float opacity){
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
+        paint.setShader(null);
+        // Sleek frosted glass squircle badge aligned flush at x=112
+        rect.set(-18,-18,18,18);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alphaColor(0x28FFFFFF,opacity));
+        canvas.drawRoundRect(rect,10,10,paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(alphaColor(0x4EFFFFFF,opacity));
+        rect.inset(.75f,.75f);
+        canvas.drawRoundRect(rect,9.5f,9.5f,paint);
+        paint.setStyle(Paint.Style.FILL);
+        if("order_tv".equals(orderKey)){
+            // Modern 2x2 rounded app deck: 3 crisp white tiles + 1 bright accent tile
+            int white=alphaColor(Color.WHITE,opacity);
+            int accent=alphaColor(0xFF7AD8FF,opacity);
+            paint.setColor(white);
+            rect.set(-9,-9,-1.5f,-1.5f);
+            canvas.drawRoundRect(rect,2.4f,2.4f,paint);
+            rect.set(-9,1.5f,-1.5f,9);
+            canvas.drawRoundRect(rect,2.4f,2.4f,paint);
+            rect.set(1.5f,1.5f,9,9);
+            canvas.drawRoundRect(rect,2.4f,2.4f,paint);
+            paint.setColor(accent);
+            rect.set(1.5f,-9,9,-1.5f);
+            canvas.drawRoundRect(rect,2.4f,2.4f,paint);
+        }else if("order_favorites".equals(orderKey)){
+            // Crisp 5-point star
+            paint.setColor(alphaColor(0xFFFFE082,opacity));
+            iconPath.reset();
+            for(int i=0;i<10;i++){
+                double ang=-Math.PI/2+i*Math.PI/5.0;
+                float r=(i%2==0)?10.5f:4.6f;
+                float px=(float)(Math.cos(ang)*r),py=(float)(Math.sin(ang)*r)+.6f;
+                if(i==0)iconPath.moveTo(px,py);
+                else iconPath.lineTo(px,py);
+            }
+            iconPath.close();
+            canvas.drawPath(iconPath,paint);
+        }else if("order_inputs".equals(orderKey)){
+            // Clean signal-in screen icon
+            paint.setColor(alphaColor(Color.WHITE,opacity));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.4f);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            iconPath.reset();
+            iconPath.moveTo(-4,-8);
+            iconPath.lineTo(7,-8);
+            iconPath.quadTo(10,-8,10,-5);
+            iconPath.lineTo(10,5);
+            iconPath.quadTo(10,8,7,8);
+            iconPath.lineTo(-4,8);
+            canvas.drawPath(iconPath,paint);
+            canvas.drawLine(-10,0,3,0,paint);
+            canvas.drawLine(-1,-4,3,0,paint);
+            canvas.drawLine(-1,4,3,0,paint);
+            paint.setStyle(Paint.Style.FILL);
+        }else{
+            // Clean 3x3 mini grid for other apps
+            paint.setColor(alphaColor(Color.WHITE,opacity));
+            float[] p={-8.5f,-2,4.5f};
+            for(float py:p)for(float px:p){
+                rect.set(px,py,px+4,py+4);
+                canvas.drawRoundRect(rect,1.2f,1.2f,paint);
+            }
+        }
         canvas.restore();
     }
     private void icon(Canvas canvas, String glyph, float x, float y, float size, int color) {
@@ -572,8 +768,8 @@ final class HomeView extends View {
         float arrival=Math.max(0,Math.min(1,entrance.value));
         y+=30*(1-arrival);
         opacity*=.65f+.35f*arrival;
-        icon(canvas, r.symbol, 136, y - cardHeight()/2-82, 48, alphaColor(Color.WHITE, opacity));
-        text(canvas, r.title, 176, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
+        drawShelfIcon(canvas, r.orderKey, 130, y - cardHeight()/2-86, opacity);
+        text(canvas, r.title, 166, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
         if(r.tiles.isEmpty())text(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xC0FFFFFF,opacity),Paint.Align.LEFT);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
@@ -839,16 +1035,26 @@ final class HomeView extends View {
             return true;
         }
         if(y<175&&x<clockScene.left(host.appearance())-112){
-            float local=100+(x-100)/headerFit();
-            int entry=local<337?0:local<600?1:local<915?2:3;
-            topSelected=entry;
-            row=-1;
-            animateFocus();
-            if(entry==0)host.settings();
-            else if(entry==1)host.phone.show();
-            else if(entry==2)host.navigator.personalization("cards");
-            else host.drawer.show();
-            return true;
+            float local=HEADER_ANCHOR_X+(x-HEADER_ANCHOR_X)/headerFit();
+            int entry=-1;
+            for(int i=0;i<4;i++){
+                float leftBound=i==0?0:(headerContentRight[i-1]+headerContentLeft[i])*.5f;
+                float rightBound=i==3?headerTotalRight+24f:(headerContentRight[i]+headerContentLeft[i+1])*.5f;
+                if(local>=leftBound&&local<rightBound){
+                    entry=i;
+                    break;
+                }
+            }
+            if(entry>=0){
+                topSelected=entry;
+                row=-1;
+                animateFocus();
+                if(entry==0)host.settings();
+                else if(entry==1)host.phone.show();
+                else if(entry==2)host.navigator.personalization("cards");
+                else host.drawer.show();
+                return true;
+            }
         }
         if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) {
             host.network.show();

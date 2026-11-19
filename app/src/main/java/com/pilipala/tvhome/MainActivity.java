@@ -113,6 +113,8 @@ public final class MainActivity extends Activity {
         normalizeViewportMetrics();
         HomeSetup.finishCompatibilityConsent(this);
         HomeSetup.observeHomeIntent(this, getIntent());
+        SystemIntegration.clearStandbyWakeReturn(this);
+        HomeSetup.markCompatResetIfInterrupted(this);
         Diagnostics.init(this);
         try {
             BackupStore.recoverInterrupted(this);

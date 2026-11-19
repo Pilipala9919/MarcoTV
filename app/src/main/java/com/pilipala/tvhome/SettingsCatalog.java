@@ -59,13 +59,13 @@ final class SettingsCatalog {
     static boolean allowed(String group,String key){
         if(group==null||key==null)return false;
         if(group.equals("home"))return HOME_KEYS.contains(key)||(key.startsWith("opened:")&&key.length()>7&&key.length()<=507);
-        if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps").contains(key)||key.matches("(name|cover|manual):.{1,500}");
+        if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps","pin_order").contains(key)||key.matches("(name|cover|manual):.{1,500}");
         if(group.equals("cast"))return key.equals("cast_mode")||key.equals("cast_confirm");
         return group.equals("menu_order")&&ORDER_KEYS.contains(key);
     }
     static String expectedType(String group,String key){
         if(group.equals("menu_order"))return "s";
-        if(group.equals("cards"))return key.contains(":")?"s":"set";
+        if(group.equals("cards"))return (key.contains(":")||key.equals("pin_order"))?"s":"set";
         if(group.equals("cast"))return key.equals("cast_confirm")?"b":"i";
         if(key.startsWith("opened:"))return "l";
         if(key.equals("ambient_enabled")||key.equals("now_playing")||key.equals("recent_enabled")||key.equals("recent_wake"))return "b";

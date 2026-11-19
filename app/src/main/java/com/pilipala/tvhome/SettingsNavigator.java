@@ -27,11 +27,18 @@ final class SettingsNavigator {
         host.showDialog(settingsDialog());
     }
     TvDialog settingsDialog() {
-        return new TvDialog.Builder(host).setPageId("main").setTitle("桌面设置")
-                .setOrder("main_v2",java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_IDS,1,SettingsCatalog.ROOT_IDS.length-1))
-                .setItems(java.util.Arrays.copyOfRange(SettingsCatalog.ROOT_LABELS,1,SettingsCatalog.ROOT_LABELS.length-1),(d,w)->host.handler.post(()->{
-            openCategory(w+1);
-        })).setNegativeButton("返回桌面",null).create();
+        SettingsScreen screen = new SettingsScreen(host);
+        TvDialog page = new TvDialog.Builder(host)
+                .setPageId("main")
+                .setTitle("设置")
+                .fullscreen()
+                .setView(screen)
+                .setBackHandler(screen::handleBack)
+                .setKeyHandler(screen::handleKey)
+                .create();
+        screen.bindDialog(page);
+        page.onReturn(screen::refresh);
+        return page;
     }
     void openCategory(int index){
         switch(index){
@@ -67,7 +74,7 @@ final class SettingsNavigator {
     void applicationSettings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("apps").setTitle("应用与分类")
                 .setOrder("apps","add","sorting","favorites","pinned","hidden")
-                .setItems(new String[]{"添加应用","TV 应用排序","管理收藏卡片","管理置顶卡片","恢复隐藏的桌面卡片"},(d,w)->{
+                .setItems(new String[]{"添加应用","应用排序","管理收藏卡片","管理置顶卡片","恢复隐藏的桌面卡片"},(d,w)->{
             switch(w){
                 case 0:
                     host.library.show();
@@ -87,7 +94,7 @@ final class SettingsNavigator {
             }
         }).setNegativeButton("返回",null).create());
     }
-    private void managedCards(String key,String title){
+    void managedCards(String key,String title){
         ArrayList<Tile> found=new ArrayList<>();
         for(Tile t:host.allTiles)if(host.cards.contains(key,t.id))found.add(t);
         if(found.isEmpty()){
@@ -277,34 +284,50 @@ final class SettingsNavigator {
         Row row = host.home.rows.get(host.home.row);
         if (row.tiles.isEmpty()) return;
         Tile tile = row.tiles.get(row.selected);
+        boolean pinned = host.cards.contains("pinned", tile.id);
+        boolean atFirst = row.selected == 0;
         boolean favorite = host.cards.contains("favorites", tile.id);
-        String[] options={"移动卡片","重命名","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观",tile.kind==1?"打开输入源":"应用信息"};
+        String pinLabel = pinned && atFirst ? "取消置顶" : "置顶到首位";
+        String[] options={pinLabel,"移动卡片","重命名","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观",tile.kind==1?"打开输入源":"应用信息"};
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("tile",tile.id)).setTitle(tile.label)
                 .setItems(options,(d,w)->{
             switch(w){
                 case 0:
                     host.exitMenus();
-                    host.home.beginMove();
+                    if(pinned&&atFirst){
+                        host.cards.unpin(tile.id);
+                        host.loadApplications();
+                        host.toast("已取消置顶");
+                    }else{
+                        AppOrder.pinToFirst(host.preferences,host.cards,row,tile);
+                        host.focusAfterLoad=tile.id;
+                        host.loadApplications();
+                        host.toast("已置顶到首位");
+                    }
                     break;
                 case 1:
-                    renameCard(tile);
+                    host.exitMenus();
+                    host.home.beginMove();
                     break;
                 case 2:
-                    coverOptions(tile);
+                    renameCard(tile);
                     break;
                 case 3:
+                    coverOptions(tile);
+                    break;
+                case 4:
                     host.cards.toggle("favorites",tile.id,!favorite);
                     host.loadApplications();
                     host.toast(favorite?"已取消收藏":"已加入收藏");
                     break;
-                case 4:
+                case 5:
                     cardSettings(tile);
                     break;
-                case 5:
+                case 6:
                     host.cards.reset(tile.id);
                     host.loadApplications();
                     break;
-                case 6:
+                case 7:
                     if(tile.kind==1)host.launch(tile);
                     else{
                     String version="";
@@ -328,20 +351,25 @@ final class SettingsNavigator {
         options.add("隐藏卡片");
         if(tile.kind==0)options.add("卸载应用");
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("card",tile.id)).setTitle("单独卡片设置 · "+tile.label)
-                .setMessage("只影响当前卡片；整行排序请到应用与分类设置。")
+                .setMessage("只影响当前卡片；整行排序请到应用与媒体设置。")
                 .setItems(options.toArray(new String[0]),(d,w)->{
-            if(w<2){
-                host.cards.toggle(w==0?"pinned":"favorites",tile.id,w==0?!pinned:!favorite);
+            if(w==0){
+                if(pinned)host.cards.unpin(tile.id);
+                else host.cards.pinFirst(tile.id);
+                host.loadApplications();
+                cardSettings(tile);
+            }else if(w==1){
+                host.cards.toggle("favorites",tile.id,!favorite);
                 host.loadApplications();
                 cardSettings(tile);
             }
             else if(w==2)host.showDialog(new TvDialog.Builder(host).setPageId("hide_confirm").setTitle("隐藏「"+tile.label+"」？")
-                    .setMessage("从桌面与收藏中隐藏，不卸载。可在应用与分类中恢复。")
+                    .setMessage("从桌面与收藏中隐藏，不卸载。可在应用与媒体设置中恢复。")
                     .setPositiveButton("隐藏",(x,y)->{
                 host.cards.toggle("hidden",tile.id,true);
                 host.loadApplications();
                 host.showDialog(new TvDialog.Builder(host)
-                        .setPageId("hide_done").setTitle("卡片已隐藏").setMessage("可以立即撤销，也可在应用与分类中恢复。")
+                        .setPageId("hide_done").setTitle("卡片已隐藏").setMessage("可以立即撤销，也可在应用与媒体设置中恢复。")
                         .setPositiveButton("撤销隐藏",(a,b)->{
                     host.cards.toggle("hidden",tile.id,false);
                     host.focusAfterLoad=tile.id;
@@ -356,7 +384,7 @@ final class SettingsNavigator {
     void sorting() {
         String mode=AppOrder.mode(host.preferences);
         int selected=java.util.Arrays.asList(AppOrder.MODES).indexOf(mode);
-        host.showDialog(new TvDialog.Builder(host).setPageId("app_sort").setTitle("TV 应用排序")
+        host.showDialog(new TvDialog.Builder(host).setPageId("app_sort").setTitle("应用排序")
                 .setMessage("置顶卡片始终优先。上次打开记录从 Marco TV 启动的应用；首字母按中文拼音 / 字母比较。自定义顺序独立保存，切换方式不会清空。")
                 .setSingleChoiceItems(AppOrder.LABELS,selected,(d,w)->{
             if(AppOrder.MODES[w].equals("custom")&&host.preferences.getString("order_tv","").isEmpty()) {
