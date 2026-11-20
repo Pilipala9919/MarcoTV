@@ -28,6 +28,7 @@ final class PreviewBackdrop {
             int w=Math.max(1,Math.round(viewWidth*ratio)),h=Math.max(1,Math.round(viewHeight*ratio));
             blurred=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
             Canvas small=new Canvas(blurred);
+            small.drawColor(0xFF0B121C);
             float scale=Math.max(w/(float)wallpaper.getWidth(),h/(float)wallpaper.getHeight());
             float sw=wallpaper.getWidth()*scale,sh=wallpaper.getHeight()*scale;
             bounds.set((w-sw)/2,(h-sh)/2,(w+sw)/2,(h+sh)/2);
@@ -41,23 +42,24 @@ final class PreviewBackdrop {
                 blur(scratch,pixels,w,h,false);
             }
             blurred.setPixels(pixels,0,w,0,0,w,h);
+            // Pre-bake the dark veil into the tiny blur cache so every preview frame is a single drawBitmap.
+            small.drawColor(0x980B121C);
             shader=new BitmapShader(blurred,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
         }
     }
     void draw(Canvas canvas,Bitmap wallpaper,int viewWidth,int viewHeight){
-        canvas.drawColor(0xFF0B121C);
         prepare(wallpaper,viewWidth,viewHeight);
-        if(blurred==null)return;
+        if(blurred==null){
+            canvas.drawColor(0xFF0B121C);
+            return;
+        }
         bounds.set(0,0,viewWidth,viewHeight);
+        paint.setShader(null);
         paint.setColor(Color.WHITE);
         canvas.drawBitmap(blurred,null,bounds,paint);
-        canvas.drawColor(0x980B121C);
     }
     void drawMask(Canvas canvas,Path mask,int viewWidth,int viewHeight){
-        paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(0xFF0B121C);
-        canvas.drawPath(mask,paint);
         if(blurred!=null&&shader!=null&&viewWidth>0&&viewHeight>0){
             shaderMatrix.setScale(viewWidth/(float)blurred.getWidth(),viewHeight/(float)blurred.getHeight());
             shader.setLocalMatrix(shaderMatrix);
@@ -65,9 +67,11 @@ final class PreviewBackdrop {
             paint.setColor(Color.WHITE);
             canvas.drawPath(mask,paint);
             paint.setShader(null);
-            paint.setColor(0x980B121C);
-            canvas.drawPath(mask,paint);
+            return;
         }
+        paint.setShader(null);
+        paint.setColor(0xFF0B121C);
+        canvas.drawPath(mask,paint);
     }
     private static void blur(int[] input,int[] output,int w,int h,boolean horizontal){
         int length=horizontal?w:h,lines=horizontal?h:w,radius=6,divisor=radius*2+1;

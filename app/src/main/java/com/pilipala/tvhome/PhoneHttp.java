@@ -67,6 +67,7 @@ final class PhoneHttp implements AutoCloseable {
     static int headerTimeoutMs=5000;
     static final int MAX_PER_IP=8;
     static final long MAX_UPLOAD_BYTES=50L*1024*1024;
+    static final long MAX_VIDEO_UPLOAD_BYTES=80L*1024*1024;
     private final ServerSocket server;
     private final File folder;
     private final Handler handler;
@@ -144,7 +145,9 @@ final class PhoneHttp implements AutoCloseable {
                 result=handler.check(request);
                 if(result==null){
                     s.setSoTimeout(12000);
-                    long max=(request.path.equals("/restore")||request.path.equals("/cast"))?128L*1024*1024:request.path.equals("/upload")?MAX_UPLOAD_BYTES:65536;
+                    long max=(request.path.equals("/restore")||request.path.equals("/cast"))?128L*1024*1024
+                            :request.path.equals("/upload-video")?MAX_VIDEO_UPLOAD_BYTES
+                            :request.path.equals("/upload")?MAX_UPLOAD_BYTES:65536;
                     if(request.length>max)result=Response.text(413,"文件过大");
                     else{
                         if(request.length>0){
@@ -172,7 +175,7 @@ final class PhoneHttp implements AutoCloseable {
             OutputStream out=new BufferedOutputStream(s.getOutputStream());
             long size=result.file==null?result.bytes.length:result.file.length();
             StringBuilder h=new StringBuilder("HTTP/1.1 "+result.code+" "+(result.code==200?"OK":"Error")+"\r\nContent-Type: "+result.type+"\r\nContent-Length: "+size+"\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\n");
-            h.append("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\n");
+            h.append("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\n");
             for(Map.Entry<String,String> e:result.headers.entrySet())h.append(e.getKey()).append(": ")
                     .append(e.getValue()).append("\r\n");
             h.append("\r\n");

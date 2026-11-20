@@ -84,6 +84,56 @@ public final class WallpaperCatalogChecks {
         check("format_size_kb_and_mb", WallpaperCatalogPolicy.formatSize(512000).equals("500 KB")
                 && WallpaperCatalogPolicy.formatSize(2L * 1024 * 1024).equals("2.0 MB"));
 
+        String mirrorVideo = "https://marcotv.wlj9919.top/wallpapers/videos/06-black-cat.mp4";
+        String fallbackVideo = "https://pilipala9919.github.io/MarcoTV/wallpapers/videos/06-black-cat.mp4";
+        check("valid_mirror_video_url", WallpaperCatalogPolicy.videoUrl(mirrorVideo)
+                && WallpaperCatalogPolicy.videoUrl("https://marcotv.wlj9919.top/wallpapers/videos/06-black-cat.webm")
+                && !WallpaperCatalogPolicy.videoUrl("https://marcotv.wlj9919.top/wallpapers/videos/06-black-cat.mkv")
+                && !WallpaperCatalogPolicy.videoUrl(mirrorFull));
+        String[] videoCandidates = WallpaperCatalogPolicy.candidateMediaUrls(mirrorVideo, true);
+        check("video_candidate_urls_mirror_then_fallback", videoCandidates.length == 2
+                && videoCandidates[0].equals(mirrorVideo) && videoCandidates[1].equals(fallbackVideo));
+        check("max_video_wallpaper_is_80mb", WallpaperCatalogPolicy.MAX_VIDEO_BYTES == 80L * 1024 * 1024);
+        WallpaperCatalogPolicy.validateItem("06-black-cat", "黑猫动态壁纸", "循环动态壁纸",
+                "Pilipala", "CC0", 1920, 1080, 12L * 1024 * 1024, sha, mirrorVideo,
+                mirrorThumb, 24000, sha, "video");
+        check("valid_video_item_accepted", true);
+        expectReject("reject_over_80mb_video", () -> WallpaperCatalogPolicy.validateItem(
+                "06-black-cat", "黑猫", "", "", "",
+                1920, 1080, 80L * 1024 * 1024 + 1, sha, mirrorVideo, mirrorThumb, 24000, sha, "video"));
+        expectReject("reject_invalid_item_type", () -> WallpaperCatalogPolicy.validateItem(
+                "06-black-cat", "黑猫", "", "", "",
+                1920, 1080, 1024, sha, mirrorVideo, mirrorThumb, 24000, sha, "audio"));
+        expectReject("reject_image_url_for_video_type", () -> WallpaperCatalogPolicy.validateItem(
+                "06-black-cat", "黑猫", "", "", "",
+                1920, 1080, 1024, sha, mirrorFull, mirrorThumb, 24000, sha, "video"));
+
+        String aerialVid = "https://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov";
+        String[] aerialCandidates = WallpaperCatalogPolicy.candidateCuratedUrls(aerialVid, true);
+        check("curated_aerial_4k_urls_allowed_strictly",
+                WallpaperCatalogPolicy.curatedAerialUrl(aerialVid)
+                && WallpaperCatalogPolicy.curatedAerialUrl("https://github.com/glouel/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_florida_miami_brickell_sunset_00036.4k-sdr.mov")
+                && !WallpaperCatalogPolicy.curatedAerialUrl("http://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov")
+                && !WallpaperCatalogPolicy.curatedAerialUrl(aerialVid + "?x=1")
+                && !WallpaperCatalogPolicy.curatedAerialUrl("https://evil.example/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_a.4k-sdr.mov")
+                && !WallpaperCatalogPolicy.curatedAerialUrl("https://github.com/other/repo/releases/download/mw2-4k-sdr/video_inspire_a.4k-sdr.mov")
+                && !WallpaperCatalogPolicy.videoUrl(aerialVid)
+                && aerialCandidates.length == 3
+                && aerialCandidates[0].equals("https://gh-proxy.com/" + aerialVid)
+                && aerialCandidates[1].equals("https://gh-proxy.org/" + aerialVid)
+                && aerialCandidates[2].equals(aerialVid)
+                && WallpaperCatalogPolicy.transferUrl(aerialCandidates[0])
+                && WallpaperCatalogPolicy.transferUrl(aerialCandidates[1])
+                && !WallpaperCatalogPolicy.transferUrl("http://gh-proxy.com/" + aerialVid));
+        check("user_video_import_url_blocks_loopback",
+                WallpaperCatalogPolicy.userVideoImportUrl("https://cdn.example.com/live/cat.mp4")
+                && WallpaperCatalogPolicy.userVideoImportUrl("http://198.51.100.5:8080/clip.mp4")
+                && !WallpaperCatalogPolicy.userVideoImportUrl("http://127.0.0.1/clip.mp4")
+                && !WallpaperCatalogPolicy.userVideoImportUrl("https://localhost/clip.mp4")
+                && !WallpaperCatalogPolicy.userVideoImportUrl("http://[::1]/clip.mp4")
+                && !WallpaperCatalogPolicy.userVideoImportUrl("file:///sdcard/a.mp4")
+                && !WallpaperCatalogPolicy.userVideoImportUrl("https://user:pass@example.com/a.mp4"));
+
         System.out.println("OK " + passed + " wallpaper catalog policy checks");
     }
 }

@@ -24,7 +24,11 @@ final class ChoiceMenu extends LinearLayout {
     private final Button heading;
     private final LinearLayout menu;
     private final RadioButton[] options;
+    private Runnable onBeforeOpen;
     private int value;
+    void setOnBeforeOpen(Runnable action){
+        onBeforeOpen=action;
+    }
     ChoiceMenu(Context context,String title,String[] names,int value,Listener listener,Runnable focused){
         super(context);
         this.title=title;
@@ -101,15 +105,19 @@ final class ChoiceMenu extends LinearLayout {
         return menu.getVisibility()==VISIBLE;
     }
     void openMenu(){
+        if(onBeforeOpen!=null)onBeforeOpen.run();
         menu.setVisibility(VISIBLE);
         refresh();
         options[value].requestFocus();
         post(()->requestRectangleOnScreen(new Rect(0,0,getWidth(),getHeight()),true));
     }
     void closeMenu(){
+        closeMenu(true);
+    }
+    void closeMenu(boolean refocusHeading){
         menu.setVisibility(GONE);
         refresh();
-        heading.requestFocus();
+        if(refocusHeading)heading.requestFocus();
     }
     void focusHeading(){
         heading.requestFocus();

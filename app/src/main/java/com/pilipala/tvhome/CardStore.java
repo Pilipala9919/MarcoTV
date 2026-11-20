@@ -165,6 +165,7 @@ final class CardStore {
             return null;
         }
         if (decoded == null) return null;
+        decoded.setHasMipMap(true);
         ArtworkCache.put(key, decoded);
         return decoded;
     }

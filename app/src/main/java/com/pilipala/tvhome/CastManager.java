@@ -788,6 +788,7 @@ final class CastManager implements DlnaServer.SoapHandler {
         currentDurationMs = 0;
         transportState = "PLAYING";
         ensurePlayerDialog();
+        host.syncLiveWallpaper();
         host.screensaver.cancel();
         if (photoView != null) photoView.setVisibility(View.GONE);
         if (videoView != null) {
@@ -834,6 +835,7 @@ final class CastManager implements DlnaServer.SoapHandler {
         currentDurationMs = 0;
         transportState = "PLAYING";
         ensurePlayerDialog();
+        host.syncLiveWallpaper();
         host.screensaver.cancel();
         if (videoView != null) {
             try { videoView.stopPlayback(); } catch (RuntimeException ignored) {}
@@ -999,6 +1001,7 @@ final class CastManager implements DlnaServer.SoapHandler {
             currentPhoto = null;
         }
         syncReceiver();
+        host.syncLiveWallpaper();
         host.armIdle();
     }
 
@@ -1291,6 +1294,7 @@ final class CastManager implements DlnaServer.SoapHandler {
         // is never occluded behind playerDialog and Back cleanly returns to the desktop.
         dismissPlayerWindowOnly();
         syncReceiver();
+        host.syncLiveWallpaper();
         host.armIdle();
 
         TvDialog errDialog = new TvDialog.Builder(host).setPageId("cast_error").setTitle("投屏播放提示")

@@ -153,18 +153,27 @@ final class AppearanceDeviceChecks {
                 check.accept("root_back_closes_shared_window",!host.panelWindow().isShowing());
             }catch(Exception e){throw new RuntimeException(e);}});
             final int originalRadius=prefs.getInt("card_radius",32);final boolean hadPersonalRadius=prefs.contains("card_radius");
+            final int originalStyle=prefs.getInt("clock_style",0);final boolean hadClockStyle=prefs.contains("clock_style");
+            final int originalTilt=prefs.getInt("clock_tilt",10);final boolean hadClockTilt=prefs.contains("clock_tilt");
             final PersonalizationPanel[] editor={null};final TvDialog[] editorPage={null};
             ui(inst,()->{host.exitMenus();host.navigator.personalization("cards");});Thread.sleep(1800);
             ui(inst,()->{try{
                 editorPage[0]=(TvDialog)field(host.dialogs,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
-                java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(editor[0],"controls");
+                java.util.Map<String,ParameterCard> controls=(java.util.Map<String,ParameterCard>)field(editor[0],"controls");
                 ChoiceMenu fontMenu=(ChoiceMenu)field(editor[0],"clockStyle");
                 check.accept("personalization_contains_twenty_four_controls",controls.size()==23&&fontMenu!=null&&!controls.containsKey("clock_style"));
+                ParameterCard radiusCard=controls.get("card_radius");
+                check.accept("parameter_card_starts_collapsed",!radiusCard.isExpanded());
+                radiusCard.expand();
+                check.accept("parameter_card_expands_on_click",radiusCard.isExpanded());
+                editorPage[0].onBackPressed();
+                check.accept("back_collapses_expanded_card_keeps_editor",!radiusCard.isExpanded()&&host.isPage("personalization"));
+                check.accept("personalization_has_no_save_button",PhoneDeviceChecks.find((View)field(editorPage[0],"panel"),"保存")==null&&PhoneDeviceChecks.find((View)field(editorPage[0],"panel"),"恢复默认值")!=null);
                 fontMenu.openMenu();check.accept("font_menu_opens_with_selected_option_focused",fontMenu.isExpanded()&&((View[])field(fontMenu,"options"))[fontMenu.getValue()].isFocused());
                 fontMenu.dispatchKeyEvent(new android.view.KeyEvent(0,4));fontMenu.dispatchKeyEvent(new android.view.KeyEvent(1,4));
                 check.accept("font_menu_back_closes_choices_keeps_editor",!fontMenu.isExpanded()&&host.isPage("personalization"));
                 int savedStyle=prefs.getInt("clock_style",0);fontMenu.setValue((savedStyle+1)%4);
-                check.accept("clock_style_preview_does_not_write_preferences",prefs.getInt("clock_style",0)==savedStyle&&host.appearance().getInt("clock_style",0)!=(savedStyle));
+                check.accept("clock_style_auto_saves_immediately",prefs.getInt("clock_style",0)==(savedStyle+1)%4);
                 ClockScene clock=new ClockScene(host);PreviewPreferences fontPrefs=new PreviewPreferences(prefs);Bitmap target=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(target);
                 java.util.HashSet<Integer> signatures=new java.util.HashSet<>();boolean anchorsFit=true;
                 for(int style=0;style<4;style++){
@@ -177,7 +186,7 @@ final class AppearanceDeviceChecks {
                 check.accept("clock_style_is_backed_up_with_valid_bounds",BackupStore.HOME.contains("clock_style")&&java.util.Arrays.equals(BackupStore.range("clock_style"),new int[]{0,3}));target.recycle();
                 int savedTilt=prefs.getInt("clock_tilt",10);fontMenu.setValue(2);controls.get("clock_tilt").setValue(savedTilt==14?0:14);
                 check.accept("clock_tilt_slider_is_visible_for_round_style",controls.get("clock_tilt").getVisibility()==View.VISIBLE);
-                check.accept("clock_tilt_preview_does_not_write_preferences",prefs.getInt("clock_tilt",10)==savedTilt&&host.appearance().getInt("clock_tilt",10)!=savedTilt);
+                check.accept("clock_tilt_auto_saves_immediately",prefs.getInt("clock_tilt",10)!=savedTilt);
                 fontMenu.setValue(0);check.accept("clock_tilt_slider_hides_for_other_styles",controls.get("clock_tilt").getVisibility()==View.GONE);
                 check.accept("clock_tilt_backup_has_bounded_range",BackupStore.HOME.contains("clock_tilt")&&java.util.Arrays.equals(BackupStore.range("clock_tilt"),new int[]{0,14}));
                 ClockScene stable=new ClockScene(host);Bitmap surface=Bitmap.createBitmap(1920,1080,Bitmap.Config.ARGB_8888);Canvas drawing=new Canvas(surface);
@@ -203,28 +212,19 @@ final class AppearanceDeviceChecks {
                 check.accept("clock_digit_angles_stay_fixed_across_minutes",anglesStable);
                 check.accept("clock_tilt_zero_mid_and_max_render_differently",tiltHashes.size()==3);surface.recycle();
                 controls.get("card_radius").setValue(originalRadius==70?60:70);
-                check.accept("personalization_edits_stay_in_draft",prefs.getInt("card_radius",32)==originalRadius&&host.appearance().getInt("card_radius",32)!=originalRadius);
-                controls.get("ambient_clock_size").requestFocus();
+                check.accept("personalization_edits_auto_save",prefs.getInt("card_radius",32)!=originalRadius);
+                controls.get("ambient_clock_size").focusHeader();
                 check.accept("personalization_focus_selects_screensaver_preview","ambient_clock_size".equals(editorPage[0].previewKey()));
-                host.navigator.wallpaperSettings();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(250);
-            ui(inst,()->{try{((TvDialog)field(host.dialogs,"activeDialog")).onBackPressed();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
-            ui(inst,()->{try{
-                check.accept("personalization_child_return_keeps_draft",host.isPage("personalization")&&host.localPreview!=null&&host.appearance().getInt("card_radius",32)!=originalRadius);
                 editorPage[0].onBackPressed();
-                check.accept("personalization_back_discards_all_draft",host.localPreview==null&&prefs.getInt("card_radius",32)==originalRadius);
-                host.navigator.personalization("cards");
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
-            ui(inst,()->{try{
-                TvDialog current=(TvDialog)field(host.dialogs,"activeDialog");PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
-                java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_radius").setValue(originalRadius==70?60:70);
-                PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();
-            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
+            }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(600);
             ui(inst,()->{
-                check.accept("personalization_save_commits_draft",prefs.getInt("card_radius",32)!=originalRadius&&host.localPreview==null);
-                if(hadPersonalRadius)prefs.edit().putInt("card_radius",originalRadius).commit();else prefs.edit().remove("card_radius").commit();
-                host.navigator.personalization("cards");host.exitMenus();
-                check.accept("personalization_home_discards_draft",host.localPreview==null);
+                check.accept("personalization_back_keeps_auto_saved_value",prefs.getInt("card_radius",32)!=originalRadius&&host.localPreview==null);
+                SharedPreferences.Editor restore=prefs.edit();
+                if(hadPersonalRadius)restore.putInt("card_radius",originalRadius);else restore.remove("card_radius");
+                if(hadClockStyle)restore.putInt("clock_style",originalStyle);else restore.remove("clock_style");
+                if(hadClockTilt)restore.putInt("clock_tilt",originalTilt);else restore.remove("clock_tilt");
+                restore.commit();
+                host.exitMenus();
             });
             ui(inst,()->{try{
                 host.exitMenus();boolean had=prefs.contains("card_row_position");int before=prefs.getInt("card_row_position",75);boolean hadHeight=prefs.contains("card_height");int oldHeight=prefs.getInt("card_height",100);
@@ -233,33 +233,30 @@ final class AppearanceDeviceChecks {
                     check.accept("row_position_upgrade_keeps_original_center",Math.abs(host.home.shelfCenterY()-660)<.01f);
                     host.navigator.personalization("cards");TvDialog current=(TvDialog)field(host.dialogs,"activeDialog");
                     PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
-                    java.util.Map<String,ContinuousSlider> controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");
+                    java.util.Map<String,ParameterCard> controls=(java.util.Map<String,ParameterCard>)field(edit,"controls");
                     controls.get("card_row_position").setValue(0);
-                    check.accept("row_position_previews_without_saving",host.home.shelfCenterY()==495&&!prefs.contains("card_row_position"));
+                    check.accept("row_position_auto_saves_and_updates_layout",host.home.shelfCenterY()==495&&prefs.getInt("card_row_position",75)==0);
                     check.accept("row_position_touch_band_moves_with_row",host.home.inShelfTouchBand(370)&&!host.home.inShelfTouchBand(750));
                     controls.get("card_row_position").setValue(100);
                     check.accept("row_position_extremes_keep_heading_and_label_in_safe_area",495-172-24>285&&host.home.shelfCenterY()+188<925);
                     check.accept("row_position_lower_touch_band_follows",host.home.inShelfTouchBand(850)&&!host.home.inShelfTouchBand(370));
-                    current.onBackPressed();check.accept("row_position_back_restores_saved_layout",host.localPreview==null&&Math.abs(host.home.shelfCenterY()-660)<.01f);
-                    host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
-                    controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_row_position").setValue(25);
-                    PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();host.exitMenus();
+                    controls.get("card_row_position").setValue(25);
+                    host.exitMenus();
                     check.accept("row_position_save_commits_layout",prefs.getInt("card_row_position",75)==25&&host.home.shelfCenterY()==550);
                     check.accept("row_position_backup_contains_saved_value",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_row_position").getInt("value")==25&&java.util.Arrays.equals(BackupStore.range("card_row_position"),new int[]{0,100}));
                     prefs.edit().putInt("card_row_position",-100).commit();boolean top=host.home.shelfCenterY()==495;prefs.edit().putInt("card_row_position",500).commit();
                     check.accept("row_position_clamps_invalid_imported_values",top&&host.home.shelfCenterY()==715);
                     prefs.edit().putInt("card_row_position",75).remove("card_height").commit();host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
-                    controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
-                    check.accept("card_height_preview_keeps_saved_value",Math.abs(host.home.cardHeight()-234)<.01f&&!prefs.contains("card_height"));
+                    controls=(java.util.Map<String,ParameterCard>)field(edit,"controls");controls.get("card_height").setValue(130);
+                    check.accept("card_height_auto_saves_value",Math.abs(host.home.cardHeight()-234)<.01f&&prefs.getInt("card_height",0)==130);
                     boolean safe=true;for(int height:new int[]{70,100,130})for(int position:new int[]{0,75,100}){controls.get("card_height").setValue(height);controls.get("card_row_position").setValue(position);float h=host.home.cardHeight(),y=host.home.shelfCenterY();safe&=y-h/2-106>285&&y+h/2+98<925;}
                     check.accept("combined_height_and_position_extremes_fit_content",safe);
-                    controls.get("card_height").setValue(70);current.onBackPressed();check.accept("card_height_back_discards_draft",Math.abs(host.home.cardHeight()-180)<.01f);
-                    host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");controls=(java.util.Map<String,ContinuousSlider>)field(edit,"controls");controls.get("card_height").setValue(130);
+                    controls.get("card_height").setValue(130);
                     Tile sample=new Tile();sample.label="Fixture";sample.banner=true;sample.artwork=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);sample.artwork.eraseColor(Color.WHITE);Bitmap target=Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888);
                     Method draw=HomeView.class.getDeclaredMethod("drawTile",Canvas.class,Tile.class,float.class,float.class,float.class);draw.setAccessible(true);draw.invoke(host.home,new Canvas(target),sample,400f,300f,1f);
                     float[] matrix=new float[9];((Matrix)field(host.home,"artworkMatrix")).getValues(matrix);check.accept("tall_banner_preserves_image_aspect_ratio",Math.abs(matrix[0]-matrix[4])<.001f);
                     check.accept("tall_card_renders_added_height",Color.alpha(target.getPixel(400,190))>0&&Color.alpha(target.getPixel(400,175))==0);target.recycle();sample.artwork.recycle();
-                    PhoneDeviceChecks.find((View)field(current,"panel"),"保存").performClick();host.exitMenus();check.accept("card_height_save_commits_value",prefs.getInt("card_height",0)==130);
+                    host.exitMenus();check.accept("card_height_save_commits_value",prefs.getInt("card_height",0)==130);
                     check.accept("card_height_backup_has_bounded_range",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_height").getInt("value")==130&&java.util.Arrays.equals(BackupStore.range("card_height"),new int[]{70,130}));
                     prefs.edit().putInt("card_height",999).commit();check.accept("card_height_clamps_invalid_values",Math.abs(host.home.cardHeight()-234)<.01f);
                 }finally{host.exitMenus();if(had)prefs.edit().putInt("card_row_position",before).commit();else prefs.edit().remove("card_row_position").remove("card_height").commit();if(hadHeight)prefs.edit().putInt("card_height",oldHeight).commit();else prefs.edit().remove("card_height").commit();host.home.invalidate();}

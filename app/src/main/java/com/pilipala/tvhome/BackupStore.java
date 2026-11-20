@@ -312,6 +312,7 @@ final class BackupStore {
             }
             if(group.equals("home")){
                 edit.remove("wallpaper");
+                edit.remove("wallpaper_video");
                 if(p.metadata.getBoolean("customWallpaper"))edit.putString("wallpaper",Uri.fromFile(new File(c.getFilesDir(),"wallpaper-image"))
                         .toString());
             }

@@ -69,7 +69,9 @@ public final class MainActivity extends Activity {
     final LatestTaskQueue taskImages=new LatestTaskQueue("Marco-task-images");
     final ExecutorService taskCommands=Executors.newSingleThreadExecutor();
     SharedPreferences preferences;
+    DesktopStage stage;
     HomeView home;
+    WallpaperLibrary wallpaperLibrary;
     boolean foreground;
     private boolean receiverRegistered;
     final IdleController screensaver = new IdleController(this);
@@ -157,8 +159,10 @@ public final class MainActivity extends Activity {
         registerReceiver(playbackAccess, new IntentFilter(PlaybackListenerService.CHANGED));
         if (state != null) cover.pendingId = state.getString("pending_cover");
         fullscreen();
+        wallpaperLibrary = new WallpaperLibrary(this);
         home = new HomeView(this);
-        setContentView(home);
+        stage = new DesktopStage(this, home);
+        setContentView(stage);
         phone = new PhoneManager(this);
         cast = new CastManager(this);
         home.requestFocus();
@@ -253,6 +257,7 @@ public final class MainActivity extends Activity {
             home.setIdle(true);
         }
         dialogs.resume();
+        syncLiveWallpaper();
         if(network!=null)network.resume();
         if(cast!=null)cast.resume();
         if(playback!=null)playback.refresh();
@@ -267,6 +272,7 @@ public final class MainActivity extends Activity {
         if(updates!=null)updates.pause();
         if(network!=null)network.pause();
         foreground = false;
+        syncLiveWallpaper();
         if(cast!=null)cast.pause();
         Diagnostics.foreground(false);
         if(playback!=null)playback.stop();
@@ -295,6 +301,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if(defaultHome!=null)defaultHome.destroy();
         if(cast!=null)cast.destroy();
+        if(stage!=null)stage.liveWallpaper.destroy();
         if(phone!=null)phone.destroy();
         handler.removeCallbacksAndMessages(null);
         if (network != null) network.close();
@@ -350,6 +357,17 @@ public final class MainActivity extends Activity {
 
     void loadWallpaper() {
         wallpapers.load();
+    }
+
+    void syncLiveWallpaper() {
+        if (stage == null) return;
+        boolean allow = foreground
+                && !isDestroyed()
+                && !isFinishing()
+                && !screensaver.sleepReleased
+                && (cast == null || !cast.isPlaying())
+                && !dialogs.isOpaqueFullscreen();
+        stage.liveWallpaper.setActive(allow);
     }
 
     void loadApplications() {

@@ -404,11 +404,15 @@ final class RecentApps {
         paint.setColor((color&0x00FFFFFF)|(Math.round(Color.alpha(color)*drawAlpha)<<24));
     }
     void draw(Canvas c,boolean preview){
+        draw(c,preview,1f);
+    }
+    void draw(Canvas c,boolean preview,float previewOpacity){
+        float alpha=preview?Math.max(0f,Math.min(1f,previewOpacity)):backdrop;
         drawAlpha=1;
         paint.setShader(null);
-        color(Color.argb(Math.round(value("dim",65)*2.55f*(preview?1:backdrop)),0,0,0));
+        color(Color.argb(Math.round(value("dim",65)*2.55f*alpha),0,0,0));
         c.drawRect(0,0,1920,1080,paint);
-        drawAlpha=preview?1:backdrop;
+        drawAlpha=alpha;
         text(c,"最近任务",112,120,46,bold,0xFFF5F7FA,Paint.Align.LEFT);
         text(c,"系统任务 · 返回上次停留的页面",112,168,24,normal,0xBBDCE3EC,Paint.Align.LEFT);
         if(entries.isEmpty()){

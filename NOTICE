@@ -31,3 +31,9 @@ Third-party resources:
   Modified static digit subsets are named Marco Clock A/B/C/D. Source hashes,
   variation coordinates and subset details: app/src/main/assets/fonts/sources.json.
   Full upstream copyrights and licenses: licenses/*-OFL.txt, also bundled in-app.
+
+- AerialCommunity 4K aerial preview thumbnails (app/src/main/assets/wallpapers/aerials/):
+  Extracted preview frames from open community 4K aerial videos published by
+  AerialScreensaver/AerialCommunity (https://github.com/AerialScreensaver/AerialCommunity).
+  Full 4K videos are downloaded on demand over HTTPS with SHA-256 verification.
+  Original credits and Aerial Community terms remain with their respective authors.

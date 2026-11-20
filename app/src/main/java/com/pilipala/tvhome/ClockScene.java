@@ -27,6 +27,11 @@ final class ClockScene {
     private int cachedStyle=-1,cachedTilt=-1,bitmapGlyphHeight;
     private Layout layout;
     private int layoutStyle=-1,layoutTilt=-1;
+    private final Map<Integer,Layout> layoutCache=new LinkedHashMap<Integer,Layout>(16,0.75f,true){
+        @Override protected boolean removeEldestEntry(Map.Entry<Integer,Layout> eldest){
+            return size()>24;
+        }
+    };
 
     ClockScene(Context context){
         synchronized(ClockScene.class){
@@ -57,7 +62,13 @@ final class ClockScene {
     private Layout layout(SharedPreferences prefs){
         int s=style(prefs),t=tilt(prefs,s);
         if(layout==null||s!=layoutStyle||t!=layoutTilt){
-            layout=new Layout(faces[s],s,t);
+            int cacheKey=(s<<8)|t;
+            Layout cached=layoutCache.get(cacheKey);
+            if(cached==null){
+                cached=new Layout(faces[s],s,t);
+                layoutCache.put(cacheKey,cached);
+            }
+            layout=cached;
             layoutStyle=s;
             layoutTilt=t;
         }
@@ -92,6 +103,9 @@ final class ClockScene {
         drawClock(c,prefs,ambient);
     }
     private void drawClock(Canvas c,SharedPreferences prefs,float ambient){
+        boolean pure=prefs.getBoolean("ambient_pure_wallpaper",false);
+        float clockVis=pure?Math.max(0f,1f-ambient*2.5f):1f;
+        if(clockVis<=0.005f)return;
         TimeZone currentZone=TimeZone.getDefault();
         if(!time.getTimeZone().equals(currentZone)){
             time.setTimeZone(currentZone);
@@ -120,17 +134,17 @@ final class ClockScene {
             cachedDate=date.format(nowDate);
             cachedDay=day;
         }
-        float ratio=size(prefs,ambient)/280;
+        float ratio=size(prefs,pure?0f:ambient)/280;
         int glow=prefs.getInt("ambient_clock_brightness",100);
-        imagePaint.setAlpha(Math.round(160+(Math.round(255*glow/100f)-160)*ambient));
+        imagePaint.setAlpha(Math.round((160+(Math.round(255*glow/100f)-160)*ambient)*clockVis));
         clockRect.set(1798-(glyphs.width+3)*ratio,72-3*ratio,1798+3*ratio,72+(glyphs.height+3)*ratio);
         c.drawBitmap(clockBitmap,null,clockRect,imagePaint);
         p.setTypeface(medium);
         p.setTextSize(24);
-        p.setColor(Color.argb(Math.round(155+65*ambient),225,233,239));
+        p.setColor(Color.argb(Math.round((155+65*ambient)*clockVis),225,233,239));
         p.setTextAlign(Paint.Align.RIGHT);
         c.drawText(cachedDate,1798,72+bitmapGlyphHeight*ratio+36,p);
-        if(ambient>.01f){
+        if(!pure&&ambient>.01f){
             p.setTextSize(15);
             p.setColor(Color.argb(Math.round(75*ambient),185,210,221));
             p.setTextAlign(Paint.Align.LEFT);
@@ -223,6 +237,9 @@ final class ClockScene {
     }
     static int dim(SharedPreferences prefs,float ambient){
         float normal=prefs.getInt("wallpaper_dim",10)/100f;
+        if(prefs.getBoolean("ambient_pure_wallpaper",false)){
+            return Math.round(255*normal*(1f-Math.max(0f,Math.min(1f,ambient))));
+        }
         float idle=Math.max(normal,prefs.getInt("ambient_dim",72)/100f);
         return Math.round(255*(normal+(idle-normal)*ambient));
     }

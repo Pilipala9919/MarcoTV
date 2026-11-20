@@ -648,6 +648,7 @@ final class SettingsScreen extends LinearLayout {
         SharedPreferences sys = SystemIntegration.prefs(host);
         switch (key) {
             case "ambient_enabled": return host.preferences.getBoolean("ambient_enabled", true);
+            case "ambient_pure_wallpaper": return host.preferences.getBoolean("ambient_pure_wallpaper", false);
             case "now_playing": return host.playback.enabled();
             case "home_compat": return sys.getBoolean("home_compat", false);
             case "boot_home": return sys.getBoolean("boot_home", false);
@@ -755,6 +756,13 @@ final class SettingsScreen extends LinearLayout {
                 host.screensaver.resume();
                 refreshCategory(SettingsTaxonomy.GENERAL);
                 updateCategoryBadge();
+                break;
+            }
+            case "ambient_pure_wallpaper": {
+                boolean next = !host.preferences.getBoolean("ambient_pure_wallpaper", false);
+                host.preferences.edit().putBoolean("ambient_pure_wallpaper", next).apply();
+                host.home.invalidate();
+                refreshCategory(SettingsTaxonomy.GENERAL);
                 break;
             }
             case "ambient_sleep": {
@@ -897,14 +905,17 @@ final class SettingsScreen extends LinearLayout {
     }
 
     private String wallpaperLabel() {
+        String video = host.preferences.getString("wallpaper_video", "");
+        String custom = host.preferences.getString("wallpaper_label", "");
+        if (video != null && !video.isEmpty()) {
+            return (custom != null && !custom.isEmpty()) ? "动态 · " + custom : "动态壁纸";
+        }
         String uri = host.preferences.getString("wallpaper", "");
         if (uri != null && !uri.isEmpty()) {
-            String custom = host.preferences.getString("wallpaper_label", "");
             return custom != null && !custom.isEmpty() ? custom : "自定义壁纸";
         }
-        String[] builtins = {"雾蓝海岸", "暖沙丘", "极夜山脊", "峡谷"};
-        int idx = Math.max(0, Math.min(builtins.length - 1, host.preferences.getInt("wallpaper_builtin", 0)));
-        return builtins[idx];
+        int idx = Math.max(0, Math.min(WallpaperSource.TITLES.length - 1, host.preferences.getInt("wallpaper_builtin", 0)));
+        return WallpaperSource.TITLES[idx];
     }
 
     private String sortLabel() {

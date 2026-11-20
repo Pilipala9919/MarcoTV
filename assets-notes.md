@@ -27,3 +27,7 @@
 保留 Google / Material Design Authors 的原署名和许可，不将第三方资源改署为项目原创。Android 系统字体由电视系统提供，不随项目分发。
 
 卡片名称、图标和横幅在运行时读取用户设备已安装的应用，不预置进项目。相关品牌和权利归各自所有者。完整声明见 [NOTICE](NOTICE)。
+
+## 4K 航拍动态壁纸缩略图
+
+`app/src/main/assets/wallpapers/aerials/` 中的 10 张 16:9 静态预览缩略图提取自开源社区项目 [AerialScreensaver/AerialCommunity](https://github.com/AerialScreensaver/AerialCommunity) 发布的 4K 航拍视频（DJI Inspire 2 实拍），仅用于在「我的壁纸」中快速展示预览图；完整 4K HEVC 视频在用户确认后按需通过 HTTPS 下载并经 SHA-256 校验后缓存到本地，不打包进 APK。原摄影与社区版权归原作者所有。

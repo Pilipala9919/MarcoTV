@@ -83,8 +83,11 @@ final class HomeView extends View {
     private final Matrix surfaceMatrix=new Matrix();
     private final RectF surfaceBounds=new RectF();
     private final LinearGradient surfaceGradient=new LinearGradient(0,0,0,1,
-            new int[]{0x40FFFFFF,0x08FFFFFF,0x00000000,0x60081424},new float[]{0,.36f,.58f,1},Shader.TileMode.CLAMP);
-    private final LinearGradient rimGradient=new LinearGradient(0,0,0,1,0xB0FFFFFF,0x20FFFFFF,Shader.TileMode.CLAMP);
+            new int[]{0x22FFFFFF,0x0CFFFFFF,0x00000000,0x00000000,0x28040A14},new float[]{0,.14f,.28f,.62f,1},Shader.TileMode.CLAMP);
+    private final LinearGradient sheenGradient=new LinearGradient(0,0,.78f,.56f,
+            new int[]{0x24FFFFFF,0x0AFFFFFF,0x00000000},new float[]{0,.34f,1},Shader.TileMode.CLAMP);
+    private final LinearGradient rimGradient=new LinearGradient(0,0,0,1,
+            new int[]{0xF4FFFFFF,0x76FFFFFF,0x34FFFFFF},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
     private final MotionSpring entrance=new MotionSpring(1,15,.001f);
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
     private final MotionSpring magicFocus=new MotionSpring(0,20,.001f);
@@ -111,6 +114,9 @@ final class HomeView extends View {
     private String previewKey;
     private float overview;
     private UiMotion overviewAnimation;
+    private UiMotion previewAmbientMotion, previewRecentMotion, posterRevealMotion;
+    private boolean liveVideoReady;
+    private float posterOverlayAlpha = 1f;
     boolean previewDirty=true;
     private final MotionSpring headerLeft=new MotionSpring(88,26,.05f),headerRight=new MotionSpring(302,26,.05f),headerAlpha=new MotionSpring(0,
             26,.001f);
@@ -155,7 +161,27 @@ final class HomeView extends View {
     }
     private void previewTransform(float value){
         overview=value;
-        super.invalidate();
+        if(overviewRenderer.hasStage()){
+            overviewRenderer.applyStage(value);
+        }else{
+            super.invalidate();
+        }
+    }
+    void setLiveVideoReady(boolean ready){
+        if(liveVideoReady==ready)return;
+        liveVideoReady=ready;
+        if(posterRevealMotion==null){
+            posterRevealMotion=new UiMotion(this,posterOverlayAlpha,34,v->{
+                posterOverlayAlpha=Math.max(0f,Math.min(1f,v));
+                super.invalidate();
+            });
+        }
+        if(ready){
+            posterRevealMotion.to(0f);
+        }else{
+            posterRevealMotion.snap(1f);
+            super.invalidate();
+        }
     }
     @Override public void invalidate(){
         previewDirty=true;
@@ -170,29 +196,70 @@ final class HomeView extends View {
         float s=Math.min(getWidth()/1920f,getHeight()/1080f);
         return (getHeight()-1080*s)/2+110*s;
     }
-    private float previewAmbient;
+    private float previewAmbient, previewRecent;
     ValueAnimator previewFade;
     private int previewSavedRow=-2;
     void preview(String key){
-        if((key==null)!=(previewKey==null)){
+        boolean wasNull=previewKey==null;
+        boolean nowNull=key==null;
+        if(wasNull!=nowNull){
             if(overviewAnimation==null)overviewAnimation=new UiMotion(this,overview,26,this::previewTransform);
-            overviewAnimation.to(key==null?0:1);
+            if(!nowNull&&overview<=0.001f){
+                // Start the 3D entrance on the next vsync so dialog inflation/layout never eats frame 1.
+                postOnAnimation(()->{
+                    if(previewKey!=null)overviewAnimation.to(1);
+                });
+            }else{
+                overviewAnimation.to(nowNull?0:1);
+            }
         }
         if(key!=null&&previewSavedRow==-2){
             previewSavedRow=row;
-            row=Math.max(0,row);
-            animateFocus();
+            if(row<0){
+                row=0;
+                animateFocus();
+            }
         }
         else if(key==null&&previewSavedRow!=-2){
-            row=previewSavedRow;
+            int restore=previewSavedRow;
             previewSavedRow=-2;
-            animateFocus();
+            if(row!=restore){
+                row=restore;
+                animateFocus();
+            }
         }
-        boolean changedScene=previewKey==null||key==null||previewKey.startsWith("recent_")!=key.startsWith("recent_")||previewKey.startsWith("ambient_")!=key.startsWith("ambient_");
+        boolean wantRecent=key!=null&&key.startsWith("recent_");
+        boolean wantAmbient=key!=null&&key.startsWith("ambient_");
+        boolean changedScene=wasNull||nowNull
+                ||previewKey.startsWith("recent_")!=wantRecent
+                ||previewKey.startsWith("ambient_")!=wantAmbient;
         previewKey=key;
         if(previewFade!=null)previewFade.cancel();
-        previewAmbient=key!=null&&key.startsWith("ambient_")?1:0;
-        if("ambient_transition".equals(key))replayPreview();
+        if(previewAmbientMotion==null){
+            previewAmbientMotion=new UiMotion(this,previewAmbient,20,v->{
+                previewAmbient=Math.max(0f,Math.min(1f,v));
+                super.invalidate();
+            });
+        }
+        if(previewRecentMotion==null){
+            previewRecentMotion=new UiMotion(this,previewRecent,22,v->{
+                previewRecent=Math.max(0f,Math.min(1f,v));
+                super.invalidate();
+            });
+        }
+        if("ambient_transition".equals(key)){
+            previewAmbientMotion.cancel();
+            previewRecentMotion.to(0f);
+            replayPreview();
+            return;
+        }
+        if(wasNull||nowNull){
+            previewAmbientMotion.snap(wantAmbient?1f:0f);
+            previewRecentMotion.snap(wantRecent?1f:0f);
+        }else{
+            previewAmbientMotion.to(wantAmbient?1f:0f);
+            previewRecentMotion.to(wantRecent?1f:0f);
+        }
         if(changedScene)invalidate();
     }
     void replayPreview(){
@@ -355,6 +422,10 @@ final class HomeView extends View {
 
     @Override protected void onDetachedFromWindow() {
         stopMotion();
+        if(overviewAnimation!=null)overviewAnimation.dispose();
+        if(previewAmbientMotion!=null)previewAmbientMotion.dispose();
+        if(previewRecentMotion!=null)previewRecentMotion.dispose();
+        if(posterRevealMotion!=null)posterRevealMotion.dispose();
         clockScene.release();
         overviewRenderer.detach();
         super.onDetachedFromWindow();
@@ -384,26 +455,49 @@ final class HomeView extends View {
         }
         scale = Math.min(getWidth() / 1920f, getHeight() / 1080f);
         offsetY = (getHeight() - 1080 * scale) / 2;
-        canvas.drawColor(Color.BLACK);
-        if (wallpaper != null) {
-            float factor = Math.max(getWidth() / (float) wallpaper.getWidth(), getHeight() / (float) wallpaper.getHeight());
-            float w = wallpaper.getWidth() * factor, h = wallpaper.getHeight() * factor;
-            rect.set((getWidth() - w) / 2, (getHeight() - h) / 2, (getWidth() + w) / 2, (getHeight() + h) / 2);
-            paint.setAlpha(255);
-            canvas.drawBitmap(wallpaper, null, rect, paint);
+        if (!liveVideoReady || posterOverlayAlpha > 0.005f) {
+            int posterAlpha = liveVideoReady ? Math.round(255 * posterOverlayAlpha) : 255;
+            if (posterAlpha >= 254) {
+                canvas.drawColor(Color.BLACK);
+            } else {
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(posterAlpha, 0, 0, 0));
+                canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
+            }
+            if (wallpaper != null) {
+                float factor = Math.max(getWidth() / (float) wallpaper.getWidth(), getHeight() / (float) wallpaper.getHeight());
+                float w = wallpaper.getWidth() * factor, h = wallpaper.getHeight() * factor;
+                rect.set((getWidth() - w) / 2, (getHeight() - h) / 2, (getWidth() + w) / 2, (getHeight() + h) / 2);
+                paint.setAlpha(posterAlpha);
+                canvas.drawBitmap(wallpaper, null, rect, paint);
+                paint.setAlpha(255);
+            }
         }
         canvas.save();
         canvas.translate((getWidth() - 1920 * scale) / 2, offsetY);
         canvas.scale(scale, scale);
-        if(host.recents.visible||(previewKey!=null&&previewKey.startsWith("recent_"))){
-            host.recents.draw(canvas,previewKey!=null);
+        if(host.recents.visible){
+            host.recents.draw(canvas,false,1f);
             canvas.restore();
             return;
         }
-        paint.setColor(Color.argb(ClockScene.dim(host.appearance(),ambient),0,0,0));
-        canvas.drawRect(0,0,1920,1080,paint);
+        if(previewKey!=null&&previewRecent>=0.995f){
+            host.recents.draw(canvas,true,1f);
+            canvas.restore();
+            return;
+        }
+        float desktopVis = previewKey!=null ? (1f - previewRecent) : 1f;
+        int dimAlpha = Math.round(ClockScene.dim(host.appearance(), ambient) * desktopVis);
+        if (dimAlpha > 0) {
+            paint.setColor(Color.argb(dimAlpha, 0, 0, 0));
+            canvas.drawRect(0, 0, 1920, 1080, paint);
+        }
         // Only the real idle screen drifts; previews and phone previews stay put.
-        clockScene.draw(canvas,host.appearance(),ambient,previewKey==null&&(host.phone==null||!host.phone.ambientPreview()));
+        if (desktopVis > 0.05f) {
+            clockScene.draw(canvas,host.appearance(),ambient,previewKey==null&&(host.phone==null||!host.phone.ambientPreview()));
+        }
+        contentAlpha *= desktopVis;
         if (contentAlpha > 0.005f) {
             float wifiX = clockScene.left(host.appearance()) - 70;
             int muted = alphaColor(0xC0FFFFFF, contentAlpha);
@@ -474,6 +568,9 @@ final class HomeView extends View {
             }
             if(edge.value>.002f&&previewKey==null)drawEdge(canvas,contentAlpha);
         }
+        if(previewKey!=null&&previewRecent>0.005f){
+            host.recents.draw(canvas,true,previewRecent);
+        }
         canvas.restore();
     }
 
@@ -537,6 +634,13 @@ final class HomeView extends View {
         paint.setTextSize(size);
         paint.setTextAlign(align);
         canvas.drawText(text, x, y, paint);
+    }
+
+    private void shadowText(Canvas canvas, String text, float x, float y, float size, Typeface font, int color, Paint.Align align, float shadowOpacity) {
+        if (shadowOpacity > 0.01f) {
+            text(canvas, text, x, y + 2f, size, font, alphaColor(0x88000000, shadowOpacity), align);
+        }
+        text(canvas, text, x, y, size, font, color, align);
     }
 
     private void settingsIcon(Canvas canvas,float x,float y,int color){
@@ -769,8 +873,8 @@ final class HomeView extends View {
         y+=30*(1-arrival);
         opacity*=.65f+.35f*arrival;
         drawShelfIcon(canvas, r.orderKey, 130, y - cardHeight()/2-86, opacity);
-        text(canvas, r.title, 166, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT);
-        if(r.tiles.isEmpty())text(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xC0FFFFFF,opacity),Paint.Align.LEFT);
+        shadowText(canvas, r.title, 166, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT, opacity);
+        if(r.tiles.isEmpty())shadowText(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xD6FFFFFF,opacity),Paint.Align.LEFT,opacity);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
         for (int i = 0; i < r.tiles.size(); i++) if (i != raised) drawTile(canvas, r.tiles.get(i), 272 + i * 350 - r.scroll.value, y, opacity);
@@ -780,62 +884,78 @@ final class HomeView extends View {
     private void drawTile(Canvas canvas, Tile tile, float x, float shelfY, float opacity) {
         if (x < -250 || x > 2180) return;
         float emphasis = clampedEmphasis(tile);
-        float zoom = (1 + focusScale * emphasis)*(1-.035f*Math.max(0,Math.min(1,tile.press.value)));
-        float y = shelfY - 14 * emphasis;
-        float baseHeight=cardHeight(),contentZoom=zoom*Math.min(1,baseHeight/180);
+        float press = Math.max(0, Math.min(1, tile.press.value));
+        float zoom = (1 + focusScale * emphasis) * (1 - .035f * press);
+        float y = shelfY - 16 * emphasis;
+        float baseHeight = cardHeight(), contentZoom = zoom * Math.min(1, baseHeight / 180);
         float w = 320 * zoom, h = baseHeight * zoom;
-        rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
-        if(surfaceStrength>0){
-            // Several translucent rounded silhouettes avoid GPU blur and hard clip-path edges.
-            for(int i=3;i>=1;i--){
-                surfaceBounds.set(rect);
-                surfaceBounds.offset(0,(5+i*2+5*emphasis)*zoom);
-                surfaceBounds.inset(-i*1.5f*zoom,-i*1.5f*zoom);
-                surfacePaint.setColor(alphaColor(0x1A030812,opacity*surfaceStrength*(.6f+.4f*emphasis)));
-                canvas.drawRoundRect(surfaceBounds,radius*zoom+i*zoom,radius*zoom+i*zoom,surfacePaint);
-            }
+        if ((emphasis < 0.002f || emphasis > 0.998f) && press < 0.002f) {
+            rect.set(Math.round(x - w / 2), Math.round(y - h / 2), Math.round(x + w / 2), Math.round(y + h / 2));
+        } else {
+            rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
+        }
+        float cardRadius = radius * zoom;
+        if (surfaceStrength > 0) {
+            // Layered tvOS floating elevation shadow (downward-biased, crisp at rest, deep on focus).
+            float sBase = opacity * surfaceStrength;
+            drawShadowLayer(canvas, cardRadius, (10 + 18 * emphasis) * zoom, 6.2f * emphasis * zoom, 3.8f * emphasis * zoom,
+                    0x1602060E, sBase * (0.20f + 0.80f * emphasis));
+            drawShadowLayer(canvas, cardRadius, (7.5f + 12.5f * emphasis) * zoom, (1.8f + 2.4f * emphasis) * zoom, (1.0f + 1.6f * emphasis) * zoom,
+                    0x1A02060E, sBase * (0.34f + 0.66f * emphasis));
+            drawShadowLayer(canvas, cardRadius, (4.5f + 7.5f * emphasis) * zoom, (0.8f + 1.1f * emphasis) * zoom, 0.8f * emphasis * zoom,
+                    0x2002060E, sBase * (0.44f + 0.56f * emphasis));
+            drawShadowLayer(canvas, cardRadius, (2.2f + 3.6f * emphasis) * zoom, 0.3f * zoom, 0,
+                    0x2602060E, sBase * (0.50f + 0.50f * emphasis));
         }
         paint.setColor(alphaColor(tile.tint != 0 ? tile.tint : tile.banner ? Color.BLACK : 0xFF243541, opacity));
-        canvas.drawRoundRect(rect, radius * zoom, radius * zoom, paint);
+        canvas.drawRoundRect(rect, cardRadius, cardRadius, paint);
         if (tile.artwork != null) {
             if (tile.banner) {
                 if (tile.shader == null) tile.shader = new BitmapShader(tile.artwork, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-                float fit=Math.max(rect.width()/tile.artwork.getWidth(),rect.height()/tile.artwork.getHeight());
-                artworkMatrix.setScale(fit,fit);
-                artworkMatrix.postTranslate(rect.centerX()-tile.artwork.getWidth()*fit/2,rect.centerY()-tile.artwork.getHeight()*fit/2);
+                float fit = Math.max(rect.width() / tile.artwork.getWidth(), rect.height() / tile.artwork.getHeight()) * (1f + 0.028f * emphasis);
+                artworkMatrix.setScale(fit, fit);
+                artworkMatrix.postTranslate(rect.centerX() - tile.artwork.getWidth() * fit / 2, rect.centerY() - tile.artwork.getHeight() * fit / 2);
                 tile.shader.setLocalMatrix(artworkMatrix);
                 artworkPaint.setShader(tile.shader);
                 artworkPaint.setAlpha(Math.round(255 * opacity));
-                canvas.drawRoundRect(rect, radius * zoom, radius * zoom, artworkPaint);
+                canvas.drawRoundRect(rect, cardRadius, cardRadius, artworkPaint);
                 artworkPaint.setShader(null);
             } else {
                 float size = 116 * contentZoom;
-                iconBounds.set(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
+                iconBounds.set(rect.centerX() - size / 2, rect.centerY() - size / 2, rect.centerX() + size / 2, rect.centerY() + size / 2);
                 artworkPaint.setAlpha(Math.round(255 * opacity));
                 canvas.drawBitmap(tile.artwork, null, iconBounds, artworkPaint);
             }
         } else if (tile.tint != 0) {
-            icon(canvas, tile.glyph, x, y - 20 * contentZoom, 60 * contentZoom, alphaColor(0xB0FFFFFF, opacity));
+            icon(canvas, tile.glyph, rect.centerX(), rect.centerY() - 20 * contentZoom, 60 * contentZoom, alphaColor(0xB8FFFFFF, opacity));
             if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
-            text(canvas, tile.coverLabel, x, y + 48 * contentZoom, 28 * contentZoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
-        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", x, y, 112 * contentZoom, alphaColor(Color.WHITE, opacity));
-        if(surfaceStrength>0){
-            surfaceMatrix.setScale(rect.width(),rect.height());
-            surfaceMatrix.postTranslate(rect.left,rect.top);
+            text(canvas, tile.coverLabel, rect.centerX(), rect.centerY() + 48 * contentZoom, 28 * contentZoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
+        } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", rect.centerX(), rect.centerY(), 112 * contentZoom, alphaColor(Color.WHITE, opacity));
+        if (surfaceStrength > 0) {
+            surfaceMatrix.setScale(rect.width(), rect.height());
+            surfaceMatrix.postTranslate(rect.left, rect.top);
             surfaceGradient.setLocalMatrix(surfaceMatrix);
             surfacePaint.setShader(surfaceGradient);
-            surfacePaint.setAlpha(Math.round(255*opacity*surfaceStrength));
-            canvas.drawRoundRect(rect,radius*zoom,radius*zoom,surfacePaint);
+            surfacePaint.setAlpha(Math.round(255 * opacity * surfaceStrength));
+            canvas.drawRoundRect(rect, cardRadius, cardRadius, surfacePaint);
+            if (emphasis > 0.01f) {
+                sheenGradient.setLocalMatrix(surfaceMatrix);
+                surfacePaint.setShader(sheenGradient);
+                surfacePaint.setAlpha(Math.round(255 * opacity * surfaceStrength * emphasis));
+                canvas.drawRoundRect(rect, cardRadius, cardRadius, surfacePaint);
+            }
             surfacePaint.setShader(null);
-            // Draw the highlight inside the antialiased shape so it never clips outside the card.
+            // Crisp tvOS inner glass bevel (subtle hairline at rest, gleaming specular rim on focus).
+            float stroke = (1.1f + 1.15f * emphasis) * zoom;
+            float inset = stroke * 0.55f;
             surfaceBounds.set(rect);
-            surfaceBounds.inset(1.3f*zoom,1.3f*zoom);
+            surfaceBounds.inset(inset, inset);
             rimGradient.setLocalMatrix(surfaceMatrix);
             surfacePaint.setShader(rimGradient);
             surfacePaint.setStyle(Paint.Style.STROKE);
-            surfacePaint.setStrokeWidth((1+1.2f*emphasis)*zoom);
-            surfacePaint.setAlpha(Math.round(255*opacity*surfaceStrength*(.3f+.7f*emphasis)));
-            canvas.drawRoundRect(surfaceBounds,Math.max(0,radius*zoom-1.3f*zoom),Math.max(0,radius*zoom-1.3f*zoom),surfacePaint);
+            surfacePaint.setStrokeWidth(stroke);
+            surfacePaint.setAlpha(Math.round(255 * opacity * surfaceStrength * (0.28f + 0.72f * emphasis)));
+            canvas.drawRoundRect(surfaceBounds, Math.max(0, cardRadius - inset), Math.max(0, cardRadius - inset), surfacePaint);
             surfacePaint.setShader(null);
             surfacePaint.setStyle(Paint.Style.FILL);
         }
@@ -843,9 +963,20 @@ final class HomeView extends View {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
             }
-            text(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight/2+98-6*emphasis, 36, bold,
-                    alphaColor(Color.WHITE, opacity * (labelOpacity + (1-labelOpacity) * emphasis)), Paint.Align.LEFT);
+            float textAlpha = opacity * (labelOpacity + (1 - labelOpacity) * emphasis);
+            shadowText(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight / 2 + 98 - 6 * emphasis, 36, bold,
+                    alphaColor(Color.WHITE, textAlpha), Paint.Align.LEFT, textAlpha);
         }
+    }
+
+    private void drawShadowLayer(Canvas canvas, float cardRadius, float dy, float expandX, float expandY, int color, float alpha) {
+        if (alpha <= 0.005f) return;
+        surfaceBounds.set(rect);
+        surfaceBounds.offset(0, dy);
+        surfaceBounds.inset(-expandX, -expandY);
+        surfacePaint.setColor(alphaColor(color, alpha));
+        float r = cardRadius + Math.max(expandX, expandY) * 0.65f;
+        canvas.drawRoundRect(surfaceBounds, r, r, surfacePaint);
     }
 
     private String clippedLabel(String value, float width, float size) {

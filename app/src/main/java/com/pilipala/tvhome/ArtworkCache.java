@@ -13,8 +13,8 @@ import android.util.LruCache;
  * around costs more than decoding it again, so those devices trade CPU for usable memory.
  */
 final class ArtworkCache {
-    private static final int RICH_BUDGET_MB = 26;
-    private static final int LEAN_BUDGET_MB = 6;
+    private static final int RICH_BUDGET_MB = 28;
+    private static final int LEAN_BUDGET_MB = 9;
     private static boolean evaluated;
     private static boolean retain = true;
     private static final LruCache<String, Bitmap> ENTRIES = new LruCache<String, Bitmap>(RICH_BUDGET_MB * 1024 * 1024) {

@@ -16,6 +16,7 @@ final class WallpaperLoader {
     void load() {
         final int generation = ++wallpaperGeneration;
         final String uri=host.appearance().getString("wallpaper","");
+        final String videoPath=host.appearance().getString("wallpaper_video","");
         final int builtin=host.appearance().getInt("wallpaper_builtin",0);
         final int width=host.home.getWidth()>0?host.home.getWidth():host.getResources().getDisplayMetrics().widthPixels;
         final int height=host.home.getHeight()>0?host.home.getHeight():host.getResources().getDisplayMetrics().heightPixels;
@@ -30,6 +31,10 @@ final class WallpaperLoader {
                     host.home.wallpaper = ready;
                     host.home.overviewRenderer.backdrop(backdrop);
                     if (previous != null && previous != ready && previous != host.home.wallpaper) previous.recycle();
+                    if (host.stage != null) {
+                        host.stage.liveWallpaper.setVideoPath(videoPath);
+                        host.syncLiveWallpaper();
+                    }
                     host.home.invalidate();
                 }else{
                     backdrop.clear();

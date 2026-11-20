@@ -36,32 +36,49 @@ final class AppCatalog {
                 return tile;
             }
         }
-        Drawable art = null;
-        try {
-            art = resolve.activityInfo.loadBanner(pm);
-        } catch (Exception ignored) { }
+        Drawable art = loadHighResDrawable(pm, resolve, true);
         tile.banner = art != null;
         if (art == null && (resolve.activityInfo.icon != 0 || resolve.activityInfo.applicationInfo.icon != 0)) {
-            try {
-                art = resolve.loadIcon(pm);
-            } catch (Exception ignored) { }
+            art = loadHighResDrawable(pm, resolve, false);
         }
+        boolean lean = ArtworkCache.lean(host);
         String cacheKey = "pkg:" + tile.id + ":" + (tile.banner ? 1 : 0);
         if (art != null && !tile.banner) {
-            tile.artwork = ArtworkStyle.card(art);
+            tile.artwork = ArtworkStyle.card(art, lean);
             tile.banner = true;
             ArtworkCache.put("pkg:"+tile.id+":1",tile.artwork);
             return tile;
         }
         if (art != null) {
-            int w = tile.banner ? 480 : 192, h = tile.banner ? 270 : 192;
+            int w = tile.banner ? (lean ? 512 : 640) : 256;
+            int h = tile.banner ? (lean ? 288 : 360) : 256;
             tile.artwork = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            tile.artwork.setHasMipMap(true);
             Canvas canvas = new Canvas(tile.artwork);
             art.setBounds(0, 0, w, h);
             art.draw(canvas);
             ArtworkCache.put(cacheKey, tile.artwork);
         }
         return tile;
+    }
+
+    private static Drawable loadHighResDrawable(PackageManager pm, ResolveInfo resolve, boolean banner) {
+        try {
+            ActivityInfo ai = resolve.activityInfo;
+            int resId = banner
+                    ? (ai.banner != 0 ? ai.banner : ai.applicationInfo.banner)
+                    : (ai.icon != 0 ? ai.icon : ai.applicationInfo.icon);
+            if (resId != 0) {
+                android.content.res.Resources res = pm.getResourcesForApplication(ai.applicationInfo);
+                Drawable hi = res.getDrawableForDensity(resId, android.util.DisplayMetrics.DENSITY_XXXHIGH, null);
+                if (hi != null) return hi;
+            }
+        } catch (Throwable ignored) {}
+        try {
+            return banner ? resolve.activityInfo.loadBanner(pm) : resolve.loadIcon(pm);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     void load() {

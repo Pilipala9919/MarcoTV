@@ -54,6 +54,35 @@ final class DialogStack {
         return false;
     }
 
+    /** Pops dialogs above the target page so the existing page view returns intact. */
+    boolean popTo(String pageId){
+        int target=-1;
+        for(int i=0;i<dialogHistory.size();i++)if(pageId.equals(dialogHistory.get(i).pageKey())){
+            target=i;
+            break;
+        }
+        if(target<0)return false;
+        if(target==dialogHistory.size()-1)return true;
+        if(activeDialog!=null){
+            activeDialog.setOnDismissListener(null);
+            activeDialog.dismiss();
+        }
+        ArrayList<TvDialog> leaving=new ArrayList<>();
+        while(dialogHistory.size()-1>target)leaving.add(dialogHistory.remove(dialogHistory.size()-1));
+        TvDialog parent=dialogHistory.get(target);
+        parent.returning(true);
+        presentDialog(parent);
+        for(TvDialog old:leaving)old.leave();
+        return true;
+    }
+
+    /** True when an opaque settings/gallery page completely covers the desktop scene. */
+    boolean isOpaqueFullscreen(){
+        if(activeDialog==null||!activeDialog.isShowing())return false;
+        if(activeDialog.isFullscreen())return true;
+        return hasPage("main")&&activeDialog.previewKey()==null;
+    }
+
     /** Completed async work replaces its progress page; Back must not reopen a dead operation. */
     void replace(TvDialog expected, TvDialog result) {
         if (activeDialog != expected || dialogHistory.isEmpty()) return;
@@ -74,7 +103,6 @@ final class DialogStack {
         activeDialog=dialog;
         dialogOpen=true;
         host.screensaver.cancel();
-        host.home.preview(dialog.previewKey());
         dialog.setBackAction(this::menuBack);
         dialog.setOnDismissListener(d->host.handler.postDelayed(()->{
             // Item callbacks may open a child, refresh a page, or launch a picker.
@@ -84,6 +112,8 @@ final class DialogStack {
             }
         },100));
         dialog.show();
+        host.home.preview(dialog.previewKey());
+        host.syncLiveWallpaper();
     }
 
     private void menuBack(){
@@ -117,5 +147,6 @@ final class DialogStack {
             previous.dismiss();
         }
         for(int i=leaving.size()-1;i>=0;i--)leaving.get(i).leave();
+        host.syncLiveWallpaper();
     }
 }

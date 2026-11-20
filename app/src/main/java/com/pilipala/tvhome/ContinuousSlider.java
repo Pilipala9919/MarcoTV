@@ -20,6 +20,8 @@ final class ContinuousSlider extends View {
     private final RectF rect=new RectF();
     private boolean compact;
     private boolean inline;
+    private boolean embedded;
+    private Runnable onConfirm;
     private String[] choices;
     private float focusProgress;
     private UiMotion focusMotion,valueMotion;
@@ -34,6 +36,14 @@ final class ContinuousSlider extends View {
         inline=true;
         compact=true;
         setMinimumHeight(dp(66));
+        requestLayout();
+    }
+    void embedded(Runnable confirmAction){
+        embedded=true;
+        compact=true;
+        inline=false;
+        onConfirm=confirmAction;
+        setMinimumHeight(dp(44));
         requestLayout();
     }
     void compact(){
@@ -85,9 +95,33 @@ final class ContinuousSlider extends View {
         invalidate();
     }
     @Override protected void onMeasure(int w,int h){
-        setMeasuredDimension(MeasureSpec.getSize(w),dp(inline?66:compact?108:146));
+        setMeasuredDimension(MeasureSpec.getSize(w),dp(embedded?44:inline?66:compact?108:146));
     }
     @Override protected void onDraw(Canvas c){
+        if(embedded){
+            float left=dp(12),right=getWidth()-left,y=dp(16);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeWidth(dp(3.5f));
+            paint.setColor(0xFF47586A);
+            c.drawLine(left,y,right,y,paint);
+            float ratio=max>min?(displayedValue-min)/(float)(max-min):0f;
+            float knob=left+(right-left)*ratio;
+            paint.setColor(0xFF7FD8EA);
+            c.drawLine(left,y,knob,y,paint);
+            paint.setColor(focusProgress>0.1f?Color.WHITE:0xFFA9DCE2);
+            c.drawCircle(knob,y,dp(5+2*focusProgress),paint);
+            paint.setTypeface(Typeface.DEFAULT);
+            paint.setTextSize(dp(10));
+            paint.setColor(0xFF8CA4B8);
+            paint.setTextAlign(Paint.Align.LEFT);
+            c.drawText(min+unit,left,dp(36),paint);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(max+unit,right,dp(36),paint);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(0xFF9AB4C8);
+            c.drawText("左右调节 · 确定/返回收起",getWidth()/2f,dp(36),paint);
+            return;
+        }
         if(inline){
             float left=dp(12),right=getWidth()-left,y=dp(47);
             paint.setColor((Integer)COLORS.evaluate(focusProgress,0xFF242D38,0xFF354B5D));
@@ -143,13 +177,18 @@ final class ContinuousSlider extends View {
             update(value+(key==KeyEvent.KEYCODE_DPAD_RIGHT?step:-step));
             return true;
         }
+        if(embedded&&onConfirm!=null&&HomeView.isConfirmKey(key)){
+            if(event.getRepeatCount()==0)onConfirm.run();
+            return true;
+        }
         return super.onKeyDown(key,event);
     }
     @Override public boolean onTouchEvent(MotionEvent event){
         if(event.getActionMasked()==MotionEvent.ACTION_DOWN||event.getActionMasked()==MotionEvent.ACTION_MOVE||event.getActionMasked()==MotionEvent.ACTION_UP){
             requestFocus();
-            float p=dp(20);
-            update(min+Math.round((event.getX()-p)/(getWidth()-2*p)*(max-min)));
+            float p=dp(embedded?12:20);
+            float span=Math.max(1f,getWidth()-2*p);
+            update(min+Math.round((event.getX()-p)/span*(max-min)));
             return true;
         }
         return true;

@@ -11,6 +11,7 @@ final class IdleController {
     private final Runnable idle;
     /** After this long on the idle clock, let the TV follow its own sleep timer again. */
     private final Runnable releaseScreen;
+    boolean sleepReleased;
 
     IdleController(MainActivity host) {
         this.host = host;
@@ -21,7 +22,9 @@ final class IdleController {
         };
         releaseScreen = () -> {
             if (!host.foreground) return;
+            sleepReleased = true;
             host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            host.syncLiveWallpaper();
             Diagnostics.event("IDLE_SCREEN_RELEASED");
         };
     }
@@ -53,6 +56,10 @@ final class IdleController {
     /** Called by HomeView whenever the idle clock starts or stops. */
     void changed(boolean idle) {
         host.handler.removeCallbacks(releaseScreen);
+        if (!idle && sleepReleased) {
+            sleepReleased = false;
+            host.syncLiveWallpaper();
+        }
         if (!host.foreground || !idleClockEnabled()) {
             host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             return;
@@ -63,6 +70,7 @@ final class IdleController {
     }
 
     void resume() {
+        sleepReleased = false;
         if (idleClockEnabled()) host.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else host.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }

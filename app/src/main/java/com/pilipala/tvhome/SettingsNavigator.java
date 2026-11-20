@@ -142,23 +142,7 @@ final class SettingsNavigator {
                 .setPositiveButton("返回",null).create());
     }
     void wallpaperSettings(){
-        host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper").setTitle("壁纸")
-                .setOrder("wallpaper","builtin","online","local","reset")
-                .setItems(new String[]{"内置壁纸","在线精选壁纸","导入本地壁纸","恢复默认壁纸"},(d,w)->{
-            if(w==0)wallpaperGallery();
-            else if(w==1)OnlineWallpaperDialog.show(host);
-            else if(w==2){
-                host.cover.pendingId="__wallpaper__";
-                host.cover.chooseCoverImage();
-            }
-            else host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_reset").setTitle("恢复默认壁纸？")
-                    .setMessage("恢复内置雾蓝海岸和默认压暗程度，不删除原始图片。")
-                    .setPositiveButton("恢复",(x,y)->{
-                selectWallpaper("",0,true);
-                wallpaperSettings();
-            })
-                    .setNegativeButton("取消",null).create());
-        }).setNegativeButton("返回",null).create());
+        WallpaperCenterDialog.show(host);
     }
 
     void about(){
@@ -203,19 +187,7 @@ final class SettingsNavigator {
     }
 
     void wallpaperGallery() {
-        String[] labels = {"雾蓝海岸", "暖沙丘", "极夜山脊", "峡谷"};
-        host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_gallery").setTitle("内置壁纸").setMessage("四张风景壁纸 · 选择后立即预览")
-                .setItems(labels, (d,w) -> {
-            selectWallpaper("",w,false);
-        }).setNegativeButton("返回", null).create());
-    }
-
-    private void selectWallpaper(String uri,int builtin,boolean resetDim){
-        if(host.appearanceSession!=null){host.appearanceSession.wallpaper(uri,builtin,resetDim);return;}
-        android.content.SharedPreferences.Editor editor=host.preferences.edit().putString("wallpaper",uri).putInt("wallpaper_builtin",builtin).remove("wallpaper_label");
-        if(resetDim)editor.putInt("wallpaper_dim",10);
-        editor.apply();
-        host.loadWallpaper();
+        WallpaperCenterDialog.show(host);
     }
 
     static final int[] SLEEP_CHOICES={15,30,60,120,0};
@@ -223,29 +195,36 @@ final class SettingsNavigator {
         return minutes<=0?"不限制（始终保持亮屏）":minutes+" 分钟后";
     }
     void ambientSettings() {
-        boolean enabled=host.appearance().getBoolean("ambient_enabled",true);
+        boolean enabled=host.preferences.getBoolean("ambient_enabled",true);
+        boolean pure=host.preferences.getBoolean("ambient_pure_wallpaper",false);
         host.showDialog(new TvDialog.Builder(host).setPageId("clock").setTitle("屏保开关")
-                .setMessage((host.appearanceSession!=null?"本页修改在 Magic Desktop 保存后生效，取消会撤回。\n":"")+"时间大小、亮度与渐变时长在 Magic Desktop 右侧列表调整。\n屏保期间时间会缓慢移动；到达设定时长后交还电视自身的休眠设置。")
-                .setItems(new String[]{"Marco TV 屏保："+(enabled?"已开启":"未开启"),"立即预览屏保","屏保后允许电视休眠："+sleepLabel(host.appearance().getInt("ambient_sleep_minutes",
-                IdleController.DEFAULT_SLEEP_MINUTES))},(d,w)->{
-            if(w==1){
-                previewAmbient();
-                return;
-            }
-            if(w==2){
-                int current=host.appearance().getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
-                for(int i=0;i<SLEEP_CHOICES.length;i++)if(SLEEP_CHOICES[i]==current)next=SLEEP_CHOICES[(i+1)%SLEEP_CHOICES.length];
-                if(host.appearanceSession!=null)host.appearanceSession.draft.values.put("ambient_sleep_minutes",next);
-                else host.preferences.edit().putInt("ambient_sleep_minutes",next).apply();
-                ambientSettings();
-                return;
-            }
-            if(host.appearanceSession!=null)host.appearanceSession.draft.booleans.put("ambient_enabled",!enabled);
-            else{
+                .setMessage("本页修改即时生效；时钟大小、亮度与渐变时长可在 Magic Desktop 调整。\n开启「闲置纯净壁纸模式」后，进入屏保将隐藏时钟并取消压暗，纯净欣赏动态或静态壁纸。")
+                .setItems(new String[]{
+                        "Marco TV 屏保："+(enabled?"已开启":"未开启"),
+                        "闲置纯净壁纸模式："+(pure?"已开启":"未开启"),
+                        "立即预览屏保",
+                        "屏保后允许电视休眠："+sleepLabel(host.preferences.getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES))
+                },(d,w)->{
+            if(w==0){
                 host.preferences.edit().putBoolean("ambient_enabled",!enabled).apply();
                 AmbientIntegration.configure(host);
                 host.screensaver.resume();
+                ambientSettings();
+                return;
             }
+            if(w==1){
+                host.preferences.edit().putBoolean("ambient_pure_wallpaper",!pure).apply();
+                host.home.invalidate();
+                ambientSettings();
+                return;
+            }
+            if(w==2){
+                previewAmbient();
+                return;
+            }
+            int current=host.preferences.getInt("ambient_sleep_minutes",IdleController.DEFAULT_SLEEP_MINUTES),next=SLEEP_CHOICES[0];
+            for(int i=0;i<SLEEP_CHOICES.length;i++)if(SLEEP_CHOICES[i]==current)next=SLEEP_CHOICES[(i+1)%SLEEP_CHOICES.length];
+            host.preferences.edit().putInt("ambient_sleep_minutes",next).apply();
             ambientSettings();
         }).setNegativeButton("返回",null).create());
     }

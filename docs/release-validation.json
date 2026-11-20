@@ -1,22 +1,22 @@
 {
-  "version": "0.18.0",
-  "version_code": 40,
+  "version": "0.19.0",
+  "version_code": 41,
   "date": "2026-11-20",
   "author": "Pilipala",
   "release_channel": "stable",
-  "apk_sha256": "5e5b137dc58f765d69fdca79673dc189c7984c1dc3639bf0e6b0f99432612ae0",
-  "restricted_apk_sha256": "880995ef5a8999e412f9422ef7e9a690073720a6b1e5dd9d19027ad38ee2d065",
+  "apk_sha256": "26a912eb31ccf7450ac9df6aead303b753c5f008550b2b6384ac0f542b8860f9",
+  "restricted_apk_sha256": "c73bb818805e2ca60afb653ed1029455ea1994a49d10ca84aad7e6c85d095e28",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
   "hardware_baseline": {
-    "version": "0.18.0",
-    "version_code": 40,
+    "version": "0.19.0",
+    "version_code": 41,
     "device_model": "Xiaomi MiTV-ASTP0",
     "android": "9",
-    "apk_sha256": "5e5b137dc58f765d69fdca79673dc189c7984c1dc3639bf0e6b0f99432612ae0",
-    "online_mirror_wallpapers": "verified live fetch of 5 wallpapers from https://marcotv.wlj9919.top/wallpapers/, split-pane preview across all rows, SHA-256 download & offline cache apply on MiTV-ASTP0",
-    "large_12k_wallpaper_import": "verified 20.47 MB 11520x6480 12K original local import with safe inSampleSize downsampling and zero OOM on MiTV-ASTP0",
-    "task_bridge_local_start": "verified cold-start 1-click local ADB start + 10/10 legacy shell: SIGHUP survival + Magic Desktop 3D recent preview on MiTV-ASTP0",
+    "apk_sha256": "26a912eb31ccf7450ac9df6aead303b753c5f008550b2b6384ac0f542b8860f9",
+    "unified_wallpaper_gallery_and_4k_live": "verified unified 3-column Apple TV wallpaper gallery, bundled thumbnails, mirror-accelerated download & SHA-256 verification of 4K UHD 10-bit HEVC aerial live wallpaper, seamless poster crossfade playback, and non-blocking background MediaPlayer release (~30ms) when opening Settings on MiTV-ASTP0",
+    "magic_desktop_collapsible_and_gpu_stage": "verified collapsible ParameterCard auto-save and GPU-native 3D preview stage entry/scene-switch smoothness on MiTV-ASTP0",
+    "tvos_card_clarity": "verified 640dpi icon/banner loading, mipmapped 512x288/640x360 artwork, clear glass sheen, floating elevation shadow, and integer pixel alignment via live screenshots on MiTV-ASTP0",
     "instrumentation_baseline_version": "0.17.0",
     "device_regression_checks": 85,
     "appearance_device_checks": 93,
@@ -24,8 +24,7 @@
     "motion_device_checks": 21,
     "drawer_home_device_checks": 14,
     "total_device_checks": 250,
-    "standby_wake_recovery": "verified on MiTV-ASTP0 after Xiaomi gotoSleepStayAliveProcess forceStopPackage",
-    "ui_and_pin_visual": "verified via real TV screenshots across Apple TV split wallpaper gallery, 5 settings categories, header icons, recent tasks, and clean star-free pinned cards"
+    "standby_wake_recovery": "verified on MiTV-ASTP0 after Xiaomi gotoSleepStayAliveProcess forceStopPackage"
   },
   "release_checks": {
     "offline_suites": [
@@ -56,7 +55,7 @@
   },
   "not_verified": [
     "Android 10-14 physical TV TaskBridge Binder handshake and Adopted Storage runtime",
-    "other brands (TCL, Hisense, Skyworth, Sony, Huawei)",
+    "other brands (TCL, Hisense, Skyworth, Sony, Huawei) and other SoC 4K 10-bit HEVC live wallpaper hardware decoders",
     "stable frame rate across devices",
     "restricted edition target firmware",
     "Lite 0.1.2 physical Android 4.x TV hardware",

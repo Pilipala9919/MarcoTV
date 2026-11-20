@@ -7,6 +7,8 @@ import hashlib
 import io
 import json
 import re
+import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 from PIL import Image
@@ -14,6 +16,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 MIRROR_BASE = 'https://marcotv.wlj9919.top/wallpapers/'
 MAX_WALLPAPER_BYTES = 50 * 1024 * 1024
+MAX_VIDEO_BYTES = 80 * 1024 * 1024
 MAX_THUMB_BYTES = 2 * 1024 * 1024
 
 KNOWN_PRESETS = {
@@ -80,6 +83,44 @@ def encode_jpeg(im: Image.Image, target_w: int, target_h: int, quality: int) -> 
     return buf.getvalue(), w, h
 
 
+def probe_video(video_path: Path) -> tuple[int, int, int]:
+    """Return (width, height, duration_sec) using ffprobe if available, else sensible 1080p fallback."""
+    try:
+        out = subprocess.check_output(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height:format=duration',
+             '-of', 'json', str(video_path)],
+            stderr=subprocess.DEVNULL, text=True,
+        )
+        info = json.loads(out)
+        stream = (info.get('streams') or [{}])[0]
+        w = int(stream.get('width') or 1920)
+        h = int(stream.get('height') or 1080)
+        dur = max(1, round(float((info.get('format') or {}).get('duration') or 0)))
+        return w, h, dur
+    except Exception:
+        return 1920, 1080, 0
+
+
+def extract_video_thumb(video_path: Path) -> bytes:
+    """Use companion <stem>.jpg/.png if present, otherwise extract first frame with ffmpeg."""
+    for ext in ('.jpg', '.jpeg', '.png', '.webp'):
+        sidecar = video_path.with_suffix(ext)
+        if sidecar.is_file():
+            with Image.open(sidecar) as im:
+                thumb_bytes, _, _ = encode_jpeg(im, 480, 270, 84)
+                return thumb_bytes
+    with tempfile.TemporaryDirectory() as tmp:
+        frame_path = Path(tmp) / 'frame.jpg'
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', str(video_path), '-frames:v', '1', '-q:v', '2', str(frame_path)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        with Image.open(frame_path) as im:
+            thumb_bytes, _, _ = encode_jpeg(im, 480, 270, 84)
+            return thumb_bytes
+
+
 def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: int,
                  base_url: str, meta_path: Path | None, keep_original: bool) -> dict:
     if not source_dir.is_dir():
@@ -90,12 +131,19 @@ def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: in
     if meta_path and meta_path.is_file():
         overrides = json.loads(meta_path.read_text(encoding='utf-8'))
 
-    images = sorted(
+    video_stems = {
+        p.stem for p in source_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in {'.mp4', '.webm'}
+    }
+    media_files = sorted(
         p for p in source_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp'}
+        if p.is_file() and (
+            p.suffix.lower() in {'.mp4', '.webm'}
+            or (p.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp'} and p.stem not in video_stems)
+        )
     )
-    if not images:
-        raise ValueError(f'No images found in {source_dir}')
+    if not media_files:
+        raise ValueError(f'No images or videos found in {source_dir}')
 
     max_height = round(max_width * 9 / 16) if max_width > 0 else 0
     entries: dict[str, bytes] = {}
@@ -104,8 +152,9 @@ def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: in
 
     Image.MAX_IMAGE_PIXELS = 200_000_000
 
-    for idx, img_path in enumerate(images, start=1):
-        stem = img_path.stem
+    for idx, media_path in enumerate(media_files, start=1):
+        stem = media_path.stem
+        is_video = media_path.suffix.lower() in {'.mp4', '.webm'}
         meta = dict(KNOWN_PRESETS.get(stem, {}))
         meta.update(overrides.get(stem, {}))
         item_id = meta.get('id') or safe_slug(stem, idx)
@@ -118,18 +167,52 @@ def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: in
         credit = meta.get('credit', '')[:160]
         license_name = meta.get('license', '')[:120]
 
-        with Image.open(img_path) as im:
-            if keep_original and img_path.suffix.lower() in {'.jpg', '.jpeg'}:
-                full_bytes = img_path.read_bytes()
+        if is_video:
+            full_bytes = media_path.read_bytes()
+            if len(full_bytes) > MAX_VIDEO_BYTES:
+                raise ValueError(f'{media_path.name} exceeds 80 MB ({len(full_bytes)} bytes)')
+            fw, fh, dur = probe_video(media_path)
+            fw = int(meta.get('width') or fw)
+            fh = int(meta.get('height') or fh)
+            dur = int(meta.get('durationSec') or dur)
+            thumb_bytes = extract_video_thumb(media_path)
+            if len(thumb_bytes) > MAX_THUMB_BYTES:
+                raise ValueError(f'{media_path.name} thumbnail exceeds 2 MB ({len(thumb_bytes)} bytes)')
+            full_rel = f'videos/{item_id}{media_path.suffix.lower()}'
+            thumb_rel = f'thumbs/{item_id}.jpg'
+            entries['wallpapers/' + full_rel] = full_bytes
+            entries['wallpapers/' + thumb_rel] = thumb_bytes
+            items.append({
+                'id': item_id,
+                'type': 'video',
+                'title': title,
+                'subtitle': subtitle,
+                'credit': credit,
+                'license': license_name,
+                'width': fw,
+                'height': fh,
+                'durationSec': dur,
+                'size': len(full_bytes),
+                'sha256': sha256_hex(full_bytes),
+                'url': base_url + full_rel,
+                'thumbUrl': base_url + thumb_rel,
+                'thumbSize': len(thumb_bytes),
+                'thumbSha256': sha256_hex(thumb_bytes),
+            })
+            continue
+
+        with Image.open(media_path) as im:
+            if keep_original and media_path.suffix.lower() in {'.jpg', '.jpeg'}:
+                full_bytes = media_path.read_bytes()
                 fw, fh = im.size
             else:
                 full_bytes, fw, fh = encode_jpeg(im, max_width, max_height, quality)
             thumb_bytes, tw, th = encode_jpeg(im, 480, 270, 84)
 
         if len(full_bytes) > MAX_WALLPAPER_BYTES:
-            raise ValueError(f'{img_path.name} exceeds 50 MB ({len(full_bytes)} bytes)')
+            raise ValueError(f'{media_path.name} exceeds 50 MB ({len(full_bytes)} bytes)')
         if len(thumb_bytes) > MAX_THUMB_BYTES:
-            raise ValueError(f'{img_path.name} thumbnail exceeds 2 MB ({len(thumb_bytes)} bytes)')
+            raise ValueError(f'{media_path.name} thumbnail exceeds 2 MB ({len(thumb_bytes)} bytes)')
 
         full_rel = f'full/{item_id}.jpg'
         thumb_rel = f'thumbs/{item_id}.jpg'
@@ -138,6 +221,7 @@ def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: in
 
         items.append({
             'id': item_id,
+            'type': 'image',
             'title': title,
             'subtitle': subtitle,
             'credit': credit,
@@ -175,10 +259,11 @@ def build_bundle(source_dir: Path, output_zip: Path, max_width: int, quality: in
         '    catalog.json\n'
         '    ATTRIBUTION.md\n'
         '    full/*.jpg\n'
+        '    videos/*.mp4\n'
         '    thumbs/*.jpg\n'
         '```\n\n'
-        '发布顺序：**先上传 `wallpapers/full/*` 与 `wallpapers/thumbs/*`，确认可访问后，再上传/更新 `wallpapers/catalog.json`。**\n'
-        '电视端会在「设置 → 通用与桌面 → 桌面壁纸 → 在线精选壁纸」（以及 Magic Desktop 壁纸页）自动拉取 `catalog.json`，经 SHA-256 校验后缓存到本机并支持断网使用。\n'
+        '发布顺序：**先上传 `wallpapers/full/*`、`wallpapers/videos/*` 与 `wallpapers/thumbs/*`，确认可访问后，再上传/更新 `wallpapers/catalog.json`。**\n'
+        '电视端会在「设置 → 通用与桌面 → 桌面壁纸（我的壁纸）」自动拉取 `catalog.json`，静态与动态壁纸均经 SHA-256 校验后缓存到本机并支持断网使用。\n'
     )
     entries['WALLPAPERS-DEPLOY.md'] = deploy_note.encode('utf-8')
 

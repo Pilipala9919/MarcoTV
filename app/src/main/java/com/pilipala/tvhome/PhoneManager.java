@@ -27,11 +27,15 @@ final class PhoneManager implements PhoneHttp.Handler {
     static final int[] DEFAULTS={32,16,55,0,96,176,100,72,10,260};
     private final MainActivity host;
     private PhoneHttp server;
-    private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="";
+    private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="",initialTab="desktop";
     private volatile long until, pairUntil;
     private volatile boolean approved,closed=true;
     private volatile long generation;
+    private volatile Runnable wallpaperImportedListener;
     private long revision=1,previewAt;
+    void setWallpaperImportedListener(Runnable listener){
+        wallpaperImportedListener=listener;
+    }
     private boolean ambientPreview;
     boolean ambientPreview(){
         return previewing()&&ambientPreview;
@@ -79,11 +83,12 @@ final class PhoneManager implements PhoneHttp.Handler {
         host.home.invalidate();
     }
     void show(){
+        initialTab="desktop";
         if(active()){
             host.showDialog(new TvDialog.Builder(host).setPageId("phone").setTitle("Marco 互联")
                     .setMessage((approved?"手机已连接":"等待手机扫码确认")+"\n仅限当前局域网；15 分钟未操作自动关闭。\n关闭连接会取消未保存的外观预览。")
                     .setItems(new String[]{"显示连接二维码","无线投屏与镜像","断开并关闭 Marco 互联"},(d,w)->{
-                if(w==0)qr();
+                if(w==0)qr(false);
                 else if(w==1)host.cast.show();
                 else{
                     stop();
@@ -93,6 +98,27 @@ final class PhoneManager implements PhoneHttp.Handler {
             }).setNegativeButton("返回桌面",null).create());
             return;
         }
+        startServerAndShowQr(false);
+    }
+    void showWallpaperImport(){
+        initialTab="wallpaper";
+        if(active()){
+            if(approved){
+                host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_qr_active").setTitle("扫码导入壁纸")
+                        .setMessage("手机已连接到 Marco 互联。\n你可以直接在手机浏览器「壁纸」页上传照片或 MP4 动态壁纸；也可以重新生成二维码连接另一台手机。")
+                        .setItems(new String[]{"断开并重新扫码连接新手机","关闭手机连接"},(d,w)->{
+                    stop();
+                    if(w==0)startServerAndShowQr(true);
+                    else host.toast("手机连接已关闭");
+                }).setNegativeButton("返回",null).create());
+                return;
+            }
+            qr(true);
+            return;
+        }
+        startServerAndShowQr(true);
+    }
+    private void startServerAndShowQr(boolean wallpaperMode){
         String address=address();
         if(address==null){
             host.toast("请先连接可用的 Wi-Fi 或有线局域网");
@@ -115,10 +141,10 @@ final class PhoneManager implements PhoneHttp.Handler {
             host.armIdle();
             if(host.cast!=null)host.cast.syncReceiver();
             host.handler.post(timeout);
-            qr();
+            qr(wallpaperMode);
         }catch(Exception e){
             stop();
-            host.toast("暂时无法开启Marco 互联，请重新连接网络后重试");
+            host.toast(wallpaperMode?"暂时无法开启扫码导入，请检查网络连接后重试":"暂时无法开启Marco 互联，请重新连接网络后重试");
         }
     }
     private String address(){
@@ -136,7 +162,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         }catch(Exception ignored){}
         return null;
     }
-    private void qr(){
+    private void qr(boolean wallpaperMode){
         if(approved){
             host.toast("本次已配对；连接新手机请先断开并重新开启");
             return;
@@ -147,7 +173,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             clientAddress="";
             pairUntil=SystemClock.elapsedRealtime()+5*60000;
         }
-        String url="http://"+authority+"/#"+pairCode;
+        String url="http://"+authority+(wallpaperMode?"/?tab=wallpaper#":"/#")+pairCode;
         QrCode q=QrCode.encodeText(url,QrCode.Ecc.MEDIUM);
         int side=q.size+8,scale=6;
         Bitmap bmp=Bitmap.createBitmap(side*scale,side*scale,Bitmap.Config.RGB_565);
@@ -162,7 +188,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         ImageView image=new ImageView(host);
         image.setImageBitmap(bmp);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        image.setContentDescription("用手机相机扫描连接电视");
+        image.setContentDescription(wallpaperMode?"用手机相机扫描导入壁纸":"用手机相机扫描连接电视");
         box.addView(image,new LinearLayout.LayoutParams(dp(210),dp(210)));
         LinearLayout instructions=new LinearLayout(host);
         instructions.setOrientation(LinearLayout.VERTICAL);
@@ -170,25 +196,34 @@ final class PhoneManager implements PhoneHttp.Handler {
         TextView intro=new TextView(host);
         intro.setTextColor(Color.WHITE);
         intro.setTextSize(21);
-        intro.setText("你的电视，随手整理。");
+        intro.setText(wallpaperMode?"照片与动态壁纸，扫码直传。":"你的电视，随手整理。");
         intro.setPadding(0,0,0,dp(12));
         instructions.addView(intro);
         TextView text=new TextView(host);
         text.setTextColor(0xFFCBD6E2);
         text.setTextSize(15);
         text.setLineSpacing(dp(5),1);
-        text.setText("1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 照片/视频快投 · 调整外观\n同时已开启 DLNA，视频 App 可直接投屏\n二维码 5 分钟有效 · 无需手机 App");
+        text.setText(wallpaperMode
+                ?"1  手机与电视连接同一 Wi-Fi\n2  手机相机扫码，浏览器直接进入壁纸页\n3  在电视确认允许后，选择照片或 MP4 视频上传\n\n支持静态壁纸（≤ 50 MB）与 MP4 / WebM 动态壁纸（≤ 80 MB）\n上传后自动保存到「我的壁纸」并立即设为桌面壁纸\n二维码 5 分钟有效 · 无需安装手机 App"
+                :"1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 照片/视频快投 · 导入壁纸 · 调整外观\n同时已开启 DLNA，视频 App 可直接投屏\n二维码 5 分钟有效 · 无需手机 App");
         instructions.addView(text);
         box.addView(instructions,new LinearLayout.LayoutParams(0,-2,1));
-        host.showDialog(new TvDialog.Builder(host).centered().setPageId("phone_qr").setTitle("Marco 互联 · 扫码连接")
+        TvDialog.Builder builder=new TvDialog.Builder(host).centered()
+                .setPageId(wallpaperMode?"wallpaper_qr":"phone_qr")
+                .setTitle(wallpaperMode?"扫码导入壁纸":"Marco 互联 · 扫码连接")
                 .setView(box)
-                .setPositiveButton("返回",null).setNeutralButton("无线投屏",(d,w)->host.cast.show()).setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host)
+                .setPositiveButton("返回",null);
+        if(!wallpaperMode)builder.setNeutralButton("无线投屏",(d,w)->host.cast.show());
+        builder.setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host)
                 .setPageId("phone_manual").setTitle("手动连接电视")
-                .setMessage("手机浏览器打开：http://"+authority+"/\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
-                .setNegativeButton("返回二维码",null).create())).setNegativeButton("关闭连接",(d,w)->{
+                .setMessage("手机浏览器打开：http://"+authority+(wallpaperMode?"/?tab=wallpaper":"/")+"\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
+                .setNegativeButton("返回二维码",null).create()))
+                .setNegativeButton("关闭连接",(d,w)->{
             stop();
-            host.exitMenus();
-        }).create());
+            if(wallpaperMode&&host.dialogs.hasPage("wallpaper"))host.dialogs.popTo("wallpaper");
+            else host.exitMenus();
+        });
+        host.showDialog(builder.create());
     }
     private int dp(float value){
         return Math.round(value*host.getResources().getDisplayMetrics().density);
@@ -276,6 +311,8 @@ final class PhoneManager implements PhoneHttp.Handler {
             }
         }
         if(r.path.equals("/upload"))return upload(r);
+        if(r.path.equals("/upload-video"))return uploadVideo(r);
+        if(r.path.equals("/import-video-url"))return importVideoUrl(r);
         if(r.path.equals("/restore"))return restore(r);
         if(r.path.equals("/cast"))return castMedia(r);
         if(!r.path.equals("/action"))return fail(404,"操作不存在");
@@ -297,8 +334,12 @@ final class PhoneManager implements PhoneHttp.Handler {
                 if(!closed&&nonce.equals(expected)&&clientAddress.equals(expectedIp)){
                     approved=true;
                     if(host.cast!=null)host.cast.trustIp(expectedIp);
-                    host.exitMenus();
-                    host.toast("手机已连接，未保存的预览不会写入配置");
+                    if("wallpaper".equals(initialTab)&&host.dialogs.popTo("wallpaper")){
+                        host.toast("手机已连接，请在手机上传图片或 MP4 动态壁纸");
+                    }else{
+                        host.exitMenus();
+                        host.toast("手机已连接，未保存的预览不会写入配置");
+                    }
                 }
             })
                     .setNegativeButton("拒绝",(d,w)->stop()).create();
@@ -338,9 +379,22 @@ final class PhoneManager implements PhoneHttp.Handler {
                     .put("max",range[1]).put("value",host.appearance().getInt(KEYS[i],DEFAULTS[i])).put("saved",host.preferences.getInt(KEYS[i],
                     DEFAULTS[i])));
         }
+        JSONArray myWallpapers=new JSONArray();
+        String activeWp=WallpaperLibrary.activeId(host.preferences);
+        if(host.wallpaperLibrary!=null){
+            for(WallpaperLibrary.Entry e:host.wallpaperLibrary.list()){
+                myWallpapers.put(new JSONObject()
+                        .put("id",e.id)
+                        .put("title",e.title)
+                        .put("video",e.video)
+                        .put("durationSec",e.durationSec)
+                        .put("active",e.unifiedId().equals(activeWp)));
+            }
+        }
         return new JSONObject().put("version",ProjectInfo.VERSION).put("model",Build.MANUFACTURER+" "+Build.MODEL)
-                .put("revision",revision).put("csrf",csrf)
+                .put("revision",revision).put("csrf",csrf).put("initialTab",initialTab)
                 .put("rows",rows).put("hidden",hidden).put("settings",settings).put("preview",previewing())
+                .put("wallpapers",myWallpapers).put("activeWallpaper",activeWp)
                 .put("sort",host.preferences.getString("tv_sort","recent"))
                 .put("cast",host.cast==null?new JSONObject():host.cast.statusJson())
                 .put("freeMB",host.getFilesDir().getUsableSpace()/1048576).put("foreground",host.foreground);
@@ -490,8 +544,20 @@ final class PhoneManager implements PhoneHttp.Handler {
             }else if(op.equals("wallpaper")){
                 int n=b.getInt("index");
                 if(n<0||n>=WallpaperSource.ASSETS.length)return fail(400,"无效壁纸");
-                host.preferences.edit().remove("wallpaper").remove("wallpaper_label").putInt("wallpaper_builtin",n).apply();
-                host.loadWallpaper();
+                WallpaperLibrary.applyBuiltin(host,n);
+                notifyWallpaperChanged();
+            }else if(op.equals("wallpaper_entry")){
+                String id=b.optString("id","");
+                WallpaperLibrary.Entry found=findWallpaperEntry(id);
+                if(found==null)return fail(404,"壁纸不存在，请刷新");
+                host.wallpaperLibrary.applyEntry(host,found);
+                notifyWallpaperChanged();
+            }else if(op.equals("wallpaper_delete")){
+                String id=b.optString("id","");
+                boolean wasActive=("imported:"+id).equals(WallpaperLibrary.activeId(host.preferences));
+                if(!host.wallpaperLibrary.delete(id))return fail(404,"壁纸不存在");
+                if(wasActive)host.loadWallpaper();
+                notifyWallpaperChanged();
             }
             else return fail(400,"不支持的操作");
             revision++;
@@ -552,48 +618,204 @@ final class PhoneManager implements PhoneHttp.Handler {
             if(!delivered)target.delete();
         }
     }
+    private WallpaperLibrary.Entry findWallpaperEntry(String id){
+        if(host.wallpaperLibrary==null||id==null||id.isEmpty())return null;
+        for(WallpaperLibrary.Entry e:host.wallpaperLibrary.list())if(id.equals(e.id))return e;
+        return null;
+    }
+    private void notifyWallpaperChanged(){
+        Runnable listener=wallpaperImportedListener;
+        if(listener!=null)listener.run();
+    }
+    private static String decodeHeaderName(String raw,String fallback){
+        if(raw==null||raw.isEmpty())return fallback;
+        try{
+            String decoded=URLDecoder.decode(raw,"UTF-8");
+            return WallpaperLibrary.cleanTitle(decoded,fallback);
+        }catch(Exception ignored){
+            return fallback;
+        }
+    }
     private PhoneHttp.Response upload(PhoneHttp.Request r)throws Exception{
         if(!transfer.compareAndSet(false,true))return fail(409,"正在处理文件，请稍候");
-        File ready=null;
+        WallpaperLibrary.Entry imported=null;
         try{
             if(r.body==null)return fail(400,"请选择图片");
             long expected=Long.parseLong(r.header("x-marco-revision"));
-            BitmapFactory.Options o=new BitmapFactory.Options();
-            o.inJustDecodeBounds=true;
-            BitmapFactory.decodeFile(r.body.getPath(),o);
-            if(o.outWidth<1||o.outHeight<1||o.outWidth>16384||o.outHeight>16384||(long)o.outWidth*o.outHeight>100000000L)return fail(400,"图片无效或像素过大，请先裁切");
-            o.inJustDecodeBounds=false;
-            o.inSampleSize=1;
-            while(o.outWidth/o.inSampleSize>1920||o.outHeight/o.inSampleSize>1080)o.inSampleSize*=2;
-            o.inPreferredConfig=Bitmap.Config.RGB_565;
-            Bitmap b=BitmapFactory.decodeFile(r.body.getPath(),o);
-            if(b==null)return fail(400,"图片无法读取");
-            ready=File.createTempFile("phone-wallpaper-",".jpg",host.getFilesDir());
-            try(OutputStream out=new FileOutputStream(ready)){
-                if(!b.compress(Bitmap.CompressFormat.JPEG,92,out))throw new IOException();
-            }finally{
-                b.recycle();
+            String title=decodeHeaderName(r.header("x-marco-wallpaper-name"),"手机壁纸");
+            try{
+                imported=host.wallpaperLibrary.importImage(r.body,title);
+            }catch(IOException error){
+                return fail(400,error.getMessage()==null?"图片无法读取":error.getMessage());
             }
-            final File staged=ready;
-            return main(()->{
+            final WallpaperLibrary.Entry entry=imported;
+            PhoneHttp.Response res=main(()->{
                 if(closed||!approved)return fail(401,"连接已关闭");
-                if(host.localPreview!=null)return fail(409,"电视正在调整外观，请先在电视保存或取消");
+                if(host.localPreview!=null)return fail(409,"电视正在调整外观，请先退出后再上传");
                 if(expected!=revision||!host.foreground)return fail(409,"电视状态已变化，请刷新后上传");
-                File dest=new File(host.getFilesDir(),"wallpaper-image");
-                if(!staged.renameTo(dest))return fail(500,"壁纸保存失败");
                 ownEdit=true;
                 try{
-                    host.preferences.edit().putString("wallpaper",Uri.fromFile(dest).toString()).remove("wallpaper_label").apply();
+                    host.wallpaperLibrary.applyEntry(host,entry);
                     revision++;
-                    host.loadWallpaper();
+                    notifyWallpaperChanged();
+                    host.toast("已导入并应用壁纸："+entry.title);
                     return json(state());
+                }catch(IOException error){
+                    return fail(500,"壁纸保存失败");
                 }finally{
                     ownEdit=false;
                 }
             });
+            if(res.code==200)imported=null;
+            return res;
         }finally{
-            if(ready!=null)ready.delete();
+            if(imported!=null)host.wallpaperLibrary.delete(imported.id);
             transfer.set(false);
+        }
+    }
+    private PhoneHttp.Response uploadVideo(PhoneHttp.Request r)throws Exception{
+        if(!transfer.compareAndSet(false,true))return fail(409,"正在处理文件，请稍候");
+        WallpaperLibrary.Entry imported=null;
+        try{
+            if(r.body==null||r.length<=0)return fail(400,"请选择 MP4 / WebM 视频");
+            long expected=Long.parseLong(r.header("x-marco-revision"));
+            String rawFile=r.header("x-marco-file-name");
+            String fileName="";
+            if(!rawFile.isEmpty())try{fileName=URLDecoder.decode(rawFile,"UTF-8");}catch(Exception ignored){}
+            String title=decodeHeaderName(r.header("x-marco-wallpaper-name"),
+                    fileName.isEmpty()?"动态壁纸":WallpaperLibrary.cleanTitle(fileName,"动态壁纸"));
+            try{
+                imported=host.wallpaperLibrary.importVideo(r.body,title,fileName);
+            }catch(IOException error){
+                return fail(400,error.getMessage()==null?"视频无法识别，请使用 MP4（H.264）格式":error.getMessage());
+            }
+            final WallpaperLibrary.Entry entry=imported;
+            PhoneHttp.Response res=main(()->{
+                if(closed||!approved)return fail(401,"连接已关闭");
+                if(host.localPreview!=null)return fail(409,"电视正在调整外观，请先退出后再上传");
+                if(expected!=revision||!host.foreground)return fail(409,"电视状态已变化，请刷新后上传");
+                ownEdit=true;
+                try{
+                    host.wallpaperLibrary.applyEntry(host,entry);
+                    revision++;
+                    notifyWallpaperChanged();
+                    host.toast("已导入动态壁纸："+entry.title);
+                    return json(state());
+                }catch(IOException error){
+                    return fail(500,"动态壁纸保存失败");
+                }finally{
+                    ownEdit=false;
+                }
+            });
+            if(res.code==200)imported=null;
+            return res;
+        }finally{
+            if(imported!=null)host.wallpaperLibrary.delete(imported.id);
+            transfer.set(false);
+        }
+    }
+    private PhoneHttp.Response importVideoUrl(PhoneHttp.Request r)throws Exception{
+        if(!transfer.compareAndSet(false,true))return fail(409,"正在处理文件，请稍候");
+        File temp=null;
+        WallpaperLibrary.Entry imported=null;
+        try{
+            JSONObject body=new JSONObject(r.text());
+            long expected=body.optLong("revision",-1);
+            String url=body.optString("url","").trim();
+            if(!WallpaperCatalogPolicy.userVideoImportUrl(url))return fail(400,"请输入有效的 http 或 https 视频直链");
+            String rawTitle=body.optString("title","").trim();
+            String fileName="remote.mp4";
+            try{
+                String path=new URI(url).getPath();
+                if(path!=null){
+                    int slash=path.lastIndexOf('/');
+                    String tail=slash>=0?path.substring(slash+1):path;
+                    if(!tail.isEmpty())fileName=tail;
+                }
+            }catch(Exception ignored){}
+            String title=WallpaperLibrary.cleanTitle(rawTitle.isEmpty()?fileName:rawTitle,"动态壁纸");
+            if(host.getCacheDir().getUsableSpace()<WallpaperLibrary.MAX_VIDEO_BYTES+16L*1024*1024){
+                return fail(507,"电视可用存储空间不足");
+            }
+            temp=File.createTempFile("phone-vidurl-",".part",host.getCacheDir());
+            try{
+                downloadUserVideo(url,temp);
+            }catch(IOException error){
+                return fail(400,error.getMessage()==null?"下载视频失败，请检查链接是否可直接访问":error.getMessage());
+            }
+            try{
+                imported=host.wallpaperLibrary.importVideo(temp,title,fileName);
+            }catch(IOException error){
+                return fail(400,error.getMessage()==null?"视频无法识别，请使用标准 MP4（H.264）链接":error.getMessage());
+            }
+            final WallpaperLibrary.Entry entry=imported;
+            PhoneHttp.Response res=main(()->{
+                if(closed||!approved)return fail(401,"连接已关闭");
+                if(host.localPreview!=null)return fail(409,"电视正在调整外观，请先退出后再导入");
+                if(expected!=revision||!host.foreground)return fail(409,"电视状态已变化，请刷新后重试");
+                ownEdit=true;
+                try{
+                    host.wallpaperLibrary.applyEntry(host,entry);
+                    revision++;
+                    notifyWallpaperChanged();
+                    host.toast("已导入动态壁纸："+entry.title);
+                    return json(state());
+                }catch(IOException error){
+                    return fail(500,"动态壁纸保存失败");
+                }finally{
+                    ownEdit=false;
+                }
+            });
+            if(res.code==200)imported=null;
+            return res;
+        }finally{
+            if(temp!=null&&temp.exists())temp.delete();
+            if(imported!=null)host.wallpaperLibrary.delete(imported.id);
+            transfer.set(false);
+        }
+    }
+    private void downloadUserVideo(String startUrl,File target)throws IOException{
+        String current=startUrl;
+        HttpURLConnection conn=null;
+        try{
+            for(int hop=0;hop<5;hop++){
+                if(closed)throw new IOException("连接已关闭");
+                if(!WallpaperCatalogPolicy.userVideoImportUrl(current))throw new IOException("不支持跳转至该地址");
+                conn=(HttpURLConnection)new URL(current).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(12000);
+                conn.setReadTimeout(30000);
+                conn.setRequestProperty("User-Agent","MarcoTV/"+ProjectInfo.VERSION);
+                conn.setRequestProperty("Accept-Encoding","identity");
+                int code=conn.getResponseCode();
+                if(code==301||code==302||code==303||code==307||code==308){
+                    String location=conn.getHeaderField("Location");
+                    conn.disconnect();
+                    conn=null;
+                    if(location==null||location.isEmpty())throw new IOException("跳转地址无效");
+                    current=new URL(new URL(current),location).toString();
+                    continue;
+                }
+                if(code!=200)throw new IOException("视频下载失败（HTTP "+code+"）");
+                long cl=conn.getContentLengthLong();
+                if(cl>WallpaperLibrary.MAX_VIDEO_BYTES)throw new IOException("视频文件超过 80 MB 限制");
+                long total=0;
+                try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(target)){
+                    byte[] buf=new byte[16384];
+                    int n;
+                    while((n=in.read(buf))>=0){
+                        if(closed)throw new IOException("连接已关闭");
+                        total+=n;
+                        if(total>WallpaperLibrary.MAX_VIDEO_BYTES)throw new IOException("视频文件超过 80 MB 限制");
+                        out.write(buf,0,n);
+                    }
+                }
+                if(total<=0)throw new IOException("链接返回内容为空");
+                return;
+            }
+            throw new IOException("视频链接跳转次数过多");
+        }finally{
+            if(conn!=null)conn.disconnect();
         }
     }
     private PhoneHttp.Response restore(PhoneHttp.Request r)throws Exception{
