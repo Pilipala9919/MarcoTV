@@ -43,7 +43,7 @@ final class SettingsCatalog {
         specs.put("recent_double_ms",new int[]{200,700,400});
         INT_SPECS=Collections.unmodifiableMap(specs);
         Set<String> home=new LinkedHashSet<>(specs.keySet());
-        home.addAll(Arrays.asList("ambient_enabled","now_playing","recent_enabled","recent_wake","tv_sort","order_tv","order_inputs","order_favorites","order_other"));
+        home.addAll(Arrays.asList("ambient_enabled","now_playing","recent_enabled","recent_wake","tv_sort","wallpaper_label","order_tv","order_inputs","order_favorites","order_other"));
         HOME_KEYS=Collections.unmodifiableSet(home);
     }
     static int[] range(String key){
@@ -69,7 +69,7 @@ final class SettingsCatalog {
         if(group.equals("cast"))return key.equals("cast_confirm")?"b":"i";
         if(key.startsWith("opened:"))return "l";
         if(key.equals("ambient_enabled")||key.equals("now_playing")||key.equals("recent_enabled")||key.equals("recent_wake"))return "b";
-        if(key.startsWith("order_")||key.equals("tv_sort"))return "s";
+        if(key.startsWith("order_")||key.equals("tv_sort")||key.equals("wallpaper_label"))return "s";
         return "i";
     }
     static boolean imageName(String name){

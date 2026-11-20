@@ -386,13 +386,21 @@ public final class TaskBridgeServer {
     public static void main(String[] args)throws Exception{
         if(android.os.Process.myUid()!=2000||args.length!=2)throw new SecurityException("requires shell setup");
         Looper.prepareMainLooper();
-        try(RandomAccessFile lock=new RandomAccessFile("/data/local/tmp/marcotv-task-bridge.lock","rw");FileLock held=lock.getChannel()
-                .tryLock()){
+        try(RandomAccessFile lock=new RandomAccessFile("/data/local/tmp/marcotv-task-bridge.lock","rw")){
+            FileLock held=null;
+            for(int attempt=0;attempt<10&&held==null;attempt++){
+                held=lock.getChannel().tryLock();
+                if(held==null)Thread.sleep(100);
+            }
             if(held==null)return;
-            TaskBridgeServer server=new TaskBridgeServer(Integer.parseInt(args[0]),Integer.parseInt(args[1]));
-            server.publish();
-            server.watchWake();
-            Looper.loop();
+            try{
+                TaskBridgeServer server=new TaskBridgeServer(Integer.parseInt(args[0]),Integer.parseInt(args[1]));
+                server.publish();
+                server.watchWake();
+                Looper.loop();
+            }finally{
+                held.release();
+            }
         }
     }
 }

@@ -10,6 +10,10 @@ import java.io.*;
 /** The only Binder handoff is the shell-protected provider. No network listener or ADB keys. */
 final class TaskBridgeClient {
     private static volatile IBinder service;
+    static boolean connected(){
+        IBinder binder=service;
+        return binder!=null&&binder.isBinderAlive();
+    }
     static void attach(IBinder binder){
         service=binder;
         try{

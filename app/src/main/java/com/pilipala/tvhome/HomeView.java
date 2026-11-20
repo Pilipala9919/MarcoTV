@@ -839,11 +839,6 @@ final class HomeView extends View {
             surfacePaint.setShader(null);
             surfacePaint.setStyle(Paint.Style.FILL);
         }
-        if(tile.pinned) {
-            paint.setColor(alphaColor(0xBB13202B,opacity));
-            canvas.drawCircle(x+w/2-28*zoom,y-h/2+28*zoom,17*zoom,paint);
-            icon(canvas,"\ue838",x+w/2-28*zoom,y-h/2+28*zoom,22*zoom,alphaColor(0xFFFFD68A,opacity));
-        }
         if (emphasis > .005f || labelOpacity > 0) {
             if (tile.displayLabel == null) {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);

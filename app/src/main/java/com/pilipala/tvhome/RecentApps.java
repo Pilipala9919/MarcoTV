@@ -413,7 +413,8 @@ final class RecentApps {
         text(c,"系统任务 · 返回上次停留的页面",112,168,24,normal,0xBBDCE3EC,Paint.Align.LEFT);
         if(entries.isEmpty()){
             text(c,loading?"正在读取系统任务…":bridgeConnected?"暂无可显示任务":"需要连接系统任务服务",960,485,32,normal,0xFFD8E1EA,Paint.Align.CENTER);
-            text(c,bridgeStatus,960,545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);
+            String sub=(preview&&!loading&&!bridgeConnected)?"任务服务未连接 · 请在「遥控器与多任务 → 立即打开最近任务」中一键启动":bridgeStatus;
+            text(c,sub,960,545,23,normal,0xBBC7D5E4,Paint.Align.CENTER);
         }
         else{
             drawOrder.clear();
@@ -533,7 +534,7 @@ final class RecentApps {
                 shell.authenticate();
                 shell.startTaskBridge(host.getApplicationInfo().sourceDir,android.os.Process.myUid());
                 boolean connected=false;
-                for(int i=0;i<25&&!cancelled[0];i++){
+                for(int i=0;i<35&&!cancelled[0];i++){
                     Thread.sleep(200);
                     try{
                         if(TaskBridgeClient.configure(host).optBoolean("ok",false)){

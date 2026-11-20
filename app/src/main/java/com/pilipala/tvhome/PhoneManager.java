@@ -490,7 +490,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             }else if(op.equals("wallpaper")){
                 int n=b.getInt("index");
                 if(n<0||n>=WallpaperSource.ASSETS.length)return fail(400,"无效壁纸");
-                host.preferences.edit().remove("wallpaper").putInt("wallpaper_builtin",n).apply();
+                host.preferences.edit().remove("wallpaper").remove("wallpaper_label").putInt("wallpaper_builtin",n).apply();
                 host.loadWallpaper();
             }
             else return fail(400,"不支持的操作");
@@ -561,7 +561,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             BitmapFactory.Options o=new BitmapFactory.Options();
             o.inJustDecodeBounds=true;
             BitmapFactory.decodeFile(r.body.getPath(),o);
-            if(o.outWidth<1||o.outHeight<1||o.outWidth>8192||o.outHeight>8192||(long)o.outWidth*o.outHeight>32000000)return fail(400,"图片无效或像素过大，请先裁切");
+            if(o.outWidth<1||o.outHeight<1||o.outWidth>16384||o.outHeight>16384||(long)o.outWidth*o.outHeight>100000000L)return fail(400,"图片无效或像素过大，请先裁切");
             o.inJustDecodeBounds=false;
             o.inSampleSize=1;
             while(o.outWidth/o.inSampleSize>1920||o.outHeight/o.inSampleSize>1080)o.inSampleSize*=2;
@@ -583,7 +583,7 @@ final class PhoneManager implements PhoneHttp.Handler {
                 if(!staged.renameTo(dest))return fail(500,"壁纸保存失败");
                 ownEdit=true;
                 try{
-                    host.preferences.edit().putString("wallpaper",Uri.fromFile(dest).toString()).apply();
+                    host.preferences.edit().putString("wallpaper",Uri.fromFile(dest).toString()).remove("wallpaper_label").apply();
                     revision++;
                     host.loadWallpaper();
                     return json(state());

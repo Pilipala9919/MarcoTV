@@ -66,6 +66,7 @@ final class PhoneHttp implements AutoCloseable {
     }
     static int headerTimeoutMs=5000;
     static final int MAX_PER_IP=8;
+    static final long MAX_UPLOAD_BYTES=50L*1024*1024;
     private final ServerSocket server;
     private final File folder;
     private final Handler handler;
@@ -143,7 +144,7 @@ final class PhoneHttp implements AutoCloseable {
                 result=handler.check(request);
                 if(result==null){
                     s.setSoTimeout(12000);
-                    long max=(request.path.equals("/restore")||request.path.equals("/cast"))?128L*1024*1024:request.path.equals("/upload")?16L*1024*1024:65536;
+                    long max=(request.path.equals("/restore")||request.path.equals("/cast"))?128L*1024*1024:request.path.equals("/upload")?MAX_UPLOAD_BYTES:65536;
                     if(request.length>max)result=Response.text(413,"文件过大");
                     else{
                         if(request.length>0){

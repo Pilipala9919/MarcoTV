@@ -1,5 +1,20 @@
 # 更新记录
 
+## 0.18.0 · 2026-11-20
+
+- **镜像在线精选壁纸库与 Apple TV 分栏预览**：
+  - 在「设置 → 通用与桌面 → 桌面壁纸」及 Magic Desktop 草稿流程中新增「在线精选壁纸」（`OnlineWallpaperDialog`、`OnlineWallpaperStore`、`WallpaperCatalogPolicy`），从镜像站 `https://marcotv.wlj9919.top/wallpapers/` 按需拉取精选 4K 壁纸（首批上线 5 张：巴哈马浅滩、靛夜流光、富士暮光、星云之崖、潮汐余晖），不增加 APK 体积。
+  - 采用 Apple TV 风格左右分栏弹窗：左侧固定 16:9 高清缩略图预览与版权署名卡，右侧独立滚动壁纸列表，上下浏览时预览图始终完整可见。
+  - 所有下载经严格 HTTPS 域名校验、精确字节数与 SHA-256 完整性校验后缓存至本地，支持断网直接切换与一键清理缓存（不影响当前已设桌面壁纸）。
+- **自定义壁纸上限放宽至 50 MB / 1 亿像素（支持 12K 原图）**：
+  - 统一放宽 Marco 互联手机网页上传（`phone.js`、`PhoneHttp`、`PhoneManager`）、电视本地导入（`CoverManager`）与备份恢复（`BackupStore`）的单张背景图限制：文件体积上限由 `16 MB` 提升至 `50 MB`，分辨率上限由 `3200 万像素` 提升至 `1 亿像素（最大单边 16384 px，完整兼容 11520×6480 12K 原图）`，并沿用 `inSampleSize` 降采样安全渲染防止电视 OOM。
+- **修复最近任务辅助服务「本机一键启动」始终无法连接的问题**：
+  - 修复 `HomeShellSetup.startTaskBridge()` 与 `scripts/start_task_bridge.py` 在传统 ADB `shell:` 伪终端（PTY）中直接 `&` 后台启动 `TaskBridgeServer` 时，因未忽略 `SIGHUP` 且未脱离会话而在退出瞬间被系统杀死、导致本机一键启动反复提示「启动命令已发送，但服务尚未响应」的问题；改为 `trap '' HUP` + `setsid` 独立会话启动并短暂稳定等待。
+  - 修复重启替换旧 `marcotv-task-bridge` 进程时的 `/data/local/tmp/marcotv-task-bridge.lock` 文件锁竞态：`HomeShellSetup` 结束旧进程后短暂等待释放，`TaskBridgeServer.main()` 增加最多 10 次（间隔 `100ms`）加锁重试。
+  - 延长「本机一键启动任务服务」等待上限至 7 秒；在「设置 → 遥控器与多任务 → 立即打开最近任务」实时展示 `服务已连接` / `未连接 · 点击恢复` 状态，并优化 Magic Desktop 预览及状态中心中的未连接指引。
+- **桌面置顶视觉精简**：
+  - 移除电视桌面置顶应用卡片右上角的黄色星标角标及 Marco 互联手机页面的 `★` 标记，保留长按「置顶到首位 / 取消置顶」功能与置顶优先排序。
+
 ## 0.17.0 · 2026-11-19
 
 - **待机强杀后的 Home 兼容自动恢复与唤醒回桌面**：

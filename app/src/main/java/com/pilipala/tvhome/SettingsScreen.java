@@ -701,7 +701,7 @@ final class SettingsScreen extends LinearLayout {
             case "restore_home":
                 return "切回原厂";
             case "recent_open":
-                return "切换后台";
+                return TaskBridgeClient.connected() ? "服务已连接" : "未连接 · 点击恢复";
             case "recent_style":
                 return "Magic Desktop";
             case "wifi":
@@ -898,7 +898,10 @@ final class SettingsScreen extends LinearLayout {
 
     private String wallpaperLabel() {
         String uri = host.preferences.getString("wallpaper", "");
-        if (uri != null && !uri.isEmpty()) return "自定义壁纸";
+        if (uri != null && !uri.isEmpty()) {
+            String custom = host.preferences.getString("wallpaper_label", "");
+            return custom != null && !custom.isEmpty() ? custom : "自定义壁纸";
+        }
         String[] builtins = {"雾蓝海岸", "暖沙丘", "极夜山脊", "峡谷"};
         int idx = Math.max(0, Math.min(builtins.length - 1, host.preferences.getInt("wallpaper_builtin", 0)));
         return builtins[idx];

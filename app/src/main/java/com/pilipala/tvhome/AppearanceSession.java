@@ -25,6 +25,7 @@ final class AppearanceSession {
         if(!open)return;
         wallpaperRevision++;
         draft.strings.put("wallpaper",uri);
+        draft.strings.put("wallpaper_label","");
         draft.values.put("wallpaper_builtin",builtin);
         if(resetDim)draft.values.put("wallpaper_dim",10);
         if(changed!=null)changed.run();

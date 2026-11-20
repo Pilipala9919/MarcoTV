@@ -1,19 +1,23 @@
 {
-  "version": "0.17.0",
-  "version_code": 38,
-  "date": "2026-11-19",
+  "version": "0.18.0",
+  "version_code": 40,
+  "date": "2026-11-20",
   "author": "Pilipala",
   "release_channel": "stable",
-  "apk_sha256": "ed9f5f503ef2b9f82ef9af347d2c865c77200153fe3901057944530123ea510f",
-  "restricted_apk_sha256": "2081d01b0dff1b8d0e3cc34b74cb60a195c5466e74a0241c24a11a02aeec6fe3",
+  "apk_sha256": "5e5b137dc58f765d69fdca79673dc189c7984c1dc3639bf0e6b0f99432612ae0",
+  "restricted_apk_sha256": "880995ef5a8999e412f9422ef7e9a690073720a6b1e5dd9d19027ad38ee2d065",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
   "hardware_baseline": {
-    "version": "0.17.0",
-    "version_code": 38,
+    "version": "0.18.0",
+    "version_code": 40,
     "device_model": "Xiaomi MiTV-ASTP0",
     "android": "9",
-    "apk_sha256": "ed9f5f503ef2b9f82ef9af347d2c865c77200153fe3901057944530123ea510f",
+    "apk_sha256": "5e5b137dc58f765d69fdca79673dc189c7984c1dc3639bf0e6b0f99432612ae0",
+    "online_mirror_wallpapers": "verified live fetch of 5 wallpapers from https://marcotv.wlj9919.top/wallpapers/, split-pane preview across all rows, SHA-256 download & offline cache apply on MiTV-ASTP0",
+    "large_12k_wallpaper_import": "verified 20.47 MB 11520x6480 12K original local import with safe inSampleSize downsampling and zero OOM on MiTV-ASTP0",
+    "task_bridge_local_start": "verified cold-start 1-click local ADB start + 10/10 legacy shell: SIGHUP survival + Magic Desktop 3D recent preview on MiTV-ASTP0",
+    "instrumentation_baseline_version": "0.17.0",
     "device_regression_checks": 85,
     "appearance_device_checks": 93,
     "device_setup_checks": 37,
@@ -21,7 +25,7 @@
     "drawer_home_device_checks": 14,
     "total_device_checks": 250,
     "standby_wake_recovery": "verified on MiTV-ASTP0 after Xiaomi gotoSleepStayAliveProcess forceStopPackage",
-    "ui_and_pin_visual": "verified via real TV screenshots across 5 Apple TV settings categories, header icons, and pin-to-first round-trip"
+    "ui_and_pin_visual": "verified via real TV screenshots across Apple TV split wallpaper gallery, 5 settings categories, header icons, recent tasks, and clean star-free pinned cards"
   },
   "release_checks": {
     "offline_suites": [
@@ -37,6 +41,7 @@
       "release_tools",
       "settings",
       "updates",
+      "wallpapers",
       "phone_http",
       "cast_protocol",
       "task_bridge",
@@ -44,7 +49,7 @@
       "lite",
       "check_release"
     ],
-    "offline_suites_count": 18,
+    "offline_suites_count": 19,
     "all_passed": true,
     "installation_web_route_combinations": 72,
     "device_instrumentation_compile_only_apks": 7

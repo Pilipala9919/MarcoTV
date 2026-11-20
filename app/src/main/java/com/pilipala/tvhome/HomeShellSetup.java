@@ -64,15 +64,26 @@ final class HomeShellSetup {
     void startTaskBridge(String apkPath, int appUid) throws Exception {
         if (!authenticated) throw new IOException("Authorization required");
         if (!validApkPath(apkPath) || appUid <= 0) throw new IllegalArgumentException("Bridge arguments");
+        boolean stoppedOld = false;
         for (String token : shell.run("pidof marcotv-task-bridge 2>/dev/null").split("\\s+")) {
             if (!token.matches("[0-9]+")) continue;
             String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null");
-            if (cmdline.contains("com.pilipala.tvhome.TaskBridgeServer") || cmdline.trim().equals("marcotv-task-bridge"))
+            if (cmdline.contains("com.pilipala.tvhome.TaskBridgeServer") || cmdline.trim().equals("marcotv-task-bridge")) {
                 shell.run("kill " + token + " 2>/dev/null");
+                stoppedOld = true;
+            }
         }
-        shell.run("CLASSPATH='" + apkPath + "' app_process /system/bin --nice-name=marcotv-task-bridge "
+        if (stoppedOld) shell.run("sleep 0.3 2>/dev/null || sleep 1");
+        // Legacy ADB shell: allocates a PTY where SIGHUP is not ignored; when sh exits
+        // after '&', closing the PTY kills the child before ART starts. Ignore HUP and
+        // detach into a new session with setsid when available.
+        String args = "app_process /system/bin --nice-name=marcotv-task-bridge "
                 + "com.pilipala.tvhome.TaskBridgeServer " + appUid + " " + user
-                + " </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1 &");
+                + " </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1";
+        shell.run("trap '' HUP; if command -v setsid >/dev/null 2>&1; then "
+                + "CLASSPATH='" + apkPath + "' setsid " + args + " & "
+                + "else CLASSPATH='" + apkPath + "' " + args + " & fi; "
+                + "sleep 0.2 2>/dev/null || sleep 1");
     }
 
     static String brand(String manufacturer, String brand) {

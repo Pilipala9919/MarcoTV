@@ -25,7 +25,7 @@ for(const sys of ['android','unknown','other'])for(const dev of ['windows','andr
 }
 for(const sys of ['unknown','other'])assert(!c.homeRoute(sys).download);
 const home=c.homeRoute('android');assert(home.docs&&!home.download&&home.steps.length===4);
-assert(home.limit.includes('0.17.0')&&home.limit.includes('不自动授权'));
+assert(home.limit.includes('0.18.0')&&home.limit.includes('不自动授权'));
 element('system').value='android';c.render();
 assert.equal(element('routeTitle').textContent,home.title);
 assert.equal(element('steps').children.length,4);

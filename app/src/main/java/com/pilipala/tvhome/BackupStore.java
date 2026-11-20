@@ -127,7 +127,7 @@ final class BackupStore {
                     while((n=zip.read(b))!=-1){
                         size+=n;
                         total+=n;
-                        if(total>LIMIT||size>(name.equals("settings.json")?1024*1024:32L*1024*1024))throw new IOException("size limit");
+                        if(total>LIMIT||size>(name.equals("settings.json")?1024*1024:50L*1024*1024))throw new IOException("size limit");
                         out.write(b,0,n);
                     }
                 }
@@ -163,7 +163,7 @@ final class BackupStore {
             o.inJustDecodeBounds=true;
             BitmapFactory.decodeFile(e.getValue().getPath(),o);
             int maxSide=e.getKey().startsWith("cover-")?1280:16384;
-            long maxPixels=e.getKey().startsWith("cover-")?1280L*1280:64000000L;
+            long maxPixels=e.getKey().startsWith("cover-")?1280L*1280:100000000L;
             if(o.outWidth<1||o.outHeight<1||o.outWidth>maxSide||o.outHeight>maxSide||(long)o.outWidth*o.outHeight>maxPixels)throw new IOException("invalid image");
         }
         if(root.getBoolean("customWallpaper")&&!p.images.containsKey("wallpaper-image"))throw new IOException("wallpaper missing");

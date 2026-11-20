@@ -42,7 +42,7 @@ final class StatusSnapshot {
                     +"\n清除单个任务："+(task.optBoolean("canRemove")?("task".equals(task.optString("removeMode"))?"接口可用，需实际测试":"仅独立任务可清除"):"系统未开放")
                     +"\n最近唤醒结果："+task.optString("lastWake","尚无记录");
         }catch(Exception e){
-            state+="\n任务服务：未连接或无法读取，请按安装说明从电脑启动。完整重启或 APK 更新后需重新启动。";
+            state+="\n任务服务：未连接或无法读取，可在最近任务中选择「本机一键启动任务服务」或按安装说明从电脑启动。完整重启或 APK 更新后需重新启动。";
         }
         return state;
     }

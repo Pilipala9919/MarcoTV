@@ -60,7 +60,7 @@ final class SettingsTaxonomy {
                         new Item("magic_desktop", "Magic Desktop 个性化", Item.DRILL,
                                 "实时 3D 预览并调整卡片高度、位置、圆角、时钟字体、壁纸压暗与动效时长。"),
                         new Item("wallpaper", "桌面壁纸", Item.DRILL,
-                                "切换内置风景壁纸，或导入电视本地图片作为桌面背景。")),
+                                "切换内置风景壁纸、从镜像站按需下载在线精选壁纸，或导入电视本地图片（最大 50 MB）。")),
                 new Section("屏保与休眠",
                         new Item("ambient_enabled", "Marco TV 屏保", Item.TOGGLE,
                                 "桌面闲置后进入低干扰时钟屏保，时间会缓慢移动以减少烧屏风险。"),

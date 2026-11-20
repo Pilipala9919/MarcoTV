@@ -20,6 +20,7 @@ SUITES = [
     'test_release_tools.py',
     'test_settings.py',
     'test_updates.py',
+    'test_wallpapers.py',
     'test_phone_http.py',
     'test_cast_protocol.py',
     'test_task_bridge.py',

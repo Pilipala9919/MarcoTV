@@ -10,12 +10,15 @@ def main():
     def shell(*command):
         return subprocess.check_output(base+['shell',*command],text=True,encoding='utf-8',errors='replace',timeout=20).strip()
     # Only stop processes whose complete argv identifies our fixed bridge entrypoint.
+    stopped=False
     for pid in shell('pidof','marcotv-task-bridge').split() if 'marcotv-task-bridge' in shell('ps','-A') else []:
         if not pid.isdigit():raise RuntimeError('Invalid process id')
         command=shell('cat','/proc/'+pid+'/cmdline').replace('\x00',' ')
         if 'com.pilipala.tvhome.TaskBridgeServer' not in command and command.strip()!='marcotv-task-bridge':raise RuntimeError('Unexpected process; not stopping')
         shell('kill',pid)
+        stopped=True
     if args.stop:print('Marco TV task bridge stopped.');return
+    if stopped:time.sleep(.3)
     user=shell('am','get-current-user')
     if not user.isdigit():raise RuntimeError('Unable to identify current user')
     package=shell('pm','list','packages','-U','--user',user,'com.pilipala.tvhome')
@@ -24,7 +27,9 @@ def main():
     path=shell('pm','path','--user',user,'com.pilipala.tvhome')
     paths=[p.removeprefix('package:') for p in path.splitlines() if p.startswith('package:')]
     if len(paths)!=1 or '..' in paths[0] or not re.fullmatch(r'(?:/data/app/|/mnt/expand/[A-Za-z0-9_-]+/app/)[A-Za-z0-9_./=+~-]+\.apk',paths[0]):raise RuntimeError('Unexpected APK path')
-    command='CLASSPATH='+shlex.quote(paths[0])+' app_process /system/bin --nice-name=marcotv-task-bridge com.pilipala.tvhome.TaskBridgeServer '+match[1]+' '+user+' </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1 &'
+    launch='app_process /system/bin --nice-name=marcotv-task-bridge com.pilipala.tvhome.TaskBridgeServer '+match[1]+' '+user+' </dev/null >/data/local/tmp/marcotv-task-bridge.log 2>&1'
+    quoted=shlex.quote(paths[0])
+    command="trap '' HUP; if command -v setsid >/dev/null 2>&1; then CLASSPATH="+quoted+' setsid '+launch+' & else CLASSPATH='+quoted+' '+launch+' & fi; sleep 0.2 2>/dev/null || sleep 1'
     shell(command)
     started=False
     for _ in range(10):

@@ -143,9 +143,11 @@ final class SettingsNavigator {
     }
     void wallpaperSettings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper").setTitle("壁纸")
-                .setOrder("wallpaper","builtin","local","reset").setItems(new String[]{"内置壁纸","导入本地壁纸","恢复默认壁纸"},(d,w)->{
+                .setOrder("wallpaper","builtin","online","local","reset")
+                .setItems(new String[]{"内置壁纸","在线精选壁纸","导入本地壁纸","恢复默认壁纸"},(d,w)->{
             if(w==0)wallpaperGallery();
-            else if(w==1){
+            else if(w==1)OnlineWallpaperDialog.show(host);
+            else if(w==2){
                 host.cover.pendingId="__wallpaper__";
                 host.cover.chooseCoverImage();
             }
@@ -210,7 +212,7 @@ final class SettingsNavigator {
 
     private void selectWallpaper(String uri,int builtin,boolean resetDim){
         if(host.appearanceSession!=null){host.appearanceSession.wallpaper(uri,builtin,resetDim);return;}
-        android.content.SharedPreferences.Editor editor=host.preferences.edit().putString("wallpaper",uri).putInt("wallpaper_builtin",builtin);
+        android.content.SharedPreferences.Editor editor=host.preferences.edit().putString("wallpaper",uri).putInt("wallpaper_builtin",builtin).remove("wallpaper_label");
         if(resetDim)editor.putInt("wallpaper_dim",10);
         editor.apply();
         host.loadWallpaper();

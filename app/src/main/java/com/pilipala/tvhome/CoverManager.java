@@ -117,7 +117,7 @@ final class CoverManager {
                         BitmapFactory.decodeStream(check, null, bounds);
                     }
                     if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth > 16384 || bounds.outHeight > 16384
-                            || (long) bounds.outWidth * bounds.outHeight > 64000000L) throw new IOException("Invalid image");
+                            || (long) bounds.outWidth * bounds.outHeight > 100000000L) throw new IOException("Invalid image");
                     android.util.AtomicFile file = new android.util.AtomicFile(File.createTempFile("wallpaper-import-", ".img",host.getFilesDir()));
                     FileOutputStream output = null;
                     try (InputStream input = host.getContentResolver().openInputStream(uri)) {
@@ -127,7 +127,7 @@ final class CoverManager {
                         long total = 0;
                         while ((count = input.read(buffer)) >= 0) {
                             total += count;
-                            if (total > 32 * 1024 * 1024) throw new IOException("Image too large");
+                            if (total > 50L * 1024 * 1024) throw new IOException("Image too large");
                             output.write(buffer, 0, count);
                         }
                         file.finishWrite(output);
@@ -144,7 +144,7 @@ final class CoverManager {
                         }else if(host.localPreview==null){
                             try{
                                 File published=WallpaperFile.publish(file.getBaseFile(),host.getFilesDir());
-                                host.preferences.edit().putString("wallpaper",Uri.fromFile(published).toString()).apply();
+                                host.preferences.edit().putString("wallpaper",Uri.fromFile(published).toString()).remove("wallpaper_label").apply();
                                 host.loadWallpaper();
                                 host.toast("壁纸已保存");
                             }catch(IOException error){file.delete();host.toast("壁纸保存失败，请重试。");}

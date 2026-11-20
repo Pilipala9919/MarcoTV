@@ -127,7 +127,22 @@ public final class HomeAutoChecks {
                 &&!HomeShellSetup.validApkPath("/mnt/expand/../data/app/base.apk")
                 &&!HomeShellSetup.validApkPath("/data/app/com.pilipala.tvhome/base.apk;id"));
         shell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk",10059);
-        check("bridge_start_command_issued",commands.get(commands.size()-1).contains("com.pilipala.tvhome.TaskBridgeServer 10059 0"));
+        String launchCmd=commands.get(commands.size()-1);
+        check("bridge_start_command_issued",launchCmd.contains("com.pilipala.tvhome.TaskBridgeServer 10059 0"));
+        check("bridge_start_ignores_sighup",launchCmd.contains("trap '' HUP"));
+        check("bridge_start_detaches_with_setsid",launchCmd.contains("setsid"));
+        List<String> restartCmds=new ArrayList<>();
+        HomeShellSetup restartShell=new HomeShellSetup(cmd->{
+            restartCmds.add(cmd);
+            if(cmd.equals("id -u"))return "2000";
+            if(cmd.startsWith("pidof "))return "4321";
+            if(cmd.startsWith("tr "))return "marcotv-task-bridge";
+            return "";
+        },0);
+        restartShell.authenticate();
+        restartShell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk",10059);
+        check("bridge_restart_kills_old_and_waits",restartCmds.contains("kill 4321 2>/dev/null")
+                &&restartCmds.stream().anyMatch(c->c.startsWith("sleep 0.3")));
         System.out.println("OK "+passed+" automatic HOME execution checks (simulated firmware, not device proof)");
     }
 }

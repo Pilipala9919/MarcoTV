@@ -92,3 +92,6 @@ CLAUDE.md
 !scripts/test_cast_protocol.py
 !scripts/TaskBridgeCompatChecks.java
 !scripts/test_task_bridge.py
+!scripts/package_wallpapers.py
+!scripts/WallpaperCatalogChecks.java
+!scripts/test_wallpapers.py

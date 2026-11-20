@@ -10,7 +10,7 @@ SCRIPT_FILES=['bootstrap.py','build.py','setup_system.py','start_task_bridge.py'
               'test_restricted.py','test_home_auto.py','HomeAutoChecks.java','HomeSnapshotChecks.java','test_home_guide.py','HomeGuideChecks.java',
               'LocalAdbWireChecks.java','test_feedback.py','FeedbackPolicyChecks.java','test_feedback_transport.py','FeedbackTransportChecks.java','FeedbackDeviceChecks.java',
               'MotionSpringChecks.java','public_files.py','check_release.py','package.py','measure_memory.py','test_release_tools.py','test_device_regressions.py','DeviceRegressionChecks.java','FeatureRegressionChecks.java','SettingsMigrationChecks.java','test_settings.py','test_updates.py','UpdatePolicyChecks.java','UpdateDeviceChecks.java','make_update_feed.py','package_mirror.py','AppearanceDeviceChecks.java','PhoneDeviceChecks.java','PhoneHttpChecks.java','test_phone_http.py',
-              'CastProtocolChecks.java','test_cast_protocol.py','TaskBridgeCompatChecks.java','test_task_bridge.py']
+              'CastProtocolChecks.java','test_cast_protocol.py','TaskBridgeCompatChecks.java','test_task_bridge.py','package_wallpapers.py','WallpaperCatalogChecks.java','test_wallpapers.py']
 
 def source_files():
     files=[ROOT/name for name in ROOT_FILES]
