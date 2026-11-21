@@ -6,21 +6,15 @@ import android.graphics.*;
 
 /**
  * Projects the home scene into the 3D Magic Desktop preview card beside the right-hand controls.
- * When attached to DesktopStage, 3D perspective and rounded clipping run natively on GPU
- * View/RenderNode properties (zero per-frame clipPath or EVEN_ODD mask tessellation).
+ * 3D perspective and rounded clipping run natively on GPU View/RenderNode properties via DesktopStage.
  */
 final class OverviewRenderer {
     private final HomeView view;
     private DesktopStage stage;
     private final Camera overviewCamera=new Camera();
     private final Matrix overviewMatrix=new Matrix();
-    private Bitmap overviewBitmap;
-    private Canvas overviewCanvas;
-    private BitmapShader overviewShader;
-    private final Paint overviewPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private PreviewBackdrop overviewBackdrop=new PreviewBackdrop();
-    private final RectF bounds=new RectF(),frame=new RectF();
-    private final Matrix bufferMatrix=new Matrix();
+    private final RectF bounds=new RectF();
 
     OverviewRenderer(HomeView view) {
         this.view = view;
@@ -36,10 +30,6 @@ final class OverviewRenderer {
 
     void detach() {
         overviewBackdrop.clear();
-        if(overviewBitmap!=null)overviewBitmap.recycle();
-        overviewBitmap=null;
-        overviewCanvas=null;
-        overviewShader=null;
     }
 
     void backdrop(PreviewBackdrop prepared){
@@ -56,12 +46,6 @@ final class OverviewRenderer {
     void applyStage(float overview){
         if(overview<=0.001f){
             overviewMatrix.reset();
-            if(overviewBitmap!=null){
-                overviewBitmap.recycle();
-                overviewBitmap=null;
-                overviewCanvas=null;
-                overviewShader=null;
-            }
             if(stage!=null)stage.applyOverview(0f,1f,0f,0f,0f,1f);
             return;
         }
@@ -93,55 +77,6 @@ final class OverviewRenderer {
 
     /** @param overview 0 for the plain home screen, 1 for the fully projected preview */
     void draw(Canvas canvas, float overview) {
-        if(stage!=null){
-            view.drawScene(canvas);
-            return;
-        }
-        if(overview<=0){
-            // Keep the tiny prepared blur across editor visits; the wallpaper loader replaces it.
-            if(overviewBitmap!=null){
-                overviewBitmap.recycle();
-                overviewBitmap=null;
-                overviewCanvas=null;
-                overviewShader=null;
-            }
-            view.drawScene(canvas);
-            return;
-        }
-        applyStage(overview);
-        overviewBackdrop.draw(canvas,view.wallpaper,view.getWidth(),view.getHeight());
-        float density=view.getResources().getDisplayMetrics().density;
-        float radius=40*density*overview;
-        int bufferWidth=Math.min(1280,view.getWidth()),bufferHeight=Math.max(1,Math.round(view.getHeight()*bufferWidth/(float)view.getWidth()));
-        if(overviewBitmap==null||overviewBitmap.getWidth()!=bufferWidth||overviewBitmap.getHeight()!=bufferHeight){
-            if(overviewBitmap!=null)overviewBitmap.recycle();
-            overviewBitmap=Bitmap.createBitmap(bufferWidth,bufferHeight,Bitmap.Config.ARGB_8888);
-            view.previewDirty=true;
-            overviewCanvas=new Canvas(overviewBitmap);
-            overviewShader=new BitmapShader(overviewBitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
-        }
-        if(view.previewDirty){
-            overviewBitmap.eraseColor(Color.TRANSPARENT);
-            int bufferSave=overviewCanvas.save();
-            overviewCanvas.scale(bufferWidth/(float)view.getWidth(),bufferHeight/(float)view.getHeight());
-            view.drawScene(overviewCanvas);
-            overviewCanvas.restoreToCount(bufferSave);
-            view.previewDirty=false;
-        }
-        bufferMatrix.setScale(view.getWidth()/(float)bufferWidth,view.getHeight()/(float)bufferHeight);
-        overviewShader.setLocalMatrix(bufferMatrix);
-        int save=canvas.save();
-        canvas.concat(overviewMatrix);
-        frame.set(0,0,view.getWidth(),view.getHeight());
-        overviewPaint.setShader(overviewShader);
-        overviewPaint.setStyle(Paint.Style.FILL);
-        overviewPaint.setColor(Color.WHITE);
-        canvas.drawRoundRect(frame,radius,radius,overviewPaint);
-        overviewPaint.setShader(null);
-        overviewPaint.setStyle(Paint.Style.STROKE);
-        overviewPaint.setStrokeWidth(1.2f*density);
-        overviewPaint.setColor(0x709BB9CB);
-        canvas.drawRoundRect(frame,radius,radius,overviewPaint);
-        canvas.restoreToCount(save);
+        view.drawScene(canvas);
     }
 }

@@ -40,37 +40,6 @@ final class SettingsNavigator {
         page.onReturn(screen::refresh);
         return page;
     }
-    void openCategory(int index){
-        switch(index){
-            case 0:
-                desktopSettings();
-                break;
-            case 1:
-                applicationSettings();
-                break;
-            case 2:
-                host.recents.settings();
-                break;
-            case 3:
-                host.playback.settings();
-                break;
-            case 4:
-                deviceSettings();
-                break;
-            case 5:
-                systemPanel();
-                break;
-            case 6:
-                maintenance();
-                break;
-            case 7:
-                host.phone.show();
-                break;
-        }
-    }
-    void desktopSettings(){
-        personalization("cards");
-    }
     void applicationSettings(){
         host.showDialog(new TvDialog.Builder(host).setPageId("apps").setTitle("应用与分类")
                 .setOrder("apps","add","sorting","favorites","pinned","hidden")
@@ -186,10 +155,6 @@ final class SettingsNavigator {
         host.localPreview=draft;
     }
 
-    void wallpaperGallery() {
-        WallpaperCenterDialog.show(host);
-    }
-
     static final int[] SLEEP_CHOICES={15,30,60,120,0};
     static String sleepLabel(int minutes){
         return minutes<=0?"不限制（始终保持亮屏）":minutes+" 分钟后";
@@ -233,15 +198,6 @@ final class SettingsNavigator {
         host.showDialog(new TvDialog.Builder(host).setPageId("saver_preview").setTitle("屏保预览").setPreview("ambient_transition")
                 .setPositiveButton("返回上一级",null)
                 .setNeutralButton("重播预览",(d,w)->host.handler.post(this::previewAmbient)).create());
-    }
-
-    void deviceSettings(){
-        host.showDialog(new TvDialog.Builder(host).setPageId("device").setTitle("网络与声音")
-                .setOrder("device","network","cast","sound").setItems(new String[]{"网络与 Wi-Fi","无线投屏与镜像","媒体音量"},(d,w)->{
-            if(w==0)host.network.show();
-            else if(w==1)host.cast.show();
-            else soundSettings();
-        }).setNegativeButton("返回",null).create());
     }
 
     void soundSettings() {

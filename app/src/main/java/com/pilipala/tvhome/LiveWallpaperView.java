@@ -6,9 +6,11 @@ import android.content.Context;
 import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.media.MediaPlayer;
+import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import java.io.File;
+import java.io.FileInputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -75,7 +77,9 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
     void setVideoPath(String path) {
         String normalized = (path == null || path.isEmpty() || !new File(path).isFile()) ? "" : path;
         if (normalized.equals(videoPath == null ? "" : videoPath)) {
+            if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
             if (active && hasVideo() && surfaceAvailable && !started) {
+                lastErroredPath = null;
                 startPlayerAsync();
             }
             return;
@@ -90,6 +94,9 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
             return;
         }
         setVisibility(VISIBLE);
+        requestLayout();
+        invalidate();
+        if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
         if (active && surfaceAvailable) {
             startPlayerAsync();
         }
@@ -97,13 +104,21 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
 
     void setActive(boolean shouldPlay) {
         if (active == shouldPlay) {
+            if (active && hasVideo() && !started) {
+                if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
+                if (surfaceAvailable) startPlayerAsync();
+            }
             return;
         }
         active = shouldPlay;
         if (!active) {
             releasePlayerAsync(null);
         } else if (hasVideo()) {
+            lastErroredPath = null;
             setVisibility(VISIBLE);
+            requestLayout();
+            invalidate();
+            if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
             if (surfaceAvailable) startPlayerAsync();
         }
     }
@@ -149,25 +164,34 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                 surf = new Surface(st);
                 mp = new MediaPlayer();
                 final MediaPlayer created = mp;
-                mp.setOnVideoSizeChangedListener((m, width, height) -> {
+                mp.setOnVideoSizeChangedListener((m, width, height) -> post(() -> {
                     if (token != generation) return;
                     if (width > 0 && height > 0) {
                         videoWidth = width;
                         videoHeight = height;
                         updateCenterCropTransform();
                     }
-                });
+                }));
                 mp.setOnInfoListener((m, what, extra) -> {
-                    if (token != generation) return false;
                     if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
-                        cancelPendingReveal();
-                        setReady(true);
+                        post(() -> {
+                            if (token != generation || !active) return;
+                            cancelPendingReveal();
+                            setReady(true);
+                        });
                         return true;
                     }
                     return false;
                 });
+                mp.setOnCompletionListener(m -> mediaExecutor.execute(() -> {
+                    if (token != generation || created != activePlayer) return;
+                    try {
+                        created.seekTo(0);
+                        created.start();
+                    } catch (RuntimeException ignored) {}
+                }));
                 mp.setOnPreparedListener(m -> {
-                    if (token != generation || !active) return;
+                    if (token != generation) return;
                     mediaExecutor.execute(() -> {
                         if (token != generation || created != activePlayer) return;
                         try {
@@ -190,19 +214,23 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                                         setReady(true);
                                     }
                                 };
-                                postDelayed(pendingReveal, 180);
+                                postDelayed(pendingReveal, 220);
                             });
                         } catch (RuntimeException error) {
+                            Log.w("MarcoTV", "Live wallpaper start failed: " + path, error);
                             post(() -> handlePlaybackFailure(token, path));
                         }
                     });
                 });
                 mp.setOnErrorListener((m, what, extra) -> {
-                    handlePlaybackFailure(token, path);
+                    Log.w("MarcoTV", "Live wallpaper error what=" + what + " extra=" + extra + " path=" + path);
+                    post(() -> handlePlaybackFailure(token, path));
                     return true;
                 });
+                try (FileInputStream fis = new FileInputStream(path)) {
+                    mp.setDataSource(fis.getFD());
+                }
                 mp.setSurface(surf);
-                mp.setDataSource(path);
                 mp.setLooping(true);
                 mp.setVolume(0f, 0f);
                 mp.setScreenOnWhilePlaying(false);
@@ -214,6 +242,7 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                 activeSurface = surf;
                 mp.prepareAsync();
             } catch (Exception error) {
+                Log.w("MarcoTV", "Live wallpaper prepare exception: " + path, error);
                 safeRelease(mp, surf, null);
                 post(() -> handlePlaybackFailure(token, path));
             }
@@ -252,6 +281,7 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
         if (mp != null) {
             try { mp.setOnPreparedListener(null); } catch (RuntimeException ignored) {}
             try { mp.setOnInfoListener(null); } catch (RuntimeException ignored) {}
+            try { mp.setOnCompletionListener(null); } catch (RuntimeException ignored) {}
             try { mp.setOnErrorListener(null); } catch (RuntimeException ignored) {}
             try { mp.setOnVideoSizeChangedListener(null); } catch (RuntimeException ignored) {}
             // Detach surface BEFORE release so Amlogic hardware codecs never stall waiting on BufferQueue.
@@ -299,7 +329,12 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
         return false;
     }
 
-    @Override public void onSurfaceTextureUpdated(SurfaceTexture st) {}
+    @Override public void onSurfaceTextureUpdated(SurfaceTexture st) {
+        if (started && active && !ready) {
+            cancelPendingReveal();
+            setReady(true);
+        }
+    }
 
     @Override protected void onDetachedFromWindow() {
         releasePlayerAsync(null);

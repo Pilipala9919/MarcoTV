@@ -15,12 +15,11 @@
 
 图像中不含时钟、应用图标或桌面组件，运行时按画幅居中覆盖。桌面、时间及动画由应用实时绘制。
 
-## 第三方字体与图标
+## 第三方图标几何
 
-`MaterialIcons-Regular.ttf` 和应用图标中的 TV 图形来自 Google Material Design Icons，遵循 Apache License 2.0。
+应用图标中的 TV 图形来自 Google Material Design Icons，遵循 Apache License 2.0（桌面运行期图标已改为纯原生矢量绘制，不再打包 `MaterialIcons-Regular.ttf` 字体文件）。
 
 - [官方仓库](https://github.com/google/material-design-icons)
-- [字体](https://github.com/google/material-design-icons/blob/master/font/MaterialIcons-Regular.ttf)
 - [TV 图标](https://github.com/google/material-design-icons/blob/master/src/hardware/tv/materialicons/24px.svg)
 - [原始许可](licenses/Material-Icons-Apache-2.0.txt)
 

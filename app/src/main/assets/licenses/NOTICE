@@ -11,8 +11,8 @@ See LICENSE for the complete license text.
 此提示说明 Pilipala 的免费发行政策和退款建议，不额外限制 GPL 授予的权利。
 
 Third-party resources:
-- Material Design Icons font and TV icon geometry: Google / Material Design
-  Authors, Apache License 2.0. The unmodified license is in
+- TV icon geometry in app_icon.xml / app_banner.xml: derived from Google / Material Design
+  Icons, Apache License 2.0. The unmodified license is in
   licenses/Material-Icons-Apache-2.0.txt and bundled in the app.
 - Android system typefaces are supplied by the operating system; they are not
   redistributed in this repository.

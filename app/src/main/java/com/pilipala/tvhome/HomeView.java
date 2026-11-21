@@ -44,7 +44,6 @@ final class HomeView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Typeface normal = Typeface.create("sans-serif", Typeface.NORMAL);
     private final Typeface bold = Typeface.create("sans-serif", Typeface.BOLD);
-    private final Typeface symbols;
     private final SimpleDateFormat time = new SimpleDateFormat("HH:mm", Locale.getDefault());
     ArrayList<Row> rows = new ArrayList<>();
     Bitmap wallpaper;
@@ -281,7 +280,6 @@ final class HomeView extends View {
         this.host = host;
         mover=new CardMover(host,this);
         clockScene=new ClockScene(host);
-        symbols = Typeface.createFromAsset(host.getAssets(), "MaterialIcons-Regular.ttf");
         setFocusable(true);
         setFocusableInTouchMode(true);
         setContentDescription("Marco TV。方向键选择应用，确定键打开，菜单键设置。");
@@ -850,11 +848,46 @@ final class HomeView extends View {
         canvas.restore();
     }
     private void icon(Canvas canvas, String glyph, float x, float y, float size, int color) {
-        paint.setTypeface(symbols);
-        paint.setTextSize(size);
-        paint.setTextAlign(Paint.Align.CENTER);
+        float u = size / 24f;
+        canvas.save();
+        canvas.translate(x, y);
         paint.setColor(color);
-        canvas.drawText(glyph, x, y - (paint.ascent() + paint.descent()) / 2, paint);
+        paint.setStyle(Paint.Style.FILL);
+        if ("\ue037".equals(glyph)) {
+            // Play triangle
+            iconPath.reset();
+            iconPath.moveTo(-4.5f * u, -7.2f * u);
+            iconPath.lineTo(7.5f * u, 0f);
+            iconPath.lineTo(-4.5f * u, 7.2f * u);
+            iconPath.close();
+            canvas.drawPath(iconPath, paint);
+        } else if ("\ue034".equals(glyph)) {
+            // Pause bars
+            iconBounds.set(-6f * u, -7f * u, -2f * u, 7f * u);
+            canvas.drawRoundRect(iconBounds, 1.4f * u, 1.4f * u, paint);
+            iconBounds.set(2f * u, -7f * u, 6f * u, 7f * u);
+            canvas.drawRoundRect(iconBounds, 1.4f * u, 1.4f * u, paint);
+        } else if ("\ue333".equals(glyph)) {
+            // TV display + stand
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(1.8f, 2f * u));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            iconBounds.set(-9.5f * u, -7f * u, 9.5f * u, 5f * u);
+            canvas.drawRoundRect(iconBounds, 2f * u, 2f * u, paint);
+            canvas.drawLine(-4.5f * u, 8.2f * u, 4.5f * u, 8.2f * u, paint);
+            paint.setStyle(Paint.Style.FILL);
+        } else {
+            // Apps 3x3 rounded grid fallback ("\ue5c3", "\ue859", etc.)
+            float[] pts = {-7.5f, -1.75f, 4f};
+            for (float py : pts) {
+                for (float px : pts) {
+                    iconBounds.set(px * u, py * u, (px + 3.5f) * u, (py + 3.5f) * u);
+                    canvas.drawRoundRect(iconBounds, 1.1f * u, 1.1f * u, paint);
+                }
+            }
+        }
+        canvas.restore();
     }
 
     float cardHeight(){

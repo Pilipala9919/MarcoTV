@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Unified Apple TV-style wallpaper gallery combining built-in, mirror-curated, and QR-imported
  * static/live video wallpapers under a single "我的壁纸" thumbnail grid alongside "扫码导入壁纸".
+ * Download and apply operations are fully decoupled, with an anchored side bubble popover on Menu key.
  */
 final class WallpaperCenterDialog {
     private static final ArgbEvaluator COLORS = new ArgbEvaluator();
@@ -33,12 +34,23 @@ final class WallpaperCenterDialog {
 
     private final MainActivity host;
     private final OnlineWallpaperStore onlineStore;
-    private final ExecutorService net = Executors.newSingleThreadExecutor();
+    private final ExecutorService catalogNet = Executors.newSingleThreadExecutor();
+    private final ExecutorService downloadPool = Executors.newFixedThreadPool(2);
+    private final ExecutorService applyExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService thumbs = Executors.newFixedThreadPool(3);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final Map<String, Bitmap> thumbCache = new HashMap<>();
 
+    // Per-item background download tracking (accessed on UI thread):
+    private final Map<String, Integer> downloadProgress = new HashMap<>();
+    private final Map<String, AtomicBoolean> downloadCancels = new HashMap<>();
+
     private TvDialog dialog;
+    private FrameLayout overlayRoot;
+    private FrameLayout bubbleLayer;
+    private View bubbleAnchorCard;
+    private UiMotion bubbleSlideMotion;
+    private UiMotion bubbleAlphaMotion;
     private TextView subtitleView;
     private TextView scanImportBtn;
     private MotionScrollView scrollView;
@@ -48,8 +60,6 @@ final class WallpaperCenterDialog {
     private List<OnlineWallpaperStore.Item> onlineItems = Collections.emptyList();
     private final List<CardEntry> entries = new ArrayList<>();
     private final List<CardUi> cards = new ArrayList<>();
-    private String downloadingId;
-    private int downloadPercent;
     private String focusedUnifiedId;
     private boolean catalogBusy;
     private boolean catalogFailed;
@@ -155,6 +165,10 @@ final class WallpaperCenterDialog {
     }
 
     private void open() {
+        overlayRoot = new FrameLayout(host);
+        overlayRoot.setClipChildren(false);
+        overlayRoot.setClipToPadding(false);
+
         LinearLayout root = new LinearLayout(host);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(36), dp(24), dp(36), dp(18));
@@ -201,17 +215,28 @@ final class WallpaperCenterDialog {
 
         root.addView(scrollView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        footerHint = text("方向键选择壁纸  ·  确定应用  ·  上键扫码导入壁纸  ·  返回退出", 11.5f, 0xFF7B899E, false);
+        footerHint = text("确定应用/下载  ·  菜单键弹出操作气泡  ·  上键扫码导入  ·  返回退出", 11.5f, 0xFF7B899E, false);
         footerHint.setSingleLine(true);
         footerHint.setEllipsize(TextUtils.TruncateAt.END);
         footerHint.setPadding(dp(6), dp(8), dp(6), 0);
         root.addView(footerHint, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        overlayRoot.addView(root, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // Anchored side bubble overlay layer (hidden until Menu key or long-press on a card)
+        bubbleLayer = new FrameLayout(host);
+        bubbleLayer.setVisibility(View.GONE);
+        bubbleLayer.setClickable(true);
+        bubbleLayer.setFocusable(false);
+        bubbleLayer.setOnClickListener(v -> dismissSideBubble(true));
+        overlayRoot.addView(bubbleLayer, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         dialog = new TvDialog.Builder(host)
                 .fullscreen()
                 .setPageId("wallpaper")
                 .setTitle("我的壁纸")
-                .setView(root)
+                .setView(overlayRoot)
+                .setBackHandler(this::handleBack)
                 .setKeyHandler(this::handleKey)
                 .create();
         dialog.onReturn(this::reloadGrid);
@@ -276,7 +301,7 @@ final class WallpaperCenterDialog {
         catalogBusy = true;
         catalogFailed = false;
         updateSubtitle();
-        net.execute(() -> {
+        catalogNet.execute(() -> {
             try {
                 OnlineWallpaperStore.Catalog fresh = onlineStore.fetchCatalog(closed);
                 host.handler.post(() -> {
@@ -300,6 +325,7 @@ final class WallpaperCenterDialog {
         if (subtitleView == null) return;
         int videoCount = 0;
         for (CardEntry e : entries) if (e.video) videoCount++;
+        int downloadingCount = downloadProgress.size();
         String summary;
         if (onlineItems.isEmpty() && catalogBusy) {
             summary = "共 " + entries.size() + " 张本地壁纸 · 正在拉取在线壁纸库…";
@@ -308,13 +334,14 @@ final class WallpaperCenterDialog {
         } else {
             summary = "共 " + entries.size() + " 张壁纸"
                     + (videoCount > 0 ? "（含 " + videoCount + " 部动态壁纸）" : "")
-                    + " · 确定一键下载应用 · 上键扫码导入";
+                    + (downloadingCount > 0 ? " · 后台下载中（" + downloadingCount + "），可自由切换壁纸" : " · 菜单键打开更多操作 · 上键扫码导入");
         }
         subtitleView.setText(summary);
     }
 
     private void reloadGrid() {
         if (closed.get()) return;
+        dismissSideBubble(false);
         entries.clear();
         List<WallpaperLibrary.Entry> imported = host.wallpaperLibrary.list();
         for (WallpaperLibrary.Entry e : imported) entries.add(new CardEntry(e));
@@ -446,11 +473,8 @@ final class WallpaperCenterDialog {
         });
         card.setOnClickListener(v -> onCardSelect(entry));
         card.setOnLongClickListener(v -> {
-            if (entry.kind == CardEntry.KIND_IMPORTED || (entry.kind == CardEntry.KIND_ONLINE && onlineStore.isDownloaded(entry.online))) {
-                showManageDialog(entry);
-                return true;
-            }
-            return false;
+            showSideBubble(ui);
+            return true;
         });
         attachTouchClick(card);
         loadThumbnail(ui);
@@ -510,14 +534,18 @@ final class WallpaperCenterDialog {
     }
 
     private void updateFooterHint(CardEntry entry) {
+        if (entry == null) return;
         if (entry.kind == CardEntry.KIND_IMPORTED) {
-            footerHint.setText("确定设为壁纸  ·  长按确定或按菜单键重命名 / 删除  ·  上键扫码导入壁纸");
+            footerHint.setText("确定立即应用  ·  菜单键弹出操作气泡（应用 / 重命名 / 删除）  ·  上键扫码导入");
+        } else if (entry.kind == CardEntry.KIND_ONLINE && downloadProgress.containsKey(entry.online.id)) {
+            int pct = downloadProgress.get(entry.online.id);
+            footerHint.setText("后台下载中 " + pct + "%（可自由切换其他壁纸）  ·  菜单键可取消下载");
         } else if (entry.kind == CardEntry.KIND_ONLINE && onlineStore.isDownloaded(entry.online)) {
-            footerHint.setText("确定立即应用  ·  长按确定可清理该项本地缓存  ·  上键扫码导入壁纸");
+            footerHint.setText("已缓存到本地 · 确定立即应用  ·  菜单键弹出操作气泡（应用 / 重下 / 删缓存）");
         } else if (entry.kind == CardEntry.KIND_ONLINE) {
-            footerHint.setText("确定下载并应用（" + WallpaperCatalogPolicy.formatSize(entry.online.size) + "，下载一次断网可用）  ·  上键扫码导入壁纸");
+            footerHint.setText("确定开始后台下载（" + WallpaperCatalogPolicy.formatSize(entry.online.size) + "，不阻塞切壁纸）  ·  菜单键更多操作");
         } else {
-            footerHint.setText("确定立即应用  ·  上键扫码导入壁纸  ·  返回退出");
+            footerHint.setText("确定立即应用  ·  菜单键弹出操作气泡  ·  上键扫码导入  ·  返回退出");
         }
     }
 
@@ -526,16 +554,28 @@ final class WallpaperCenterDialog {
         for (CardUi ui : cards) {
             CardEntry e = ui.entry;
             boolean active = activeId.equals(e.unifiedId);
-            if (e.kind == CardEntry.KIND_ONLINE && e.online.id.equals(downloadingId)) {
-                setPill(ui.stateBadge, "下载中 " + downloadPercent + "%", 0xFF1A1400, 0xE6FFD166, 0xFFFFE599);
+            Integer pct = e.kind == CardEntry.KIND_ONLINE ? downloadProgress.get(e.online.id) : null;
+            if (pct != null) {
+                setPill(ui.stateBadge, "下载中 " + pct + "%", 0xFF1A1400, 0xE6FFD166, 0xFFFFE599);
             } else if (active) {
                 setPill(ui.stateBadge, "✓ 使用中", 0xFFFFFFFF, 0xE622A854, 0x887DFFAB);
-            } else if (e.kind == CardEntry.KIND_ONLINE && !onlineStore.isDownloaded(e.online)) {
+            } else if (e.kind == CardEntry.KIND_ONLINE && onlineStore.isDownloaded(e.online)) {
+                setPill(ui.stateBadge, "已下载", 0xFFC5F4D8, 0xCC133223, 0x6649D482);
+            } else if (e.kind == CardEntry.KIND_ONLINE) {
                 setPill(ui.stateBadge, "↓ " + WallpaperCatalogPolicy.formatSize(e.online.size), 0xFFEAF2FA, 0xB8111824, 0x44FFFFFF);
             } else {
                 ui.stateBadge.setVisibility(View.GONE);
             }
             ui.root.setContentDescription(e.title + (e.video ? "，动态壁纸" : "") + (active ? "，当前使用中" : ""));
+        }
+        updateSubtitle();
+        if (focusedUnifiedId != null) {
+            for (CardEntry e : entries) {
+                if (focusedUnifiedId.equals(e.unifiedId)) {
+                    updateFooterHint(e);
+                    break;
+                }
+            }
         }
     }
 
@@ -594,11 +634,27 @@ final class WallpaperCenterDialog {
         });
     }
 
+    /** Click action: strictly decouples local apply from background download. */
     private void onCardSelect(CardEntry entry) {
-        if (downloadingId != null) {
-            host.toast("正在下载壁纸，请稍候…");
+        if (entry.kind == CardEntry.KIND_BUILTIN || entry.kind == CardEntry.KIND_IMPORTED) {
+            applyWallpaperEntry(entry);
             return;
         }
+        final OnlineWallpaperStore.Item item = entry.online;
+        if (downloadProgress.containsKey(item.id)) {
+            int pct = downloadProgress.get(item.id);
+            host.toast("「" + item.title + "」正在后台下载 " + pct + "%，可自由切换其他壁纸");
+            return;
+        }
+        if (onlineStore.isDownloaded(item)) {
+            applyWallpaperEntry(entry);
+            return;
+        }
+        startBackgroundDownload(entry, false);
+    }
+
+    /** Immediately applies any local/already-downloaded wallpaper without blocking on active downloads. */
+    private void applyWallpaperEntry(CardEntry entry) {
         if (entry.kind == CardEntry.KIND_BUILTIN) {
             WallpaperLibrary.applyBuiltin(host, entry.builtinIndex);
             refreshAllBadges();
@@ -606,7 +662,7 @@ final class WallpaperCenterDialog {
             return;
         }
         if (entry.kind == CardEntry.KIND_IMPORTED) {
-            net.execute(() -> {
+            applyExecutor.execute(() -> {
                 try {
                     host.wallpaperLibrary.applyEntry(host, entry.imported);
                     host.handler.post(() -> {
@@ -622,100 +678,416 @@ final class WallpaperCenterDialog {
             });
             return;
         }
-        // Online mirror item (static or dynamic video): verify/download then apply
         final OnlineWallpaperStore.Item item = entry.online;
-        downloadingId = item.id;
-        downloadPercent = onlineStore.isDownloaded(item) ? 100 : 0;
-        refreshAllBadges();
         if (!onlineStore.isDownloaded(item)) {
-            host.toast("正在下载「" + item.title + "」…");
+            host.toast("「" + item.title + "」尚未下载，请先下载后再应用");
+            return;
         }
-        net.execute(() -> {
+        applyExecutor.execute(() -> {
             try {
-                onlineStore.downloadWallpaper(item, pct -> host.handler.post(() -> {
-                    if (closed.get() || !item.id.equals(downloadingId)) return;
-                    downloadPercent = pct;
-                    refreshAllBadges();
-                }), closed);
                 WallpaperLibrary.applyOnline(host, onlineStore, item);
                 host.handler.post(() -> {
-                    downloadingId = null;
                     if (closed.get() || host.isDestroyed()) return;
                     refreshAllBadges();
-                    updateFooterHint(entry);
                     host.toast((item.video ? "已设为动态壁纸：" : "已应用壁纸：") + item.title);
+                });
+            } catch (Exception error) {
+                android.util.Log.w("MarcoTV", "Apply cached wallpaper failed: " + item.id, error);
+                host.handler.post(() -> {
+                    if (closed.get() || host.isDestroyed()) return;
+                    refreshAllBadges();
+                    host.toast("「" + item.title + "」本地文件校验失败，请重新下载");
+                });
+            }
+        });
+    }
+
+    /** Downloads an online wallpaper in the background without blocking switching to other wallpapers. */
+    private void startBackgroundDownload(CardEntry entry, boolean forceRedownload) {
+        final OnlineWallpaperStore.Item item = entry.online;
+        if (downloadProgress.containsKey(item.id)) {
+            host.toast("「" + item.title + "」已在后台下载中");
+            return;
+        }
+        final AtomicBoolean itemCancelled = new AtomicBoolean(false);
+        downloadCancels.put(item.id, itemCancelled);
+        downloadProgress.put(item.id, 0);
+        refreshAllBadges();
+        host.toast("开始后台下载「" + item.title + "」，可自由切换其他壁纸");
+
+        downloadPool.execute(() -> {
+            if (closed.get() || itemCancelled.get()) return;
+            try {
+                if (forceRedownload) onlineStore.deleteCachedItem(item);
+                onlineStore.downloadWallpaper(item, pct -> {
+                    if (closed.get()) {
+                        itemCancelled.set(true);
+                        return;
+                    }
+                    if (itemCancelled.get()) return;
+                    host.handler.post(() -> {
+                        if (closed.get() || itemCancelled.get() || !downloadProgress.containsKey(item.id)) return;
+                        downloadProgress.put(item.id, pct);
+                        refreshAllBadges();
+                    });
+                }, itemCancelled);
+                host.handler.post(() -> {
+                    downloadProgress.remove(item.id);
+                    downloadCancels.remove(item.id);
+                    if (closed.get() || host.isDestroyed()) return;
+                    refreshAllBadges();
+                    host.toast("「" + item.title + "」下载完成，按确定即可设为桌面壁纸");
                 });
             } catch (InterruptedIOException ignored) {
                 host.handler.post(() -> {
-                    downloadingId = null;
-                    if (!closed.get()) refreshAllBadges();
+                    downloadProgress.remove(item.id);
+                    downloadCancels.remove(item.id);
+                    if (!closed.get() && !host.isDestroyed()) refreshAllBadges();
                 });
             } catch (Exception error) {
                 android.util.Log.w("MarcoTV", "Wallpaper download failed: " + item.id, error);
                 Diagnostics.event("ONLINE_WALLPAPER_DOWNLOAD_FAILED");
                 final String reason = error.getMessage() == null ? "请检查网络后重试" : error.getMessage();
                 host.handler.post(() -> {
-                    downloadingId = null;
+                    downloadProgress.remove(item.id);
+                    downloadCancels.remove(item.id);
                     if (closed.get() || host.isDestroyed()) return;
                     refreshAllBadges();
-                    host.toast("「" + item.title + "」应用失败：" + reason);
+                    host.toast("「" + item.title + "」下载失败：" + reason);
                 });
             }
         });
     }
 
+    private void cancelItemDownload(String itemId) {
+        AtomicBoolean flag = downloadCancels.remove(itemId);
+        if (flag != null) flag.set(true);
+        downloadProgress.remove(itemId);
+        onlineStore.cancelItem(itemId);
+        refreshAllBadges();
+    }
+
+    private void deleteOnlineCache(CardEntry entry) {
+        OnlineWallpaperStore.Item item = entry.online;
+        if (downloadProgress.containsKey(item.id)) {
+            cancelItemDownload(item.id);
+        }
+        boolean wasActive = entry.unifiedId.equals(WallpaperLibrary.activeId(host.preferences));
+        long reclaimed = onlineStore.deleteCachedItem(item);
+        if (wasActive) {
+            WallpaperLibrary.applyBuiltin(host, 0);
+        }
+        refreshAllBadges();
+        if (reclaimed > 0) {
+            host.toast("已删除「" + item.title + "」缓存（释放 " + WallpaperCatalogPolicy.formatSize(reclaimed) + "）");
+        } else {
+            host.toast("「" + item.title + "」暂无本地缓存");
+        }
+    }
+
+    // ---- Anchored side bubble popover (Menu key / long-press on any wallpaper card) ----
+
+    private boolean isBubbleOpen() {
+        return bubbleLayer != null && bubbleLayer.getVisibility() == View.VISIBLE;
+    }
+
+    private boolean handleBack() {
+        if (isBubbleOpen()) {
+            dismissSideBubble(true);
+            return true;
+        }
+        return false;
+    }
+
     private boolean handleKey(KeyEvent event) {
         if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
         int code = event.getKeyCode();
+        if (isBubbleOpen()) {
+            if (code == KeyEvent.KEYCODE_MENU
+                    || code == KeyEvent.KEYCODE_DPAD_LEFT
+                    || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                dismissSideBubble(true);
+                return true;
+            }
+            return false;
+        }
         View focused = dialog == null ? null : dialog.getCurrentFocus();
         if (focused == null || !(focused.getTag() instanceof CardEntry)) return false;
-        CardEntry entry = (CardEntry) focused.getTag();
         boolean isMenu = code == KeyEvent.KEYCODE_MENU && event.getRepeatCount() == 0;
         boolean isHoldOk = HomeView.isConfirmKey(code) && event.getRepeatCount() >= 3;
         if (isMenu || isHoldOk) {
-            if (entry.kind == CardEntry.KIND_IMPORTED || (entry.kind == CardEntry.KIND_ONLINE && onlineStore.isDownloaded(entry.online))) {
+            CardUi targetUi = findCardUi(focused);
+            if (targetUi != null) {
                 focused.cancelLongPress();
-                showManageDialog(entry);
+                showSideBubble(targetUi);
                 return true;
             }
         }
         return false;
     }
 
-    private void showManageDialog(CardEntry entry) {
-        if (entry.kind == CardEntry.KIND_IMPORTED) {
-            host.showDialog(new TvDialog.Builder(host)
-                    .setPageId("wallpaper_manage")
-                    .setTitle(entry.title)
-                    .setMessage(entry.video ? "已导入的动态壁纸 · " + entry.subtitle : "已导入的壁纸 · " + entry.subtitle)
-                    .setItems(new String[]{"设为桌面壁纸", "重命名壁纸", "删除此壁纸"}, (d, w) -> {
-                        if (w == 0) {
-                            onCardSelect(entry);
-                        } else if (w == 1) {
-                            showRenameDialog(entry.imported);
-                        } else {
-                            confirmDelete(entry.imported);
+    private CardUi findCardUi(View cardView) {
+        for (CardUi ui : cards) {
+            if (ui.root == cardView) return ui;
+        }
+        return null;
+    }
+
+    private static final class BubbleAction {
+        final String label;
+        final String hint;
+        final boolean danger;
+        final boolean muted;
+        final Runnable onClick;
+
+        BubbleAction(String label, String hint, boolean danger, boolean muted, Runnable onClick) {
+            this.label = label;
+            this.hint = hint;
+            this.danger = danger;
+            this.muted = muted;
+            this.onClick = onClick;
+        }
+    }
+
+    private void showSideBubble(CardUi ui) {
+        dismissSideBubble(false);
+        final CardEntry entry = ui.entry;
+        bubbleAnchorCard = ui.root;
+
+        ArrayList<BubbleAction> actions = new ArrayList<>();
+        String statusLine;
+        int defaultFocus = 0;
+
+        if (entry.kind == CardEntry.KIND_ONLINE) {
+            OnlineWallpaperStore.Item item = entry.online;
+            boolean downloading = downloadProgress.containsKey(item.id);
+            boolean downloaded = onlineStore.isDownloaded(item);
+            boolean hasCache = onlineStore.hasCachedFiles(item);
+            if (downloading) {
+                int pct = downloadProgress.get(item.id);
+                statusLine = "后台下载中 " + pct + "% · " + WallpaperCatalogPolicy.formatSize(item.size);
+            } else if (downloaded) {
+                statusLine = "已缓存 · " + WallpaperCatalogPolicy.formatSize(item.size);
+            } else {
+                statusLine = "未下载 · " + WallpaperCatalogPolicy.formatSize(item.size);
+            }
+
+            actions.add(new BubbleAction(
+                    "应用此壁纸",
+                    downloaded ? "" : (downloading ? "下载中" : "需先下载"),
+                    false, !downloaded,
+                    () -> {
+                        dismissSideBubble(true);
+                        applyWallpaperEntry(entry);
+                    }
+            ));
+            if (downloading) {
+                actions.add(new BubbleAction(
+                        "取消下载",
+                        downloadProgress.get(item.id) + "%",
+                        true, false,
+                        () -> {
+                            dismissSideBubble(true);
+                            cancelItemDownload(item.id);
+                            host.toast("已取消下载「" + item.title + "」");
                         }
-                    })
-                    .setNegativeButton("返回", null)
-                    .create());
-        } else if (entry.kind == CardEntry.KIND_ONLINE) {
-            host.showDialog(new TvDialog.Builder(host)
-                    .setPageId("wallpaper_manage_online")
-                    .setTitle(entry.title)
-                    .setMessage("已缓存到本地，断网也可直接使用。")
-                    .setItems(new String[]{"设为桌面壁纸", "清理此项本地缓存"}, (d, w) -> {
-                        if (w == 0) {
-                            onCardSelect(entry);
-                        } else {
-                            onlineStore.wallpaperFile(entry.online).delete();
-                            onlineStore.posterFile(entry.online).delete();
-                            refreshAllBadges();
-                            host.toast("已清理本地缓存");
+                ));
+                defaultFocus = 1;
+            } else {
+                actions.add(new BubbleAction(
+                        downloaded ? "重新下载" : "下载此壁纸",
+                        downloaded ? "" : WallpaperCatalogPolicy.formatSize(item.size),
+                        false, false,
+                        () -> {
+                            dismissSideBubble(true);
+                            startBackgroundDownload(entry, downloaded);
                         }
-                    })
-                    .setNegativeButton("返回", null)
-                    .create());
+                ));
+                if (!downloaded) defaultFocus = 1;
+            }
+            actions.add(new BubbleAction(
+                    "删除该壁纸缓存",
+                    hasCache ? "" : "无缓存",
+                    true, !hasCache && !downloading,
+                    () -> {
+                        dismissSideBubble(true);
+                        deleteOnlineCache(entry);
+                    }
+            ));
+        } else if (entry.kind == CardEntry.KIND_IMPORTED) {
+            statusLine = entry.video ? "已导入动态壁纸" : "已导入静态壁纸";
+            actions.add(new BubbleAction("应用此壁纸", "", false, false, () -> {
+                dismissSideBubble(true);
+                applyWallpaperEntry(entry);
+            }));
+            actions.add(new BubbleAction("重命名壁纸", "", false, false, () -> {
+                dismissSideBubble(false);
+                showRenameDialog(entry.imported);
+            }));
+            actions.add(new BubbleAction("删除此壁纸", "", true, false, () -> {
+                dismissSideBubble(false);
+                confirmDelete(entry.imported);
+            }));
+        } else {
+            statusLine = "内置静态壁纸";
+            actions.add(new BubbleAction("应用此壁纸", "", false, false, () -> {
+                dismissSideBubble(true);
+                applyWallpaperEntry(entry);
+            }));
+        }
+
+        // Build compact side bubble card extending beside the focused wallpaper card
+        int bubbleW = dp(212);
+        LinearLayout bubble = new LinearLayout(host);
+        bubble.setOrientation(LinearLayout.VERTICAL);
+        bubble.setPadding(dp(12), dp(11), dp(12), dp(11));
+        bubble.setClickable(true);
+        GradientDrawable bubbleBg = TvDialog.background(0xF6192130, dp(15));
+        bubbleBg.setStroke(dp(1.2f), 0x48FFFFFF);
+        bubble.setBackground(bubbleBg);
+        bubble.setElevation(dp(16));
+
+        TextView headTitle = text(entry.title, 13.5f, 0xFFF4F7FB, true);
+        headTitle.setSingleLine(true);
+        headTitle.setEllipsize(TextUtils.TruncateAt.END);
+        headTitle.setPadding(dp(4), 0, dp(4), dp(2));
+        bubble.addView(headTitle);
+
+        TextView headSub = text(statusLine, 10.5f, 0xFF8FA3BA, false);
+        headSub.setSingleLine(true);
+        headSub.setEllipsize(TextUtils.TruncateAt.END);
+        headSub.setPadding(dp(4), 0, dp(4), dp(8));
+        bubble.addView(headSub);
+
+        View divider = new View(host);
+        divider.setBackgroundColor(0x22FFFFFF);
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        divLp.bottomMargin = dp(7);
+        bubble.addView(divider, divLp);
+
+        ArrayList<View> btnViews = new ArrayList<>();
+        for (int i = 0; i < actions.size(); i++) {
+            final BubbleAction act = actions.get(i);
+            LinearLayout row = new LinearLayout(host);
+            row.setId(View.generateViewId());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(11), dp(9), dp(11), dp(9));
+            row.setFocusable(true);
+            row.setFocusableInTouchMode(true);
+            row.setClickable(true);
+
+            final int restBg = 0xFF232C3D;
+            final int restFg = act.muted ? 0xFF7D8C9E : (act.danger ? 0xFFFF9B94 : 0xFFEFF4FA);
+            final int focusFg = act.muted ? 0xFF566270 : (act.danger ? 0xFFC42B22 : 0xFF101318);
+            final GradientDrawable rowBg = TvDialog.background(restBg, dp(10));
+            row.setBackground(rowBg);
+
+            TextView labelTv = text(act.label, 13f, restFg, true);
+            labelTv.setSingleLine(true);
+            labelTv.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(labelTv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView hintTv = null;
+            if (!act.hint.isEmpty()) {
+                hintTv = text(act.hint, 10.5f, 0xFF899BB0, false);
+                hintTv.setSingleLine(true);
+                hintTv.setPadding(dp(6), 0, 0, 0);
+                row.addView(hintTv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            final TextView finalHint = hintTv;
+
+            UiMotion focusMotion = new UiMotion(row, 0, 34, p -> {
+                rowBg.setColor((Integer) COLORS.evaluate(p, restBg, 0xFFF4F6FA));
+                labelTv.setTextColor(p >= 0.45f ? focusFg : restFg);
+                if (finalHint != null) finalHint.setTextColor(p >= 0.45f ? 0xFF556375 : 0xFF899BB0);
+            });
+            row.setOnFocusChangeListener((v, focused) -> focusMotion.to(focused ? 1f : 0f));
+            row.setOnClickListener(v -> act.onClick.run());
+            attachTouchClick(row);
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i > 0) rowLp.topMargin = dp(5);
+            bubble.addView(row, rowLp);
+            btnViews.add(row);
+        }
+
+        // Trap Up/Down focus cleanly inside bubble buttons
+        for (int i = 0; i < btnViews.size(); i++) {
+            View v = btnViews.get(i);
+            v.setNextFocusLeftId(v.getId());
+            v.setNextFocusRightId(v.getId());
+            v.setNextFocusUpId(btnViews.get(i > 0 ? i - 1 : btnViews.size() - 1).getId());
+            v.setNextFocusDownId(btnViews.get(i + 1 < btnViews.size() ? i + 1 : 0).getId());
+        }
+
+        // Measure bubble height to anchor cleanly beside the focused card without clipping
+        bubble.measure(
+                View.MeasureSpec.makeMeasureSpec(bubbleW, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        );
+        int bubbleH = bubble.getMeasuredHeight();
+
+        int[] rootLoc = new int[2];
+        int[] cardLoc = new int[2];
+        overlayRoot.getLocationInWindow(rootLoc);
+        ui.root.getLocationInWindow(cardLoc);
+        int overlayW = overlayRoot.getWidth() > 0 ? overlayRoot.getWidth() : host.getResources().getDisplayMetrics().widthPixels;
+        int overlayH = overlayRoot.getHeight() > 0 ? overlayRoot.getHeight() : host.getResources().getDisplayMetrics().heightPixels;
+        int cardLeft = cardLoc[0] - rootLoc[0];
+        int cardTop = cardLoc[1] - rootLoc[1];
+        int cardRight = cardLeft + ui.root.getWidth();
+        int cardCenterY = cardTop + ui.root.getHeight() / 2;
+
+        boolean extendRight = (cardRight + dp(10) + bubbleW <= overlayW - dp(12));
+        int left = extendRight
+                ? cardRight + dp(10)
+                : Math.max(dp(12), cardLeft - bubbleW - dp(10));
+        int top = Math.max(dp(18), Math.min(overlayH - bubbleH - dp(18), cardCenterY - bubbleH / 2));
+
+        bubbleLayer.removeAllViews();
+        FrameLayout.LayoutParams bLp = new FrameLayout.LayoutParams(bubbleW, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT);
+        bLp.leftMargin = left;
+        bLp.topMargin = top;
+        bubbleLayer.addView(bubble, bLp);
+        bubbleLayer.setVisibility(View.VISIBLE);
+        bubbleLayer.bringToFront();
+
+        // Smooth side-extension animation emerging from the focused card edge
+        float startTx = extendRight ? -dp(16) : dp(16);
+        bubble.setTranslationX(startTx);
+        bubble.setAlpha(0f);
+        bubbleSlideMotion = new UiMotion(bubble, startTx, 30, bubble::setTranslationX);
+        bubbleAlphaMotion = new UiMotion(bubble, 0f, 34, bubble::setAlpha);
+        bubbleSlideMotion.to(0f);
+        bubbleAlphaMotion.to(1f);
+
+        footerHint.setText("上下选择操作  ·  确定执行  ·  左右 / 菜单 / 返回关闭气泡");
+
+        final View initialBtn = btnViews.get(Math.max(0, Math.min(btnViews.size() - 1, defaultFocus)));
+        bubble.post(initialBtn::requestFocus);
+    }
+
+    private void dismissSideBubble(boolean restoreFocus) {
+        if (bubbleSlideMotion != null) {
+            bubbleSlideMotion.dispose();
+            bubbleSlideMotion = null;
+        }
+        if (bubbleAlphaMotion != null) {
+            bubbleAlphaMotion.dispose();
+            bubbleAlphaMotion = null;
+        }
+        if (bubbleLayer != null) {
+            bubbleLayer.removeAllViews();
+            bubbleLayer.setVisibility(View.GONE);
+        }
+        View anchor = bubbleAnchorCard;
+        bubbleAnchorCard = null;
+        if (restoreFocus && anchor != null && !closed.get()) {
+            anchor.requestFocus();
+            if (anchor.getTag() instanceof CardEntry) {
+                updateFooterHint((CardEntry) anchor.getTag());
+            }
         }
     }
 
@@ -784,9 +1156,15 @@ final class WallpaperCenterDialog {
 
     private void cleanup() {
         if (!closed.compareAndSet(false, true)) return;
+        dismissSideBubble(false);
+        for (AtomicBoolean flag : downloadCancels.values()) flag.set(true);
+        downloadCancels.clear();
+        downloadProgress.clear();
         if (host.phone != null) host.phone.setWallpaperImportedListener(null);
         onlineStore.cancelActive();
-        net.shutdownNow();
+        catalogNet.shutdownNow();
+        downloadPool.shutdownNow();
+        applyExecutor.shutdownNow();
         thumbs.shutdownNow();
         for (CardUi ui : cards) ui.thumb.setImageBitmap(null);
         for (Bitmap b : thumbCache.values()) if (b != null && !b.isRecycled()) b.recycle();

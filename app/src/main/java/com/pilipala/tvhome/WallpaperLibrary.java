@@ -256,7 +256,11 @@ final class WallpaperLibrary {
             if (width <= 0 || height <= 0) {
                 throw new IOException("无法识别视频画面，请上传标准 MP4（H.264）视频");
             }
-            frame = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (android.os.Build.VERSION.SDK_INT >= 27) {
+                frame = mmr.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 1920, 1080);
+                if (frame == null) frame = mmr.getScaledFrameAtTime(100_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 1920, 1080);
+            }
+            if (frame == null) frame = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
             if (frame == null) frame = mmr.getFrameAtTime();
         } catch (IOException e) {
             throw e;
@@ -416,7 +420,7 @@ final class WallpaperLibrary {
             ed.putString("wallpaper_video", "");
         }
         ed.apply();
-        host.loadWallpaper();
+        host.handler.post(host::loadWallpaper);
     }
 
     static void applyBuiltin(MainActivity host, int index) {
@@ -450,7 +454,7 @@ final class WallpaperLibrary {
             ed.putString("wallpaper_video", "");
         }
         ed.apply();
-        host.loadWallpaper();
+        host.handler.post(host::loadWallpaper);
     }
 
     static Bitmap loadBuiltinThumb(Context context, int index) {
@@ -492,7 +496,13 @@ final class WallpaperLibrary {
         MediaMetadataRetriever mmr = new MediaMetadataRetriever();
         try {
             mmr.setDataSource(videoFile.getAbsolutePath());
-            Bitmap raw = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            Bitmap raw = null;
+            if (android.os.Build.VERSION.SDK_INT >= 27) {
+                raw = mmr.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxW, maxH);
+                if (raw == null) raw = mmr.getScaledFrameAtTime(100_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxW, maxH);
+            }
+            if (raw == null) raw = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (raw == null) raw = mmr.getFrameAtTime(100_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
             if (raw == null) raw = mmr.getFrameAtTime();
             if (raw == null) return null;
             Bitmap scaled = scaleDown(raw, maxW, maxH);

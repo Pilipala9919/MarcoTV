@@ -108,11 +108,11 @@ public final class WallpaperCatalogChecks {
                 "06-black-cat", "黑猫", "", "", "",
                 1920, 1080, 1024, sha, mirrorFull, mirrorThumb, 24000, sha, "video"));
 
-        String pixarVideo = "https://marcotv.wlj9919.top/wallpapers/videos/pixar-squirrel-4k.mp4";
-        String pixarThumb = "https://marcotv.wlj9919.top/wallpapers/thumbs/pixar-squirrel-4k.jpg";
-        WallpaperCatalogPolicy.validateItem("pixar-squirrel", "顽皮小松鼠", "Q版皮克斯 · 4K 60帧 · 蓝调沙发探头微动态",
-                "Pilipala · Marco TV 原创动态壁纸", "GPL-3.0-only", 3840, 2160, 15_000_000L, sha,
-                pixarVideo, pixarThumb, 20000L, sha, "video");
+        String pixarVideo = "https://marcotv.wlj9919.top/wallpapers/videos/pixar-squirrel-4k30.mp4";
+        String pixarThumb = "https://marcotv.wlj9919.top/wallpapers/thumbs/pixar-squirrel-4k30.jpg";
+        WallpaperCatalogPolicy.validateItem("pixar-squirrel", "顽皮小松鼠", "Q版皮克斯 · 4K 超清 · 蓝调沙发探头微动态",
+                "Pilipala · Marco TV 原创动态壁纸", "GPL-3.0-only", 3840, 2160, 21_640_000L, sha,
+                pixarVideo, pixarThumb, 226_000L, sha, "video");
         check("valid_pixar_live_video_accepted", true);
         check("third_party_gh_proxy_hosts_rejected",
                 !WallpaperCatalogPolicy.transferUrl("https://gh-proxy.com/https://github.com/example/a.mov")

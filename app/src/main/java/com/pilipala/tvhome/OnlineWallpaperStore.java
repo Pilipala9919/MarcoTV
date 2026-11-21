@@ -74,6 +74,7 @@ final class OnlineWallpaperStore {
 
     private final Context context;
     private final Set<HttpURLConnection> activeConnections = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private final Map<String, HttpURLConnection> itemConnections = new java.util.concurrent.ConcurrentHashMap<>();
 
     OnlineWallpaperStore(Context context) {
         this.context = context.getApplicationContext();
@@ -111,27 +112,37 @@ final class OnlineWallpaperStore {
         return f.isFile() && f.length() == item.size;
     }
 
-    long cacheSizeBytes() {
-        File[] files = dir().listFiles();
-        if (files == null) return 0L;
-        long total = 0L;
-        for (File f : files) if (f.isFile()) total += f.length();
-        return total;
+    boolean hasCachedFiles(Item item) {
+        return wallpaperFile(item).isFile() || posterFile(item).isFile();
     }
 
-    long clearCache() {
-        File[] files = dir().listFiles();
-        if (files == null) return 0L;
+    long deleteCachedItem(Item item) {
         long reclaimed = 0L;
-        for (File f : files) {
-            if (!f.isFile()) continue;
-            long len = f.length();
-            if (f.delete()) reclaimed += len;
+        File[] targets = new File[]{
+                wallpaperFile(item),
+                posterFile(item),
+                new File(dir(), item.id + ".part")
+        };
+        for (File f : targets) {
+            if (f.isFile()) {
+                long len = f.length();
+                if (f.delete()) reclaimed += len;
+            }
         }
         return reclaimed;
     }
 
+    void cancelItem(String itemId) {
+        HttpURLConnection conn = itemConnections.remove(itemId);
+        if (conn != null) {
+            new Thread(() -> {
+                try { conn.disconnect(); } catch (Throwable ignored) {}
+            }, "MarcoTV-wp-cancel-item").start();
+        }
+    }
+
     void cancelActive() {
+        itemConnections.clear();
         List<HttpURLConnection> snapshot = new ArrayList<>(activeConnections);
         if (!snapshot.isEmpty()) {
             new Thread(() -> {
@@ -242,7 +253,6 @@ final class OnlineWallpaperStore {
         if (folder.getUsableSpace() < item.size + 16L * 1024 * 1024) {
             throw new IOException("电视可用存储空间不足");
         }
-        cleanupStaleParts(folder);
         Exception lastError = null;
         String[] endpoints = WallpaperCatalogPolicy.candidateMediaUrls(item.url, item.video);
         for (String endpoint : endpoints) {
@@ -250,7 +260,7 @@ final class OnlineWallpaperStore {
             File part = new File(folder, item.id + ".part");
             part.delete();
             try {
-                downloadToFile(endpoint, part, item.size, item.sha256, item.size, progress, cancelled);
+                downloadToFile(endpoint, part, item.size, item.sha256, item.size, progress, cancelled, item.id);
                 if (item.video) {
                     if (!validVideoFile(part)) {
                         throw new IOException("下载的视频无效或暂不支持");
@@ -270,7 +280,10 @@ final class OnlineWallpaperStore {
                     }
                     part.delete();
                 }
-                if (item.video) ensureVideoPoster(item, target);
+                if (item.video) {
+                    posterFile(item).delete();
+                    ensureVideoPoster(item, target);
+                }
                 return target;
             } catch (InterruptedIOException e) {
                 part.delete();
@@ -301,7 +314,7 @@ final class OnlineWallpaperStore {
 
     File ensureVideoPoster(Item item, File videoFile) {
         File poster = posterFile(item);
-        if (poster.isFile() && poster.length() > 0) return poster;
+        if (poster.isFile() && poster.length() > 0 && isCrispPoster(poster, item.width)) return poster;
         if (videoFile != null && videoFile.isFile()) {
             Bitmap frame = WallpaperLibrary.extractVideoFrame(videoFile, 1920, 1080);
             if (frame != null) {
@@ -317,6 +330,14 @@ final class OnlineWallpaperStore {
         }
         File thumb = thumbFile(item);
         return (thumb.isFile() && thumb.length() > 0) ? thumb : null;
+    }
+
+    private static boolean isCrispPoster(File file, int sourceWidth) {
+        if (sourceWidth < 1280) return true;
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getPath(), o);
+        return o.outWidth >= 960;
     }
 
     Bitmap loadPreviewBitmap(Item item, AtomicBoolean cancelled) {
@@ -355,7 +376,7 @@ final class OnlineWallpaperStore {
             part.delete();
             try {
                 long limit = item.thumbSize > 0 ? item.thumbSize : -WallpaperCatalogPolicy.MAX_THUMB_BYTES;
-                downloadToFile(endpoint, part, limit, item.thumbSha256, item.thumbSize, null, cancelled);
+                downloadToFile(endpoint, part, limit, item.thumbSha256, item.thumbSize, null, cancelled, null);
                 Bitmap decoded = decodeBounded(part, 640, 360);
                 if (decoded != null) {
                     if (!part.renameTo(thumb)) part.delete();
@@ -401,12 +422,6 @@ final class OnlineWallpaperStore {
         }
     }
 
-    private void cleanupStaleParts(File folder) {
-        File[] files = folder.listFiles();
-        if (files == null) return;
-        for (File f : files) if (f.isFile() && f.getName().endsWith(".part")) f.delete();
-    }
-
     private byte[] downloadBytes(String url, int maxBytes, AtomicBoolean cancelled) throws Exception {
         HttpURLConnection conn = open(url, cancelled);
         try {
@@ -435,10 +450,10 @@ final class OnlineWallpaperStore {
 
     /** exactOrNegMax: positive requires exact byte length; negative enforces max byte length = -exactOrNegMax. */
     private void downloadToFile(String url, File target, long exactOrNegMax, String expectedSha256,
-                                long estimatedSize, Progress progress, AtomicBoolean cancelled) throws Exception {
+                                long estimatedSize, Progress progress, AtomicBoolean cancelled, String itemKey) throws Exception {
         boolean exact = exactOrNegMax > 0;
         long maxBytes = exact ? exactOrNegMax : -exactOrNegMax;
-        HttpURLConnection conn = open(url, cancelled);
+        HttpURLConnection conn = open(url, cancelled, itemKey);
         try {
             int code = conn.getResponseCode();
             if (code != 200) throw new IOException("HTTP " + code);
@@ -473,12 +488,17 @@ final class OnlineWallpaperStore {
                 if (!expectedSha256.equals(actual)) throw new IOException("SHA-256 mismatch");
             }
         } finally {
+            if (itemKey != null) itemConnections.remove(itemKey, conn);
             activeConnections.remove(conn);
             conn.disconnect();
         }
     }
 
     private HttpURLConnection open(String startUrl, AtomicBoolean cancelled) throws IOException {
+        return open(startUrl, cancelled, null);
+    }
+
+    private HttpURLConnection open(String startUrl, AtomicBoolean cancelled, String itemKey) throws IOException {
         String current = startUrl;
         for (int hop = 0; hop < 5; hop++) {
             if (cancelled.get()) throw new InterruptedIOException("cancelled");
@@ -490,9 +510,11 @@ final class OnlineWallpaperStore {
             conn.setRequestProperty("User-Agent", "MarcoTV/" + ProjectInfo.VERSION);
             conn.setRequestProperty("Accept-Encoding", "identity");
             activeConnections.add(conn);
+            if (itemKey != null) itemConnections.put(itemKey, conn);
             int code = conn.getResponseCode();
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 String location = conn.getHeaderField("Location");
+                if (itemKey != null) itemConnections.remove(itemKey, conn);
                 activeConnections.remove(conn);
                 conn.disconnect();
                 if (location == null || location.isEmpty()) throw new IOException("Empty redirect");

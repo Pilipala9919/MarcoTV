@@ -88,7 +88,8 @@ def build(restricted=False, release=False):
         tree.write(manifest, encoding='utf-8', xml_declaration=True)
     run(executable(TOOLS,'aapt2'), 'link', '-o', BUILD / 'resources.apk', '--manifest', manifest,
         '-I', ANDROID, '--auto-add-overlay', '-A', SOURCE / 'assets', BUILD / 'resources.zip')
-    sources = sorted((SOURCE / 'java').rglob('*.java'))
+    excluded_from_apk = {'BackgroundPlaybackSession.java', 'WeatherRefreshPolicy.java'}
+    sources = sorted(p for p in (SOURCE / 'java').rglob('*.java') if p.name not in excluded_from_apk)
     if restricted:
         edition = BUILD / 'generated/BuildEdition.java'
         edition.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +106,7 @@ def build(restricted=False, release=False):
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, p.read_bytes())
     run(executable(JDK/'bin','java'), '-cp', TOOLS / 'lib/d8.jar', 'com.android.tools.r8.D8',
-        '--min-api', '23', '--lib', ANDROID, '--output', BUILD / 'dex', classes_jar)
+        '--release', '--min-api', '23', '--lib', ANDROID, '--output', BUILD / 'dex', classes_jar)
     unsigned = BUILD / 'unsigned.apk'
     with zipfile.ZipFile(BUILD / 'resources.apk') as source, zipfile.ZipFile(unsigned, 'w', zipfile.ZIP_DEFLATED) as target:
         for info in source.infolist(): target.writestr(info, source.read(info.filename))
