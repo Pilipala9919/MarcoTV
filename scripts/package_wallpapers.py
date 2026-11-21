@@ -50,7 +50,7 @@ KNOWN_PRESETS = {
     },
     'pixar-tabby-cat': {
         'id': 'pixar-tabby-cat',
-        'title': '软萌美短猫',
+        'title': '作者的五花肉~',
         'subtitle': 'Q版皮克斯 · 4K 60帧 · 暖灯沙发舔爪微动态',
         'credit': 'Pilipala · Marco TV 原创动态壁纸',
         'license': 'GPL-3.0-only',
