@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -26,13 +27,14 @@ final class CastProtocol {
 
     private static final Set<String> AVTRANSPORT_ACTIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "SetAVTransportURI", "SetNextAVTransportURI", "Play", "Pause", "Stop", "Seek",
-            "GetPositionInfo", "GetTransportInfo", "GetMediaInfo", "GetCurrentTransportActions"
+            "GetPositionInfo", "GetTransportInfo", "GetMediaInfo", "GetCurrentTransportActions",
+            "GetDeviceCapabilities", "GetTransportSettings"
     )));
     private static final Set<String> RENDERING_ACTIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "GetVolume", "SetVolume", "GetMute", "SetMute"
+            "GetVolume", "SetVolume", "GetMute", "SetMute", "ListPresets", "SelectPreset"
     )));
-    private static final Set<String> CONNECTION_ACTIONS = Collections.unmodifiableSet(new HashSet<>(Collections.singletonList(
-            "GetProtocolInfo"
+    private static final Set<String> CONNECTION_ACTIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "GetProtocolInfo", "GetCurrentConnectionIDs", "GetCurrentConnectionInfo"
     )));
     private static final Set<String> CRITICAL_SINGLE_HEADERS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "host", "content-length", "transfer-encoding", "expect", "origin", "content-type", "soapaction"
@@ -42,33 +44,183 @@ final class CastProtocol {
             + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
             + "<specVersion><major>1</major><minor>0</minor></specVersion>"
             + "<actionList>"
-            + "<action><name>SetAVTransportURI</name></action>"
-            + "<action><name>SetNextAVTransportURI</name></action>"
-            + "<action><name>Play</name></action>"
-            + "<action><name>Pause</name></action>"
-            + "<action><name>Stop</name></action>"
-            + "<action><name>Seek</name></action>"
-            + "<action><name>GetPositionInfo</name></action>"
-            + "<action><name>GetTransportInfo</name></action>"
-            + "<action><name>GetMediaInfo</name></action>"
-            + "<action><name>GetCurrentTransportActions</name></action>"
-            + "</actionList><serviceStateTable></serviceStateTable></scpd>";
+            + "<action><name>SetAVTransportURI</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>CurrentURI</name><direction>in</direction><relatedStateVariable>AVTransportURI</relatedStateVariable></argument>"
+            + "<argument><name>CurrentURIMetaData</name><direction>in</direction><relatedStateVariable>AVTransportURIMetaData</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>SetNextAVTransportURI</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>NextURI</name><direction>in</direction><relatedStateVariable>NextAVTransportURI</relatedStateVariable></argument>"
+            + "<argument><name>NextURIMetaData</name><direction>in</direction><relatedStateVariable>NextAVTransportURIMetaData</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetMediaInfo</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>NrTracks</name><direction>out</direction><relatedStateVariable>NumberOfTracks</relatedStateVariable></argument>"
+            + "<argument><name>MediaDuration</name><direction>out</direction><relatedStateVariable>CurrentMediaDuration</relatedStateVariable></argument>"
+            + "<argument><name>CurrentURI</name><direction>out</direction><relatedStateVariable>AVTransportURI</relatedStateVariable></argument>"
+            + "<argument><name>CurrentURIMetaData</name><direction>out</direction><relatedStateVariable>AVTransportURIMetaData</relatedStateVariable></argument>"
+            + "<argument><name>NextURI</name><direction>out</direction><relatedStateVariable>NextAVTransportURI</relatedStateVariable></argument>"
+            + "<argument><name>NextURIMetaData</name><direction>out</direction><relatedStateVariable>NextAVTransportURIMetaData</relatedStateVariable></argument>"
+            + "<argument><name>PlayMedium</name><direction>out</direction><relatedStateVariable>PlaybackStorageMedium</relatedStateVariable></argument>"
+            + "<argument><name>RecordMedium</name><direction>out</direction><relatedStateVariable>RecordStorageMedium</relatedStateVariable></argument>"
+            + "<argument><name>WriteStatus</name><direction>out</direction><relatedStateVariable>RecordMediumWriteStatus</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetTransportInfo</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>CurrentTransportState</name><direction>out</direction><relatedStateVariable>TransportState</relatedStateVariable></argument>"
+            + "<argument><name>CurrentTransportStatus</name><direction>out</direction><relatedStateVariable>TransportStatus</relatedStateVariable></argument>"
+            + "<argument><name>CurrentSpeed</name><direction>out</direction><relatedStateVariable>TransportPlaySpeed</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetPositionInfo</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Track</name><direction>out</direction><relatedStateVariable>CurrentTrack</relatedStateVariable></argument>"
+            + "<argument><name>TrackDuration</name><direction>out</direction><relatedStateVariable>CurrentTrackDuration</relatedStateVariable></argument>"
+            + "<argument><name>TrackMetaData</name><direction>out</direction><relatedStateVariable>CurrentTrackMetaData</relatedStateVariable></argument>"
+            + "<argument><name>TrackURI</name><direction>out</direction><relatedStateVariable>CurrentTrackURI</relatedStateVariable></argument>"
+            + "<argument><name>RelTime</name><direction>out</direction><relatedStateVariable>RelativeTimePosition</relatedStateVariable></argument>"
+            + "<argument><name>AbsTime</name><direction>out</direction><relatedStateVariable>AbsoluteTimePosition</relatedStateVariable></argument>"
+            + "<argument><name>RelCount</name><direction>out</direction><relatedStateVariable>RelativeCounterPosition</relatedStateVariable></argument>"
+            + "<argument><name>AbsCount</name><direction>out</direction><relatedStateVariable>AbsoluteCounterPosition</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetDeviceCapabilities</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>PlayMedia</name><direction>out</direction><relatedStateVariable>PossiblePlaybackStorageMedia</relatedStateVariable></argument>"
+            + "<argument><name>RecMedia</name><direction>out</direction><relatedStateVariable>PossibleRecordStorageMedia</relatedStateVariable></argument>"
+            + "<argument><name>RecQualityModes</name><direction>out</direction><relatedStateVariable>PossibleRecordQualityModes</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetTransportSettings</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>PlayMode</name><direction>out</direction><relatedStateVariable>CurrentPlayMode</relatedStateVariable></argument>"
+            + "<argument><name>RecQualityMode</name><direction>out</direction><relatedStateVariable>CurrentRecordQualityMode</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>Stop</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>Play</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Speed</name><direction>in</direction><relatedStateVariable>TransportPlaySpeed</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>Pause</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>Seek</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Unit</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_SeekMode</relatedStateVariable></argument>"
+            + "<argument><name>Target</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_SeekTarget</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetCurrentTransportActions</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Actions</name><direction>out</direction><relatedStateVariable>CurrentTransportActions</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "</actionList><serviceStateTable>"
+            + "<stateVariable sendEvents=\"yes\"><name>LastChange</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>TransportState</name><dataType>string</dataType><allowedValueList><allowedValue>STOPPED</allowedValue><allowedValue>PAUSED_PLAYBACK</allowedValue><allowedValue>PLAYING</allowedValue><allowedValue>TRANSITIONING</allowedValue><allowedValue>NO_MEDIA_PRESENT</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>TransportStatus</name><dataType>string</dataType><allowedValueList><allowedValue>OK</allowedValue><allowedValue>ERROR_OCCURRED</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>PlaybackStorageMedium</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>RecordStorageMedium</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>PossiblePlaybackStorageMedia</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>PossibleRecordStorageMedia</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentPlayMode</name><dataType>string</dataType><defaultValue>NORMAL</defaultValue></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>TransportPlaySpeed</name><dataType>string</dataType><allowedValueList><allowedValue>1</allowedValue></allowedValueList><defaultValue>1</defaultValue></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>RecordMediumWriteStatus</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentRecordQualityMode</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>PossibleRecordQualityModes</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>NumberOfTracks</name><dataType>ui4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentTrack</name><dataType>ui4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentTrackDuration</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentMediaDuration</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentTrackMetaData</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentTrackURI</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>AVTransportURI</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>AVTransportURIMetaData</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>NextAVTransportURI</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>NextAVTransportURIMetaData</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>RelativeTimePosition</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>AbsoluteTimePosition</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>RelativeCounterPosition</name><dataType>i4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>AbsoluteCounterPosition</name><dataType>i4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>CurrentTransportActions</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_SeekMode</name><dataType>string</dataType><allowedValueList><allowedValue>REL_TIME</allowedValue><allowedValue>ABS_TIME</allowedValue><allowedValue>TRACK_NR</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_SeekTarget</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_InstanceID</name><dataType>ui4</dataType></stateVariable>"
+            + "</serviceStateTable></scpd>";
 
     static final String RENDERING_SCPD = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
             + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
             + "<specVersion><major>1</major><minor>0</minor></specVersion>"
             + "<actionList>"
-            + "<action><name>GetVolume</name></action>"
-            + "<action><name>SetVolume</name></action>"
-            + "<action><name>GetMute</name></action>"
-            + "<action><name>SetMute</name></action>"
-            + "</actionList><serviceStateTable></serviceStateTable></scpd>";
+            + "<action><name>ListPresets</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>CurrentPresetNameList</name><direction>out</direction><relatedStateVariable>PresetNameList</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>SelectPreset</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>PresetName</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_PresetName</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetMute</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Channel</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable></argument>"
+            + "<argument><name>CurrentMute</name><direction>out</direction><relatedStateVariable>Mute</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>SetMute</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Channel</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable></argument>"
+            + "<argument><name>DesiredMute</name><direction>in</direction><relatedStateVariable>Mute</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetVolume</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Channel</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable></argument>"
+            + "<argument><name>CurrentVolume</name><direction>out</direction><relatedStateVariable>Volume</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>SetVolume</name><argumentList>"
+            + "<argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>"
+            + "<argument><name>Channel</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable></argument>"
+            + "<argument><name>DesiredVolume</name><direction>in</direction><relatedStateVariable>Volume</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "</actionList><serviceStateTable>"
+            + "<stateVariable sendEvents=\"yes\"><name>LastChange</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>PresetNameList</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>Mute</name><dataType>boolean</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>Volume</name><dataType>ui2</dataType><allowedValueRange><minimum>0</minimum><maximum>100</maximum><step>1</step></allowedValueRange></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_Channel</name><dataType>string</dataType><allowedValueList><allowedValue>Master</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_InstanceID</name><dataType>ui4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_PresetName</name><dataType>string</dataType><allowedValueList><allowedValue>FactoryDefaults</allowedValue></allowedValueList></stateVariable>"
+            + "</serviceStateTable></scpd>";
 
     static final String CONNECTION_SCPD = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
             + "<scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">"
             + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-            + "<actionList><action><name>GetProtocolInfo</name></action></actionList>"
-            + "<serviceStateTable></serviceStateTable></scpd>";
+            + "<actionList>"
+            + "<action><name>GetProtocolInfo</name><argumentList>"
+            + "<argument><name>Source</name><direction>out</direction><relatedStateVariable>SourceProtocolInfo</relatedStateVariable></argument>"
+            + "<argument><name>Sink</name><direction>out</direction><relatedStateVariable>SinkProtocolInfo</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetCurrentConnectionIDs</name><argumentList>"
+            + "<argument><name>ConnectionIDs</name><direction>out</direction><relatedStateVariable>CurrentConnectionIDs</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "<action><name>GetCurrentConnectionInfo</name><argumentList>"
+            + "<argument><name>ConnectionID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>"
+            + "<argument><name>RcsID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_RcsID</relatedStateVariable></argument>"
+            + "<argument><name>AVTransportID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_AVTransportID</relatedStateVariable></argument>"
+            + "<argument><name>ProtocolInfo</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ProtocolInfo</relatedStateVariable></argument>"
+            + "<argument><name>PeerConnectionManager</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionManager</relatedStateVariable></argument>"
+            + "<argument><name>PeerConnectionID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>"
+            + "<argument><name>Direction</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_Direction</relatedStateVariable></argument>"
+            + "<argument><name>Status</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionStatus</relatedStateVariable></argument>"
+            + "</argumentList></action>"
+            + "</actionList><serviceStateTable>"
+            + "<stateVariable sendEvents=\"yes\"><name>SourceProtocolInfo</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"yes\"><name>SinkProtocolInfo</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"yes\"><name>CurrentConnectionIDs</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_ConnectionStatus</name><dataType>string</dataType><allowedValueList><allowedValue>OK</allowedValue><allowedValue>ContentFormatMismatch</allowedValue><allowedValue>InsufficientBandwidth</allowedValue><allowedValue>UnreliableChannel</allowedValue><allowedValue>Unknown</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_ConnectionManager</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_Direction</name><dataType>string</dataType><allowedValueList><allowedValue>Input</allowedValue><allowedValue>Output</allowedValue></allowedValueList></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_ProtocolInfo</name><dataType>string</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_ConnectionID</name><dataType>i4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_AVTransportID</name><dataType>i4</dataType></stateVariable>"
+            + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_RcsID</name><dataType>i4</dataType></stateVariable>"
+            + "</serviceStateTable></scpd>";
 
     private CastProtocol() {}
 
@@ -161,7 +313,7 @@ final class CastProtocol {
     static int checkHttpSecurity(HttpHead head, String boundIp, int boundPort) {
         if (head == null || boundIp == null || boundIp.isEmpty() || boundPort <= 0) return 400;
         String m = head.method;
-        if (!("GET".equals(m) || "POST".equals(m) || "SUBSCRIBE".equals(m) || "UNSUBSCRIBE".equals(m))) {
+        if (!("GET".equals(m) || "HEAD".equals(m) || "POST".equals(m) || "SUBSCRIBE".equals(m) || "UNSUBSCRIBE".equals(m))) {
             return 405;
         }
         if (!isValidHost(head.header("host"), boundIp, boundPort)) {
@@ -171,9 +323,10 @@ final class CastProtocol {
         if (!origin.isEmpty() && !origin.equals("http://" + boundIp + ":" + boundPort)) {
             return 403;
         }
-        if ("GET".equals(m)) {
+        if ("GET".equals(m) || "HEAD".equals(m)) {
             if (head.contentLength != 0) return 400;
-            if (head.path.equals("/dlna/device.xml")
+            if (head.path.equals("/")
+                    || head.path.equals("/dlna/device.xml")
                     || head.path.equals("/dlna/avtransport.xml")
                     || head.path.equals("/dlna/rendering.xml")
                     || head.path.equals("/dlna/connection.xml")) {
@@ -276,10 +429,18 @@ final class CastProtocol {
         );
     }
 
+    static String httpDateGmt() {
+        SimpleDateFormat fmt = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US);
+        fmt.setTimeZone(TimeZone.getTimeZone("GMT"));
+        return fmt.format(new Date());
+    }
+
     static List<String> resolveSsdpSearchTargets(String rawPacket, String uuid) {
         if (rawPacket == null || uuid == null || uuid.isEmpty()) return Collections.emptyList();
         String trimmed = rawPacket.trim();
-        if (trimmed.length() < 19 || !trimmed.substring(0, 19).equalsIgnoreCase("M-SEARCH * HTTP/1.1")) {
+        if (trimmed.length() < 19
+                || !(trimmed.substring(0, 19).equalsIgnoreCase("M-SEARCH * HTTP/1.1")
+                || trimmed.substring(0, 19).equalsIgnoreCase("M-SEARCH * HTTP/1.0"))) {
             return Collections.emptyList();
         }
         String man = extractHeader(rawPacket, "MAN").toLowerCase(Locale.ROOT);
@@ -295,11 +456,17 @@ final class CastProtocol {
         if (st.equals("uuid:" + uuid)) {
             return Collections.singletonList(st);
         }
-        if (st.startsWith("urn:schemas-upnp-org:device:MediaRenderer:")
-                || st.startsWith("urn:schemas-upnp-org:service:AVTransport:")
-                || st.startsWith("urn:schemas-upnp-org:service:RenderingControl:")
-                || st.startsWith("urn:schemas-upnp-org:service:ConnectionManager:")) {
-            return Collections.singletonList(st);
+        if (st.startsWith("urn:schemas-upnp-org:device:MediaRenderer:")) {
+            return Collections.singletonList(DEVICE_TYPE);
+        }
+        if (st.startsWith("urn:schemas-upnp-org:service:AVTransport:")) {
+            return Collections.singletonList(SERVICE_AVTRANSPORT);
+        }
+        if (st.startsWith("urn:schemas-upnp-org:service:RenderingControl:")) {
+            return Collections.singletonList(SERVICE_RENDERING);
+        }
+        if (st.startsWith("urn:schemas-upnp-org:service:ConnectionManager:")) {
+            return Collections.singletonList(SERVICE_CONNECTION);
         }
         return Collections.emptyList();
     }
@@ -308,12 +475,15 @@ final class CastProtocol {
         String usn = "uuid:" + uuid + (target.startsWith("uuid:") ? "" : "::" + target);
         return "HTTP/1.1 200 OK\r\n"
                 + "CACHE-CONTROL: max-age=1800\r\n"
+                + "DATE: " + httpDateGmt() + "\r\n"
                 + "EXT:\r\n"
                 + "LOCATION: http://" + ip + ":" + port + "/dlna/device.xml\r\n"
+                + "OPT: \"http://schemas.upnp.org/upnp/1/0/\"; ns=01\r\n"
                 + "SERVER: " + serverToken + "\r\n"
                 + "ST: " + target + "\r\n"
                 + "USN: " + usn + "\r\n"
-                + "Content-Length: 0\r\n\r\n";
+                + "BOOTID.UPNP.ORG: 1\r\n"
+                + "CONFIGID.UPNP.ORG: 1\r\n\r\n";
     }
 
     static List<String> buildSsdpNotifyMessages(String ip, int port, String uuid, String serverToken, boolean alive) {
@@ -329,7 +499,8 @@ final class CastProtocol {
                     + "NTS: " + (alive ? "ssdp:alive" : "ssdp:byebye") + "\r\n"
                     + "SERVER: " + serverToken + "\r\n"
                     + "USN: " + usn + "\r\n"
-                    + "Content-Length: 0\r\n\r\n";
+                    + "BOOTID.UPNP.ORG: 1\r\n"
+                    + "CONFIGID.UPNP.ORG: 1\r\n\r\n";
             out.add(msg);
         }
         return out;
@@ -663,16 +834,27 @@ final class CastProtocol {
     }
 
     static String buildDeviceXml(String friendlyName, String uuid, String modelVersion) {
+        return buildDeviceXml(friendlyName, uuid, modelVersion, null);
+    }
+
+    static String buildDeviceXml(String friendlyName, String uuid, String modelVersion, String baseUrl) {
         return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                + "<root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
+                + "<root xmlns=\"urn:schemas-upnp-org:device-1-0\" xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">"
                 + "<specVersion><major>1</major><minor>0</minor></specVersion>"
+                + (baseUrl != null && !baseUrl.isEmpty() ? "<URLBase>" + escapeXml(baseUrl) + "</URLBase>" : "")
                 + "<device>"
                 + "<deviceType>" + DEVICE_TYPE + "</deviceType>"
                 + "<friendlyName>" + escapeXml(friendlyName) + "</friendlyName>"
                 + "<manufacturer>Pilipala</manufacturer>"
+                + "<manufacturerURL>https://github.com/Pilipala9919/MarcoTV</manufacturerURL>"
+                + "<modelDescription>Marco TV DLNA MediaRenderer</modelDescription>"
                 + "<modelName>Marco TV</modelName>"
                 + "<modelNumber>" + escapeXml(modelVersion) + "</modelNumber>"
+                + "<modelURL>https://github.com/Pilipala9919/MarcoTV</modelURL>"
+                + "<serialNumber>1</serialNumber>"
                 + "<UDN>uuid:" + escapeXml(uuid) + "</UDN>"
+                + "<dlna:X_DLNADOC xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">DMR-1.50</dlna:X_DLNADOC>"
+                + "<presentationURL>/</presentationURL>"
                 + "<serviceList>"
                 + "<service>"
                 + "<serviceType>" + SERVICE_AVTRANSPORT + "</serviceType>"

@@ -205,7 +205,23 @@ public final class CastProtocolChecks {
         String deviceXml = CastProtocol.buildDeviceXml("Living <TV> & \"Box\"", UUID, "0.16.0");
         check("device_xml_escapes_friendly_name_and_exposes_connection_service",
                 deviceXml.contains("Living &lt;TV&gt; &amp; &quot;Box&quot;")
-                        && deviceXml.contains(CastProtocol.SERVICE_CONNECTION));
+                        && deviceXml.contains(CastProtocol.SERVICE_CONNECTION)
+                        && deviceXml.contains("DMR-1.50"));
+
+        // 7. Strict UPnP 1.0 SCPD & SSDP discovery compliance (Cling / CyberLink / iOS DLNA)
+        String ssdpResp = CastProtocol.buildSsdpSearchResponse(TV_IP, PORT, UUID, "Android/9 UPnP/1.0 MarcoTV/0.19.0", CastProtocol.DEVICE_TYPE);
+        check("ssdp_response_has_date_and_no_content_length",
+                ssdpResp.contains("\r\nDATE: ") && ssdpResp.contains("\r\nBOOTID.UPNP.ORG: 1") && !ssdpResp.contains("Content-Length"));
+        check("scpd_xmls_have_arguments_and_state_variables",
+                CastProtocol.AVTRANSPORT_SCPD.contains("<argumentList>")
+                        && CastProtocol.AVTRANSPORT_SCPD.contains("<relatedStateVariable>AVTransportURI</relatedStateVariable>")
+                        && CastProtocol.AVTRANSPORT_SCPD.contains("<name>AVTransportURI</name>")
+                        && CastProtocol.RENDERING_SCPD.contains("<name>Volume</name>")
+                        && CastProtocol.CONNECTION_SCPD.contains("<name>SinkProtocolInfo</name>"));
+        check("extra_dlna_query_actions_parsed",
+                "GetDeviceCapabilities".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:AVTransport:1#GetDeviceCapabilities\"", "/dlna/avtransport/control"))
+                        && "GetCurrentConnectionIDs".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionIDs\"", "/dlna/connection/control"))
+                        && "ListPresets".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:RenderingControl:1#ListPresets\"", "/dlna/rendering/control")));
 
         System.out.println("OK " + passed + " cast protocol & security checks");
     }

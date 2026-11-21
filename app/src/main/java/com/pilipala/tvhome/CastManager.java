@@ -17,6 +17,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.*;
 
 /**
@@ -1353,6 +1354,18 @@ final class CastManager implements DlnaServer.SoapHandler {
                     }
                 }
             }
+            Enumeration<NetworkInterface> nifs = NetworkInterface.getNetworkInterfaces();
+            while (nifs != null && nifs.hasMoreElements()) {
+                NetworkInterface nif = nifs.nextElement();
+                if (!nif.isUp() || nif.isLoopback() || nif.isVirtual()) continue;
+                String name = nif.getName() == null ? "" : nif.getName().toLowerCase(Locale.ROOT);
+                if (name.startsWith("tun") || name.startsWith("ppp") || name.startsWith("rmnet") || name.startsWith("p2p")) continue;
+                Enumeration<InetAddress> addrs = nif.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress ip = addrs.nextElement();
+                    if (ip instanceof Inet4Address && ip.isSiteLocalAddress()) return ip.getHostAddress();
+                }
+            }
         } catch (Exception ignored) {}
         return null;
     }
@@ -1461,9 +1474,41 @@ final class CastManager implements DlnaServer.SoapHandler {
                 inner = "<Actions>Play,Pause,Stop,Seek</Actions>";
                 break;
             }
+            case "GetDeviceCapabilities": {
+                inner = "<PlayMedia>NETWORK</PlayMedia>"
+                        + "<RecMedia>NOT_IMPLEMENTED</RecMedia>"
+                        + "<RecQualityModes>NOT_IMPLEMENTED</RecQualityModes>";
+                break;
+            }
+            case "GetTransportSettings": {
+                inner = "<PlayMode>NORMAL</PlayMode>"
+                        + "<RecQualityMode>NOT_IMPLEMENTED</RecQualityMode>";
+                break;
+            }
             case "GetProtocolInfo": {
                 inner = "<Source></Source>"
-                        + "<Sink>http-get:*:video/mp4:*,http-get:*:video/x-mpegURL:*,http-get:*:application/vnd.apple.mpegurl:*,http-get:*:video/*:*,http-get:*:audio/*:*,http-get:*:image/*:*</Sink>";
+                        + "<Sink>http-get:*:video/mp4:*,http-get:*:video/x-mpegURL:*,http-get:*:application/vnd.apple.mpegurl:*,http-get:*:video/x-matroska:*,http-get:*:video/x-flv:*,http-get:*:video/mp2t:*,http-get:*:video/*:*,http-get:*:audio/*:*,http-get:*:image/*:*</Sink>";
+                break;
+            }
+            case "GetCurrentConnectionIDs": {
+                inner = "<ConnectionIDs>0</ConnectionIDs>";
+                break;
+            }
+            case "GetCurrentConnectionInfo": {
+                inner = "<RcsID>0</RcsID>"
+                        + "<AVTransportID>0</AVTransportID>"
+                        + "<ProtocolInfo></ProtocolInfo>"
+                        + "<PeerConnectionManager></PeerConnectionManager>"
+                        + "<PeerConnectionID>-1</PeerConnectionID>"
+                        + "<Direction>Input</Direction>"
+                        + "<Status>OK</Status>";
+                break;
+            }
+            case "ListPresets": {
+                inner = "<CurrentPresetNameList>FactoryDefaults</CurrentPresetNameList>";
+                break;
+            }
+            case "SelectPreset": {
                 break;
             }
             case "GetVolume": {
