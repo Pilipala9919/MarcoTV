@@ -231,8 +231,6 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                     mp.setDataSource(fis.getFD());
                 }
                 mp.setSurface(surf);
-                mp.setLooping(true);
-                mp.setVolume(0f, 0f);
                 mp.setScreenOnWhilePlaying(false);
                 if (token != generation) {
                     safeRelease(mp, surf, null);
@@ -240,6 +238,7 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                 }
                 activePlayer = mp;
                 activeSurface = surf;
+                Log.i("MarcoTV", "Live wallpaper prepare: " + path);
                 mp.prepareAsync();
             } catch (Exception error) {
                 Log.w("MarcoTV", "Live wallpaper prepare exception: " + path, error);
@@ -284,8 +283,9 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
             try { mp.setOnCompletionListener(null); } catch (RuntimeException ignored) {}
             try { mp.setOnErrorListener(null); } catch (RuntimeException ignored) {}
             try { mp.setOnVideoSizeChangedListener(null); } catch (RuntimeException ignored) {}
-            // Detach surface BEFORE release so Amlogic hardware codecs never stall waiting on BufferQueue.
-            try { mp.setSurface(null); } catch (RuntimeException ignored) {}
+            // Stop and reset BEFORE release (never setSurface(null) while playing, which deadlocks Xiaomi MiPlayer/libvlc vout).
+            try { mp.stop(); } catch (RuntimeException ignored) {}
+            try { mp.reset(); } catch (RuntimeException ignored) {}
             try { mp.release(); } catch (RuntimeException ignored) {}
         }
         if (surf != null) {

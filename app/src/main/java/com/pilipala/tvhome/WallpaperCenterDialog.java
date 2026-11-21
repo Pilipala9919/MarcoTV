@@ -687,15 +687,15 @@ final class WallpaperCenterDialog {
             try {
                 WallpaperLibrary.applyOnline(host, onlineStore, item);
                 host.handler.post(() -> {
-                    if (closed.get() || host.isDestroyed()) return;
-                    refreshAllBadges();
+                    if (host.isDestroyed()) return;
+                    if (!closed.get()) refreshAllBadges();
                     host.toast((item.video ? "已设为动态壁纸：" : "已应用壁纸：") + item.title);
                 });
             } catch (Exception error) {
                 android.util.Log.w("MarcoTV", "Apply cached wallpaper failed: " + item.id, error);
                 host.handler.post(() -> {
-                    if (closed.get() || host.isDestroyed()) return;
-                    refreshAllBadges();
+                    if (host.isDestroyed()) return;
+                    if (!closed.get()) refreshAllBadges();
                     host.toast("「" + item.title + "」本地文件校验失败，请重新下载");
                 });
             }
@@ -1164,7 +1164,8 @@ final class WallpaperCenterDialog {
         onlineStore.cancelActive();
         catalogNet.shutdownNow();
         downloadPool.shutdownNow();
-        applyExecutor.shutdownNow();
+        // Allow an already-clicked local apply to finish even if the user immediately presses Back.
+        applyExecutor.shutdown();
         thumbs.shutdownNow();
         for (CardUi ui : cards) ui.thumb.setImageBitmap(null);
         for (Bitmap b : thumbCache.values()) if (b != null && !b.isRecycled()) b.recycle();

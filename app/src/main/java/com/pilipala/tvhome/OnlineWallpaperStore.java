@@ -315,6 +315,17 @@ final class OnlineWallpaperStore {
     File ensureVideoPoster(Item item, File videoFile) {
         File poster = posterFile(item);
         if (poster.isFile() && poster.length() > 0 && isCrispPoster(poster, item.width)) return poster;
+        // Prefer the full-HD cloud preview thumb directly when available (fast, crisp 1080p, avoids OEM 720p retriever downscale).
+        File thumb = thumbFile(item);
+        if (thumb.isFile() && thumb.length() > 0 && isCrispPoster(thumb, item.width)) {
+            try (InputStream in = new FileInputStream(thumb); OutputStream out = new FileOutputStream(poster)) {
+                copyStream(in, out);
+                return poster;
+            } catch (IOException ignored) {
+                poster.delete();
+                return thumb;
+            }
+        }
         if (videoFile != null && videoFile.isFile()) {
             Bitmap frame = WallpaperLibrary.extractVideoFrame(videoFile, 1920, 1080);
             if (frame != null) {
@@ -328,7 +339,6 @@ final class OnlineWallpaperStore {
                 }
             }
         }
-        File thumb = thumbFile(item);
         return (thumb.isFile() && thumb.length() > 0) ? thumb : null;
     }
 
@@ -337,7 +347,8 @@ final class OnlineWallpaperStore {
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getPath(), o);
-        return o.outWidth >= 960;
+        int minWidth = sourceWidth >= 1920 ? 1600 : 960;
+        return o.outWidth >= minWidth;
     }
 
     Bitmap loadPreviewBitmap(Item item, AtomicBoolean cancelled) {
@@ -347,52 +358,55 @@ final class OnlineWallpaperStore {
                 Bitmap b = decodeBounded(source, 640, 360);
                 if (b != null) return b;
             }
-        } else {
-            File poster = posterFile(item);
-            if (poster.isFile() && poster.length() > 0) {
-                Bitmap b = decodeBounded(poster, 640, 360);
-                if (b != null) return b;
-            }
         }
         File thumb = thumbFile(item);
         if (thumb.isFile() && thumb.length() > 0 && (item.thumbSize <= 0 || thumb.length() == item.thumbSize)) {
             Bitmap b = decodeBounded(thumb, 640, 360);
             if (b != null) return b;
         }
-        if (item.video) {
-            File source = wallpaperFile(item);
-            if (source.isFile() && source.length() == item.size) {
-                File poster = ensureVideoPoster(item, source);
-                if (poster != null && poster.isFile()) {
-                    Bitmap b = decodeBounded(poster, 640, 360);
-                    if (b != null) return b;
+        if (!item.thumbUrl.isEmpty() && !cancelled.get()) {
+            for (String endpoint : WallpaperCatalogPolicy.candidateUrls(item.thumbUrl)) {
+                if (cancelled.get()) return null;
+                File part = new File(dir(), "thumb-" + item.id + ".part");
+                part.delete();
+                try {
+                    long limit = item.thumbSize > 0 ? item.thumbSize : -WallpaperCatalogPolicy.MAX_THUMB_BYTES;
+                    downloadToFile(endpoint, part, limit, item.thumbSha256, item.thumbSize, null, cancelled, null);
+                    Bitmap decoded = decodeBounded(part, 640, 360);
+                    if (decoded != null) {
+                        if (!part.renameTo(thumb)) part.delete();
+                        return decoded;
+                    }
+                    part.delete();
+                } catch (Exception ignored) {
+                    part.delete();
                 }
             }
         }
-        if (item.thumbUrl.isEmpty() || cancelled.get()) return null;
-        for (String endpoint : WallpaperCatalogPolicy.candidateUrls(item.thumbUrl)) {
-            if (cancelled.get()) return null;
-            File part = new File(dir(), "thumb-" + item.id + ".part");
-            part.delete();
-            try {
-                long limit = item.thumbSize > 0 ? item.thumbSize : -WallpaperCatalogPolicy.MAX_THUMB_BYTES;
-                downloadToFile(endpoint, part, limit, item.thumbSha256, item.thumbSize, null, cancelled, null);
-                Bitmap decoded = decodeBounded(part, 640, 360);
-                if (decoded != null) {
-                    if (!part.renameTo(thumb)) part.delete();
-                    return decoded;
+        if (item.video) {
+            File poster = posterFile(item);
+            if (poster.isFile() && poster.length() > 0) {
+                Bitmap b = decodeBounded(poster, 640, 360);
+                if (b != null) return b;
+            }
+            File source = wallpaperFile(item);
+            if (source.isFile() && source.length() == item.size) {
+                File extracted = ensureVideoPoster(item, source);
+                if (extracted != null && extracted.isFile()) {
+                    Bitmap b = decodeBounded(extracted, 640, 360);
+                    if (b != null) return b;
                 }
-                part.delete();
-            } catch (Exception ignored) {
-                part.delete();
             }
         }
         return null;
     }
 
-    /** Copies the verified cached wallpaper (or extracted poster for video) to a temp file in filesDir ready for atomic publish. */
+    /** Copies the verified cached wallpaper (or crisp poster for video) to a temp file in filesDir ready for atomic publish. */
     File stageCopyForApply(Item item) throws IOException {
-        File cached = verifiedLocalFile(item);
+        File cached = wallpaperFile(item);
+        if (!cached.isFile() || cached.length() != item.size) {
+            cached = verifiedLocalFile(item);
+        }
         if (cached == null) throw new IOException("本地壁纸校验失败，请重新下载");
         File source = item.video ? ensureVideoPoster(item, cached) : cached;
         if (source == null || !source.isFile()) throw new IOException("无法生成视频壁纸预览帧");
