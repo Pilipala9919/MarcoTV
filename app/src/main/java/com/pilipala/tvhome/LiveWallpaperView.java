@@ -44,7 +44,9 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
     private boolean surfaceAvailable;
     private boolean active;
     private boolean started;
+    private boolean prepared;
     private boolean ready;
+    private int renderedFrames;
     private int videoWidth;
     private int videoHeight;
     private volatile int generation;
@@ -90,12 +92,10 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
         videoWidth = 0;
         videoHeight = 0;
         if (normalized.isEmpty()) {
-            setVisibility(GONE);
+            if (getVisibility() != GONE) setVisibility(GONE);
             return;
         }
-        setVisibility(VISIBLE);
-        requestLayout();
-        invalidate();
+        if (getVisibility() != VISIBLE) setVisibility(VISIBLE);
         if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
         if (active && surfaceAvailable) {
             startPlayerAsync();
@@ -115,9 +115,7 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
             releasePlayerAsync(null);
         } else if (hasVideo()) {
             lastErroredPath = null;
-            setVisibility(VISIBLE);
-            requestLayout();
-            invalidate();
+            if (getVisibility() != VISIBLE) setVisibility(VISIBLE);
             if (!surfaceAvailable && isAvailable()) surfaceAvailable = true;
             if (surfaceAvailable) startPlayerAsync();
         }
@@ -152,6 +150,8 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
         final int token = ++generation;
         final String path = videoPath;
         started = true;
+        prepared = false;
+        renderedFrames = 0;
         cancelPendingReveal();
         setReady(false);
 
@@ -175,9 +175,20 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                 mp.setOnInfoListener((m, what, extra) -> {
                     if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
                         post(() -> {
-                            if (token != generation || !active) return;
-                            cancelPendingReveal();
-                            setReady(true);
+                            if (token != generation || !active || ready) return;
+                            // Wait for real GPU SurfaceTexture frame arrival before revealing to avoid black/stale flash.
+                            if (renderedFrames >= 2) {
+                                cancelPendingReveal();
+                                setReady(true);
+                            } else if (pendingReveal == null) {
+                                pendingReveal = () -> {
+                                    pendingReveal = null;
+                                    if (token == generation && active && prepared && !ready && renderedFrames >= 1) {
+                                        setReady(true);
+                                    }
+                                };
+                                postDelayed(pendingReveal, 140);
+                            }
                         });
                         return true;
                     }
@@ -202,19 +213,16 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
                             created.start();
                             post(() -> {
                                 if (token != generation || !active) return;
+                                prepared = true;
                                 if (vw > 0 && vh > 0) {
                                     videoWidth = vw;
                                     videoHeight = vh;
                                     updateCenterCropTransform();
                                 }
-                                cancelPendingReveal();
-                                pendingReveal = () -> {
-                                    pendingReveal = null;
-                                    if (token == generation && active && !ready) {
-                                        setReady(true);
-                                    }
-                                };
-                                postDelayed(pendingReveal, 220);
+                                if (renderedFrames >= 2 && !ready) {
+                                    cancelPendingReveal();
+                                    setReady(true);
+                                }
                             });
                         } catch (RuntimeException error) {
                             Log.w("MarcoTV", "Live wallpaper start failed: " + path, error);
@@ -261,6 +269,8 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
     private void releasePlayerAsync(SurfaceTexture textureToRelease) {
         generation++;
         started = false;
+        prepared = false;
+        renderedFrames = 0;
         cancelPendingReveal();
         setReady(false);
         if (!mediaExecutor.isShutdown()) {
@@ -330,7 +340,9 @@ final class LiveWallpaperView extends TextureView implements TextureView.Surface
     }
 
     @Override public void onSurfaceTextureUpdated(SurfaceTexture st) {
-        if (started && active && !ready) {
+        if (!started || !active) return;
+        renderedFrames++;
+        if (prepared && !ready && renderedFrames >= 2) {
             cancelPendingReveal();
             setReady(true);
         }

@@ -171,6 +171,9 @@ final class PanelWindow extends Dialog {
     @Override public boolean isShowing(){
         return !closing&&super.isShowing();
     }
+    boolean isAnimatingClose(){
+        return closing&&super.isShowing();
+    }
     @Override public void onBackPressed(){
         if(current!=null)current.onBackPressed();
         else host.exitMenus();
@@ -216,5 +219,6 @@ final class PanelWindow extends Dialog {
         if(root!=null)root.removeAllViews();
         super.dismiss();
         closing=false;
+        host.syncLiveWallpaper();
     }
 }

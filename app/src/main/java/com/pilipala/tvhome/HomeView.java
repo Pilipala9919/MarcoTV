@@ -170,7 +170,7 @@ final class HomeView extends View {
         if(liveVideoReady==ready)return;
         liveVideoReady=ready;
         if(posterRevealMotion==null){
-            posterRevealMotion=new UiMotion(this,posterOverlayAlpha,34,v->{
+            posterRevealMotion=new UiMotion(this,posterOverlayAlpha,18,v->{
                 posterOverlayAlpha=Math.max(0f,Math.min(1f,v));
                 super.invalidate();
             });
@@ -455,14 +455,6 @@ final class HomeView extends View {
         offsetY = (getHeight() - 1080 * scale) / 2;
         if (!liveVideoReady || posterOverlayAlpha > 0.005f) {
             int posterAlpha = liveVideoReady ? Math.round(255 * posterOverlayAlpha) : 255;
-            if (posterAlpha >= 254) {
-                canvas.drawColor(Color.BLACK);
-            } else {
-                paint.setShader(null);
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(Color.argb(posterAlpha, 0, 0, 0));
-                canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
-            }
             if (wallpaper != null) {
                 float factor = Math.max(getWidth() / (float) wallpaper.getWidth(), getHeight() / (float) wallpaper.getHeight());
                 float w = wallpaper.getWidth() * factor, h = wallpaper.getHeight() * factor;
@@ -470,6 +462,13 @@ final class HomeView extends View {
                 paint.setAlpha(posterAlpha);
                 canvas.drawBitmap(wallpaper, null, rect, paint);
                 paint.setAlpha(255);
+            } else if (posterAlpha >= 254) {
+                canvas.drawColor(Color.BLACK);
+            } else {
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(posterAlpha, 0, 0, 0));
+                canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
             }
         }
         canvas.save();

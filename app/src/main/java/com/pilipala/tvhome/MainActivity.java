@@ -366,7 +366,8 @@ public final class MainActivity extends Activity {
                 && !isFinishing()
                 && !screensaver.sleepReleased
                 && (cast == null || !cast.isPlaying())
-                && !dialogs.isOpaqueFullscreen();
+                && !dialogs.isOpaqueFullscreen()
+                && (panels == null || !panels.isAnimatingClose());
         stage.liveWallpaper.setActive(allow);
     }
 
@@ -420,8 +421,8 @@ public final class MainActivity extends Activity {
         if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
         menuEpoch++;
-        dialogs.close();
         if(panels!=null)panels.close();
+        dialogs.close();
         if(home!=null)home.preview(null);
     }
 
