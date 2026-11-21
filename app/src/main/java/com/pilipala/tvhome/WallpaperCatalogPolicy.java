@@ -82,25 +82,7 @@ final class WallpaperCatalogPolicy {
                     || "pilipala9919.github.io".equals(host)
                     || "github.com".equals(host)
                     || "release-assets.githubusercontent.com".equals(host)
-                    || "objects.githubusercontent.com".equals(host)
-                    || "gh-proxy.com".equals(host)
-                    || "gh-proxy.org".equals(host));
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /** Strict allowlist for APK-bundled open community 4K UHD HEVC aerials (AerialScreensaver/AerialCommunity). */
-    static boolean curatedAerialUrl(String value) {
-        if (value == null || value.length() > 256) return false;
-        try {
-            URI u = new URI(value);
-            if (!"https".equals(u.getScheme()) || u.getUserInfo() != null || u.getPort() != -1
-                    || u.getQuery() != null || u.getFragment() != null) return false;
-            if (!"github.com".equals(u.getHost())) return false;
-            String path = u.getPath();
-            if (path == null || !path.equals(u.getRawPath())) return false;
-            return path.matches("/(glouel|AerialScreensaver)/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_[a-z0-9_-]{4,80}\\.4k-sdr\\.mov");
+                    || "objects.githubusercontent.com".equals(host));
         } catch (Exception e) {
             return false;
         }
@@ -126,17 +108,6 @@ final class WallpaperCatalogPolicy {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    static String[] candidateCuratedUrls(String url, boolean video) {
-        if (video && curatedAerialUrl(url)) {
-            return new String[]{
-                    "https://gh-proxy.com/" + url,
-                    "https://gh-proxy.org/" + url,
-                    url
-            };
-        }
-        return candidateMediaUrls(url, video);
     }
 
     static String[] candidateUrls(String url) {

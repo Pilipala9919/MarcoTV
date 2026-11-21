@@ -20,6 +20,41 @@ MAX_VIDEO_BYTES = 80 * 1024 * 1024
 MAX_THUMB_BYTES = 2 * 1024 * 1024
 
 KNOWN_PRESETS = {
+    'pixar-squirrel': {
+        'id': 'pixar-squirrel',
+        'title': '顽皮小松鼠',
+        'subtitle': 'Q版皮克斯 · 蓝调沙发探头微动态',
+        'credit': 'Pilipala · Marco TV 原创动态壁纸',
+        'license': 'GPL-3.0-only',
+    },
+    'pixar-puppy': {
+        'id': 'pixar-puppy',
+        'title': '招手小奶狗',
+        'subtitle': 'Q版皮克斯 · 暖米沙发卖萌微动态',
+        'credit': 'Pilipala · Marco TV 原创动态壁纸',
+        'license': 'GPL-3.0-only',
+    },
+    'pixar-penguin': {
+        'id': 'pixar-penguin',
+        'title': '害羞小企鹅',
+        'subtitle': 'Q版皮克斯 · 暖灯沙发捂眼微动态',
+        'credit': 'Pilipala · Marco TV 原创动态壁纸',
+        'license': 'GPL-3.0-only',
+    },
+    'pixar-black-cat': {
+        'id': 'pixar-black-cat',
+        'title': '乖巧小黑猫',
+        'subtitle': 'Q版皮克斯 · 绿墙木柜探头微动态',
+        'credit': 'Pilipala · Marco TV 原创动态壁纸',
+        'license': 'GPL-3.0-only',
+    },
+    'pixar-tabby-cat': {
+        'id': 'pixar-tabby-cat',
+        'title': '软萌美短猫',
+        'subtitle': 'Q版皮克斯 · 暖灯沙发舔爪微动态',
+        'credit': 'Pilipala · Marco TV 原创动态壁纸',
+        'license': 'GPL-3.0-only',
+    },
     '01-巴哈马浅滩': {
         'id': '01-bahamas-shoals',
         'title': '巴哈马浅滩',

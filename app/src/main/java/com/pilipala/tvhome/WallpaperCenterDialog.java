@@ -52,6 +52,7 @@ final class WallpaperCenterDialog {
     private int downloadPercent;
     private String focusedUnifiedId;
     private boolean catalogBusy;
+    private boolean catalogFailed;
 
     private static final class CardEntry {
         static final int KIND_IMPORTED = 0;
@@ -273,19 +274,43 @@ final class WallpaperCenterDialog {
     private void fetchOnlineCatalogInBackground() {
         if (catalogBusy || closed.get()) return;
         catalogBusy = true;
+        catalogFailed = false;
+        updateSubtitle();
         net.execute(() -> {
             try {
                 OnlineWallpaperStore.Catalog fresh = onlineStore.fetchCatalog(closed);
                 host.handler.post(() -> {
                     catalogBusy = false;
+                    catalogFailed = false;
                     if (closed.get() || host.isDestroyed()) return;
                     onlineItems = fresh.items;
                     reloadGrid();
                 });
             } catch (Exception ignored) {
-                host.handler.post(() -> catalogBusy = false);
+                host.handler.post(() -> {
+                    catalogBusy = false;
+                    catalogFailed = true;
+                    if (!closed.get() && !host.isDestroyed()) updateSubtitle();
+                });
             }
         });
+    }
+
+    private void updateSubtitle() {
+        if (subtitleView == null) return;
+        int videoCount = 0;
+        for (CardEntry e : entries) if (e.video) videoCount++;
+        String summary;
+        if (onlineItems.isEmpty() && catalogBusy) {
+            summary = "共 " + entries.size() + " 张本地壁纸 · 正在拉取在线壁纸库…";
+        } else if (onlineItems.isEmpty() && catalogFailed) {
+            summary = "共 " + entries.size() + " 张本地壁纸 · 暂未连接在线壁纸库 · 上键扫码导入";
+        } else {
+            summary = "共 " + entries.size() + " 张壁纸"
+                    + (videoCount > 0 ? "（含 " + videoCount + " 部动态壁纸）" : "")
+                    + " · 确定一键下载应用 · 上键扫码导入";
+        }
+        subtitleView.setText(summary);
     }
 
     private void reloadGrid() {
@@ -294,20 +319,12 @@ final class WallpaperCenterDialog {
         List<WallpaperLibrary.Entry> imported = host.wallpaperLibrary.list();
         for (WallpaperLibrary.Entry e : imported) entries.add(new CardEntry(e));
         Set<String> seenOnline = new HashSet<>();
-        for (OnlineWallpaperStore.Item item : OnlineWallpaperStore.curatedLiveVideos()) {
-            if (seenOnline.add(item.id)) entries.add(new CardEntry(item));
-        }
         for (OnlineWallpaperStore.Item item : onlineItems) {
             if (seenOnline.add(item.id)) entries.add(new CardEntry(item));
         }
         for (int i = 0; i < WallpaperSource.ASSETS.length; i++) entries.add(new CardEntry(i));
 
-        int videoCount = 0;
-        for (CardEntry e : entries) if (e.video) videoCount++;
-        String summary = "共 " + entries.size() + " 张壁纸"
-                + (videoCount > 0 ? "（含 " + videoCount + " 部 4K 动态航拍）" : "")
-                + " · 确定一键下载应用 · 上键扫码导入";
-        subtitleView.setText(summary);
+        updateSubtitle();
 
         gridHost.removeAllViews();
         cards.clear();

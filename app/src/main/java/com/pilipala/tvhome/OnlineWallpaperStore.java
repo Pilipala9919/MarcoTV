@@ -20,11 +20,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Downloads and locally caches SHA-256 verified wallpapers from the official mirror. */
 final class OnlineWallpaperStore {
     static final class Item {
-        final String id, title, subtitle, credit, license, sha256, url, thumbUrl, thumbSha256, assetThumb;
+        final String id, title, subtitle, credit, license, sha256, url, thumbUrl, thumbSha256;
         final int width, height, durationSec;
         final long size, thumbSize;
         final boolean video;
-        final boolean curated;
 
         Item(String id, String title, String subtitle, String credit, String license,
              int width, int height, long size, String sha256, String url,
@@ -52,82 +51,9 @@ final class OnlineWallpaperStore {
             this.thumbUrl = thumbUrl == null ? "" : thumbUrl;
             this.thumbSize = Math.max(0L, thumbSize);
             this.thumbSha256 = thumbSha256 == null ? "" : thumbSha256;
-            this.assetThumb = "";
             this.video = "video".equals(normalizedType);
             this.durationSec = Math.max(0, durationSec);
-            this.curated = false;
         }
-
-        private Item(String id, String title, String subtitle, String credit, String license,
-                     int width, int height, long size, String sha256, String url, String assetThumb,
-                     int durationSec, boolean curatedMarker) {
-            if (!WallpaperCatalogPolicy.safeId(id)
-                    || !WallpaperCatalogPolicy.safeSha256(sha256)
-                    || !WallpaperCatalogPolicy.curatedAerialUrl(url)) {
-                throw new IllegalArgumentException("Invalid curated 4K aerial wallpaper");
-            }
-            this.id = id;
-            this.title = title;
-            this.subtitle = subtitle;
-            this.credit = credit;
-            this.license = license;
-            this.width = width;
-            this.height = height;
-            this.size = size;
-            this.sha256 = sha256;
-            this.url = url;
-            this.thumbUrl = "";
-            this.thumbSize = 0L;
-            this.thumbSha256 = "";
-            this.assetThumb = assetThumb == null ? "" : assetThumb;
-            this.video = true;
-            this.durationSec = durationSec;
-            this.curated = curatedMarker;
-        }
-
-        static Item curatedAerial4k(String id, String title, String subtitle,
-                                    long size, String sha256, int durationSec, String fileName) {
-            String url = "https://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/" + fileName;
-            String thumb = "wallpapers/aerials/" + id + ".jpg";
-            return new Item(id, title, subtitle, "AerialCommunity · DJI Inspire 2", "Aerial Community License",
-                    3840, 2160, size, sha256, url, thumb, durationSec, true);
-        }
-    }
-
-    /** Hand-picked, visually verified & SHA-256 pinned 4K UHD (3840x2160) 10-bit HEVC cinema aerials. */
-    static List<Item> curatedLiveVideos() {
-        return Collections.unmodifiableList(Arrays.asList(
-                Item.curatedAerial4k("aerial-miami-sunset", "迈阿密蓝调夜色", "4K UHD · 比斯坎湾暮色天际线航拍",
-                        38738146L, "26c7d3e8f3a1c5456d0202154f369113bf3a9c320d953c0208cceb50ed2726f5",
-                        96, "video_inspire_florida_miami_brickell_sunset_00036.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-austin-night", "奥斯汀璀璨夜景", "4K UHD · 紫金暮光下的都市摩天楼群",
-                        51767216L, "f2b9e764fa77f80c7deec9f2b2c75d9f06622c440ae1babbfc40540beb26cc83",
-                        72, "video_inspire_texas_austin_oct2019_evening_00085.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-como-alps", "科莫湖雪山晨雾", "4K UHD · 意大利阿尔卑斯雪峰与湖湾",
-                        12901621L, "5f650121ca487e8dec4f345999cceea053261d996113ee6a49b72e79b1924b64",
-                        60, "video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-pecos-clouds", "佩科斯云海山脊", "4K UHD · 晨雾翻涌的高原群峰",
-                        12841681L, "0db30187dadfd18ca65071914eda57277cdcada5520fbca98ac908852cc2099e",
-                        56, "video_inspire_texas_pecos_foggy-landscape_00018.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-oregon-mist", "俄勒冈薄雾礁崖", "4K UHD · 太平洋晨雾海蚀巨礁",
-                        32499906L, "b0b2e30c6c9a0deedbf487f08650f1356b90613a6ab35072a70a9390146794cf",
-                        145, "video_inspire_oregon_lone-ranch-beach_00021.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-sf-fog", "旧金山雾海日落", "4K UHD · 穿行山峦与云海的苏特罗塔",
-                        18237390L, "fe203b490c62c4d1c8cd247ec3c7db9cc1ca19acb0ee34cfee5041d8ff56a3d5",
-                        48, "video_inspire_sanfrancisco_castro_005.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-bixby-bridge", "加州一号公路大桥", "4K UHD · 大瑟尔比克斯比跨海悬崖桥",
-                        31504912L, "9e27db7474f73410f13f682bf5d8909aa5045d57cca14e4cfbcd0347285c522e",
-                        55, "video_inspire_california_big-sur_bixby_005.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-big-sur-coast", "大瑟尔蔚蓝海岸", "4K UHD · 太平洋悬崖与翡翠浪潮",
-                        73968965L, "636dde1f121c666de62e352149dff67208aaa8b534631022e6aaa51d93477842",
-                        144, "video_inspire_california_big-sur_2020_00001.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-sierra-sunrise", "加州金色山谷日出", "4K UHD · 晨光掠过静谧山岭与田野",
-                        8621539L, "314302f74fc2640c11918cb88d7a699b912d9d7fc4af9dd2ff1d713b85556ab4",
-                        30, "video_inspire_california_vineyard_sierra-mar_sunrise_110.4k-sdr.mov"),
-                Item.curatedAerial4k("aerial-portland-dusk", "波特兰暮色天际", "4K UHD · 黄金时刻的城市水岸航拍",
-                        35178290L, "6970171542cc7dffe1b9aa7bec6d351791d18f6eafd625dddf78f4cebb8345e6",
-                        72, "video_inspire_oregon_portland_00064.4k-sdr.mov")
-        ));
     }
 
     static final class Catalog {
@@ -265,25 +191,29 @@ final class OnlineWallpaperStore {
         Set<String> seen = new HashSet<>();
         int limit = Math.min(array.length(), WallpaperCatalogPolicy.MAX_ITEMS);
         for (int i = 0; i < limit; i++) {
-            JSONObject o = array.getJSONObject(i);
-            Item item = new Item(
-                    o.getString("id"),
-                    o.getString("title"),
-                    o.optString("subtitle", ""),
-                    o.optString("credit", ""),
-                    o.optString("license", ""),
-                    o.getInt("width"),
-                    o.getInt("height"),
-                    o.getLong("size"),
-                    o.getString("sha256"),
-                    o.getString("url"),
-                    o.optString("thumbUrl", ""),
-                    o.optLong("thumbSize", 0L),
-                    o.optString("thumbSha256", ""),
-                    o.optString("type", "image"),
-                    o.optInt("durationSec", 0)
-            );
-            if (seen.add(item.id)) list.add(item);
+            try {
+                JSONObject o = array.getJSONObject(i);
+                Item item = new Item(
+                        o.getString("id"),
+                        o.getString("title"),
+                        o.optString("subtitle", ""),
+                        o.optString("credit", ""),
+                        o.optString("license", ""),
+                        o.getInt("width"),
+                        o.getInt("height"),
+                        o.getLong("size"),
+                        o.getString("sha256"),
+                        o.getString("url"),
+                        o.optString("thumbUrl", ""),
+                        o.optLong("thumbSize", 0L),
+                        o.optString("thumbSha256", ""),
+                        o.optString("type", "image"),
+                        o.optInt("durationSec", 0)
+                );
+                if (seen.add(item.id)) list.add(item);
+            } catch (Exception ignored) {
+                // Skip individual unsupported/invalid entries so future catalog additions remain backward compatible.
+            }
         }
         if (list.isEmpty()) throw new IOException("Empty wallpaper catalog");
         return new Catalog(updated, list, fromCache);
@@ -314,9 +244,7 @@ final class OnlineWallpaperStore {
         }
         cleanupStaleParts(folder);
         Exception lastError = null;
-        String[] endpoints = item.curated
-                ? WallpaperCatalogPolicy.candidateCuratedUrls(item.url, item.video)
-                : WallpaperCatalogPolicy.candidateMediaUrls(item.url, item.video);
+        String[] endpoints = WallpaperCatalogPolicy.candidateMediaUrls(item.url, item.video);
         for (String endpoint : endpoints) {
             if (cancelled.get()) throw new InterruptedIOException("cancelled");
             File part = new File(folder, item.id + ".part");
@@ -387,28 +315,11 @@ final class OnlineWallpaperStore {
                 }
             }
         }
-        if (!item.assetThumb.isEmpty()) {
-            try (InputStream in = context.getAssets().open(item.assetThumb);
-                 OutputStream out = new FileOutputStream(poster)) {
-                copyStream(in, out);
-                return poster;
-            } catch (IOException ignored) {
-                poster.delete();
-            }
-        }
         File thumb = thumbFile(item);
         return (thumb.isFile() && thumb.length() > 0) ? thumb : null;
     }
 
     Bitmap loadPreviewBitmap(Item item, AtomicBoolean cancelled) {
-        if (!item.assetThumb.isEmpty()) {
-            try (InputStream in = context.getAssets().open(item.assetThumb)) {
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                Bitmap b = BitmapFactory.decodeStream(in, null, o);
-                if (b != null) return b;
-            } catch (Throwable ignored) {}
-        }
         if (!item.video) {
             File source = wallpaperFile(item);
             if (source.isFile() && source.length() == item.size) {
@@ -423,13 +334,13 @@ final class OnlineWallpaperStore {
             }
         }
         File thumb = thumbFile(item);
-        if (thumb.isFile() && thumb.length() > 0 && (item.curated || item.thumbSize <= 0 || thumb.length() == item.thumbSize)) {
+        if (thumb.isFile() && thumb.length() > 0 && (item.thumbSize <= 0 || thumb.length() == item.thumbSize)) {
             Bitmap b = decodeBounded(thumb, 640, 360);
             if (b != null) return b;
         }
         if (item.video) {
             File source = wallpaperFile(item);
-            if (source.isFile() && (item.curated ? source.length() >= 100_000L : source.length() == item.size)) {
+            if (source.isFile() && source.length() == item.size) {
                 File poster = ensureVideoPoster(item, source);
                 if (poster != null && poster.isFile()) {
                     Bitmap b = decodeBounded(poster, 640, 360);
@@ -438,15 +349,12 @@ final class OnlineWallpaperStore {
             }
         }
         if (item.thumbUrl.isEmpty() || cancelled.get()) return null;
-        String[] thumbEndpoints = item.curated
-                ? WallpaperCatalogPolicy.candidateCuratedUrls(item.thumbUrl, false)
-                : WallpaperCatalogPolicy.candidateUrls(item.thumbUrl);
-        for (String endpoint : thumbEndpoints) {
+        for (String endpoint : WallpaperCatalogPolicy.candidateUrls(item.thumbUrl)) {
             if (cancelled.get()) return null;
             File part = new File(dir(), "thumb-" + item.id + ".part");
             part.delete();
             try {
-                long limit = (!item.curated && item.thumbSize > 0) ? item.thumbSize : -WallpaperCatalogPolicy.MAX_THUMB_BYTES;
+                long limit = item.thumbSize > 0 ? item.thumbSize : -WallpaperCatalogPolicy.MAX_THUMB_BYTES;
                 downloadToFile(endpoint, part, limit, item.thumbSha256, item.thumbSize, null, cancelled);
                 Bitmap decoded = decodeBounded(part, 640, 360);
                 if (decoded != null) {

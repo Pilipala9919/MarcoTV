@@ -7,13 +7,11 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Official update, SHA-256 verified 4K aerial mirrors, and opt-in feedback endpoints must strictly use HTTPS. -->
+    <!-- Official update, SHA-256 verified mirror wallpapers, and opt-in feedback endpoints must strictly use HTTPS. -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">marcotv.wlj9919.top</domain>
         <domain includeSubdomains="true">pilipala9919.github.io</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
-        <domain includeSubdomains="false">gh-proxy.com</domain>
-        <domain includeSubdomains="false">gh-proxy.org</domain>
     </domain-config>
 </network-security-config>

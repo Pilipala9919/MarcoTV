@@ -108,23 +108,16 @@ public final class WallpaperCatalogChecks {
                 "06-black-cat", "黑猫", "", "", "",
                 1920, 1080, 1024, sha, mirrorFull, mirrorThumb, 24000, sha, "video"));
 
-        String aerialVid = "https://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov";
-        String[] aerialCandidates = WallpaperCatalogPolicy.candidateCuratedUrls(aerialVid, true);
-        check("curated_aerial_4k_urls_allowed_strictly",
-                WallpaperCatalogPolicy.curatedAerialUrl(aerialVid)
-                && WallpaperCatalogPolicy.curatedAerialUrl("https://github.com/glouel/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_florida_miami_brickell_sunset_00036.4k-sdr.mov")
-                && !WallpaperCatalogPolicy.curatedAerialUrl("http://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov")
-                && !WallpaperCatalogPolicy.curatedAerialUrl(aerialVid + "?x=1")
-                && !WallpaperCatalogPolicy.curatedAerialUrl("https://evil.example/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_a.4k-sdr.mov")
-                && !WallpaperCatalogPolicy.curatedAerialUrl("https://github.com/other/repo/releases/download/mw2-4k-sdr/video_inspire_a.4k-sdr.mov")
-                && !WallpaperCatalogPolicy.videoUrl(aerialVid)
-                && aerialCandidates.length == 3
-                && aerialCandidates[0].equals("https://gh-proxy.com/" + aerialVid)
-                && aerialCandidates[1].equals("https://gh-proxy.org/" + aerialVid)
-                && aerialCandidates[2].equals(aerialVid)
-                && WallpaperCatalogPolicy.transferUrl(aerialCandidates[0])
-                && WallpaperCatalogPolicy.transferUrl(aerialCandidates[1])
-                && !WallpaperCatalogPolicy.transferUrl("http://gh-proxy.com/" + aerialVid));
+        String pixarVideo = "https://marcotv.wlj9919.top/wallpapers/videos/pixar-squirrel.mp4";
+        String pixarThumb = "https://marcotv.wlj9919.top/wallpapers/thumbs/pixar-squirrel.jpg";
+        WallpaperCatalogPolicy.validateItem("pixar-squirrel", "顽皮小松鼠", "Q版皮克斯 · 蓝调沙发探头微动态",
+                "Pilipala · Marco TV 原创动态壁纸", "GPL-3.0-only", 1280, 720, 1363598L, sha,
+                pixarVideo, pixarThumb, 17409L, sha, "video");
+        check("valid_pixar_live_video_accepted", true);
+        check("third_party_gh_proxy_hosts_rejected",
+                !WallpaperCatalogPolicy.transferUrl("https://gh-proxy.com/https://github.com/example/a.mov")
+                && !WallpaperCatalogPolicy.transferUrl("https://gh-proxy.org/https://github.com/example/a.mov")
+                && !WallpaperCatalogPolicy.videoUrl("https://github.com/AerialScreensaver/AerialCommunity/releases/download/mw2-4k-sdr/video_inspire_italy_como_cerano-dintelvi_006.4k-sdr.mov"));
         check("user_video_import_url_blocks_loopback",
                 WallpaperCatalogPolicy.userVideoImportUrl("https://cdn.example.com/live/cat.mp4")
                 && WallpaperCatalogPolicy.userVideoImportUrl("http://198.51.100.5:8080/clip.mp4")
