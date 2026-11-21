@@ -544,23 +544,29 @@ final class HomeView extends View {
             else {
                 // Keep the moving shelves inside the content area, clear of the fixed clock.
                 int shelfClip = canvas.save();
-                canvas.clipRect(0, 285, 1920, 925);
+                canvas.clipRect(0, 285, 1920, 1068);
                 for (int i = 0; i < rows.size(); i++) {
                     float distance = i - section.value;
-                    if (Math.abs(distance) < 1.35f) {
-                        float opacity = contentAlpha * Math.max(0, 1 - Math.abs(distance) * 0.75f);
-                        canvas.save();
-                        canvas.translate(edge.value*390,0);
-                        drawRow(canvas, rows.get(i), shelfCenterY() + distance * 515, opacity*(1-edge.value*.35f));
-                        canvas.restore();
+                    if (Math.abs(distance) < 0.96f) {
+                        float fade = Math.max(0f, 1f - Math.abs(distance) * 1.12f);
+                        float opacity = contentAlpha * fade * fade;
+                        if (opacity > 0.004f) {
+                            canvas.save();
+                            canvas.translate(edge.value*390,0);
+                            drawRow(canvas, rows.get(i), shelfCenterY() + distance * 560, opacity*(1-edge.value*.35f));
+                            canvas.restore();
+                        }
                     }
                 }
                 canvas.restoreToCount(shelfClip);
                 int next = Math.max(0, row) + 1;
-                if (next < rows.size()) {
+                float bottomLabelY = shelfCenterY() + cardHeight() / 2f + 68f;
+                float nextHintFade = Math.max(0f, Math.min(1f, (945f - bottomLabelY) / 65f));
+                if (next < rows.size() && nextHintFade > 0.01f) {
                     Row r = rows.get(next);
-                    drawShelfIcon(canvas, r.orderKey, 130, 1000, contentAlpha * .34f);
-                    text(canvas, r.title, 166, 1011, 34, bold, alphaColor(Color.WHITE, contentAlpha * .34f), Paint.Align.LEFT);
+                    float nextAlpha = contentAlpha * .34f * nextHintFade;
+                    drawShelfIcon(canvas, r.orderKey, 130, 1000, nextAlpha);
+                    text(canvas, r.title, 166, 1011, 34, bold, alphaColor(Color.WHITE, nextAlpha), Paint.Align.LEFT);
                 }
             }
             if(edge.value>.002f&&previewKey==null)drawEdge(canvas,contentAlpha);
@@ -893,8 +899,9 @@ final class HomeView extends View {
         return 1.8f*Math.max(70,Math.min(130,host.appearance().getInt("card_height",100)));
     }
     float shelfCenterY(){
-        float extra=cardHeight()/2-90,position=Math.max(0,Math.min(100,host.appearance().getInt("card_row_position",75)))/100f;
-        return 495+extra+(220-2*extra)*position;
+        float half=cardHeight()/2f,position=Math.max(0,Math.min(100,host.appearance().getInt("card_row_position",75)))/100f;
+        float topY=395f+half,bottomY=960f-half;
+        return topY+(bottomY-topY)*position;
     }
     boolean inShelfTouchBand(float y){
         return y>shelfCenterY()-cardHeight()/2-50&&y<shelfCenterY()+cardHeight()/2+60;
@@ -996,7 +1003,7 @@ final class HomeView extends View {
                 tile.displayLabel = clippedLabel(tile.label, 300, 36);
             }
             float textAlpha = opacity * (labelOpacity + (1 - labelOpacity) * emphasis);
-            shadowText(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight / 2 + 98 - 6 * emphasis, 36, bold,
+            shadowText(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight / 2 + 68 - 4 * emphasis, 36, bold,
                     alphaColor(Color.WHITE, textAlpha), Paint.Align.LEFT, textAlpha);
         }
     }

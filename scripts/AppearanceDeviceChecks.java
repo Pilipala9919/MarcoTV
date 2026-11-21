@@ -229,26 +229,26 @@ final class AppearanceDeviceChecks {
                 host.exitMenus();boolean had=prefs.contains("card_row_position");int before=prefs.getInt("card_row_position",75);boolean hadHeight=prefs.contains("card_height");int oldHeight=prefs.getInt("card_height",100);
                 try{
                     prefs.edit().remove("card_row_position").remove("card_height").commit();
-                    check.accept("row_position_upgrade_keeps_original_center",Math.abs(host.home.shelfCenterY()-660)<.01f);
+                    check.accept("row_position_upgrade_keeps_default_center",Math.abs(host.home.shelfCenterY()-773.75f)<.01f);
                     host.navigator.personalization("cards");TvDialog current=(TvDialog)field(host.dialogs,"activeDialog");
                     PersonalizationPanel edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                     java.util.Map<String,ParameterCard> controls=(java.util.Map<String,ParameterCard>)field(edit,"controls");
                     controls.get("card_row_position").setValue(0);
-                    check.accept("row_position_auto_saves_and_updates_layout",host.home.shelfCenterY()==495&&prefs.getInt("card_row_position",75)==0);
-                    check.accept("row_position_touch_band_moves_with_row",host.home.inShelfTouchBand(370)&&!host.home.inShelfTouchBand(750));
+                    check.accept("row_position_auto_saves_and_updates_layout",host.home.shelfCenterY()==485&&prefs.getInt("card_row_position",75)==0);
+                    check.accept("row_position_touch_band_moves_with_row",host.home.inShelfTouchBand(370)&&!host.home.inShelfTouchBand(850));
                     controls.get("card_row_position").setValue(100);
-                    check.accept("row_position_extremes_keep_heading_and_label_in_safe_area",495-172-24>285&&host.home.shelfCenterY()+188<925);
-                    check.accept("row_position_lower_touch_band_follows",host.home.inShelfTouchBand(850)&&!host.home.inShelfTouchBand(370));
+                    check.accept("row_position_extremes_keep_heading_and_label_in_safe_area",485-90-86>285&&host.home.shelfCenterY()+90+68<1068);
+                    check.accept("row_position_lower_touch_band_follows",host.home.inShelfTouchBand(920)&&!host.home.inShelfTouchBand(370));
                     controls.get("card_row_position").setValue(25);
                     host.exitMenus();
-                    check.accept("row_position_save_commits_layout",prefs.getInt("card_row_position",75)==25&&host.home.shelfCenterY()==550);
+                    check.accept("row_position_save_commits_layout",prefs.getInt("card_row_position",75)==25&&Math.abs(host.home.shelfCenterY()-581.25f)<.01f);
                     check.accept("row_position_backup_contains_saved_value",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_row_position").getInt("value")==25&&java.util.Arrays.equals(BackupStore.range("card_row_position"),new int[]{0,100}));
-                    prefs.edit().putInt("card_row_position",-100).commit();boolean top=host.home.shelfCenterY()==495;prefs.edit().putInt("card_row_position",500).commit();
-                    check.accept("row_position_clamps_invalid_imported_values",top&&host.home.shelfCenterY()==715);
+                    prefs.edit().putInt("card_row_position",-100).commit();boolean top=host.home.shelfCenterY()==485;prefs.edit().putInt("card_row_position",500).commit();
+                    check.accept("row_position_clamps_invalid_imported_values",top&&host.home.shelfCenterY()==870);
                     prefs.edit().putInt("card_row_position",75).remove("card_height").commit();host.navigator.personalization("cards");current=(TvDialog)field(host.dialogs,"activeDialog");edit=(PersonalizationPanel)field(field(current,"spec"),"view");
                     controls=(java.util.Map<String,ParameterCard>)field(edit,"controls");controls.get("card_height").setValue(130);
                     check.accept("card_height_auto_saves_value",Math.abs(host.home.cardHeight()-234)<.01f&&prefs.getInt("card_height",0)==130);
-                    boolean safe=true;for(int height:new int[]{70,100,130})for(int position:new int[]{0,75,100}){controls.get("card_height").setValue(height);controls.get("card_row_position").setValue(position);float h=host.home.cardHeight(),y=host.home.shelfCenterY();safe&=y-h/2-106>285&&y+h/2+98<925;}
+                    boolean safe=true;for(int height:new int[]{70,100,130})for(int position:new int[]{0,75,100}){controls.get("card_height").setValue(height);controls.get("card_row_position").setValue(position);float h=host.home.cardHeight(),y=host.home.shelfCenterY();safe&=y-h/2-106>285&&y+h/2+68<1068;}
                     check.accept("combined_height_and_position_extremes_fit_content",safe);
                     controls.get("card_height").setValue(130);
                     Tile sample=new Tile();sample.label="Fixture";sample.banner=true;sample.artwork=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);sample.artwork.eraseColor(Color.WHITE);Bitmap target=Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888);

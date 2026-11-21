@@ -98,7 +98,7 @@ final class DesktopStage extends FrameLayout {
                 sceneContainer.setPivotY(h / 2f);
             }
             sceneContainer.setCameraDistance(cameraDist);
-            sceneContainer.setRotationY(12f * overview);
+            sceneContainer.setRotationY(OverviewRenderer.TILT_DEGREES * overview);
             sceneContainer.setScaleX(scale);
             sceneContainer.setScaleY(scale);
             sceneContainer.setTranslationX(tx);
