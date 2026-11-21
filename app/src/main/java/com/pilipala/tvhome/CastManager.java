@@ -221,6 +221,15 @@ final class CastManager implements DlnaServer.SoapHandler {
     }
 
     private synchronized void refreshReceiver() {
+        String ip = localAddress();
+        if (server != null && ip != null && ip.equals(server.ip()) && server.ssdpSearchBound()) {
+            server.announceAlive();
+            host.handler.postDelayed(() -> {
+                DlnaServer s = server;
+                if (s != null) s.announceAlive();
+            }, 400L);
+            return;
+        }
         stopReceiver();
         syncReceiver();
         if (server != null) server.announceAlive();

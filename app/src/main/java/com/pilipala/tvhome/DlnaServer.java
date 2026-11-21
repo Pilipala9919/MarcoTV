@@ -42,7 +42,9 @@ final class DlnaServer implements AutoCloseable {
 
     private static final int HEADER_TIMEOUT_MS = 4000;
     private static final int BODY_TIMEOUT_MS = 5000;
-    private static final int MAX_PER_IP = 6;
+    private static final int MAX_PER_IP = 16;
+    private static final int PREFERRED_PORT_START = 49158;
+    private static final int PREFERRED_PORT_END = 49168;
 
     private final Context appContext;
     private final Handler mainHandler;
@@ -59,6 +61,8 @@ final class DlnaServer implements AutoCloseable {
     private final ThreadPoolExecutor ioPool;
     private final Set<Socket> sockets = Collections.synchronizedSet(new HashSet<Socket>());
     private final Map<String, Integer> activeByIp = new HashMap<>();
+    private final Object ssdpSendLock = new Object();
+    private final Map<String, Long> searchLogAt = new HashMap<>();
     private MulticastSocket ssdpSocket;
     private WifiManager.MulticastLock multicastLock;
     private volatile boolean closed;
@@ -68,7 +72,7 @@ final class DlnaServer implements AutoCloseable {
         @Override public void run() {
             if (closed) return;
             announceAlive();
-            mainHandler.postDelayed(this, ssdpSearchBound ? 12000L : 6000L);
+            mainHandler.postDelayed(this, ssdpSearchBound ? 5000L : 4000L);
         }
     };
 
@@ -88,12 +92,10 @@ final class DlnaServer implements AutoCloseable {
         } catch (SocketException ignored) {}
         this.multicastNif = resolvedNif;
 
-        httpServer = new ServerSocket();
-        httpServer.setReuseAddress(true);
-        httpServer.bind(new InetSocketAddress(bindAddr, 0), 16);
+        httpServer = bindHttpServer(bindAddr);
         port = httpServer.getLocalPort();
 
-        ioPool = new ThreadPoolExecutor(2, 6, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(16));
+        ioPool = new ThreadPoolExecutor(2, 12, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(32));
 
         try {
             WifiManager wifi = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
@@ -126,6 +128,26 @@ final class DlnaServer implements AutoCloseable {
         mainHandler.post(ssdpAliveTicker);
         mainHandler.postDelayed(this::announceAlive, 400L);
         mainHandler.postDelayed(this::announceAlive, 1200L);
+    }
+
+    private static ServerSocket bindHttpServer(InetAddress bindAddr) throws IOException {
+        for (int candidate = PREFERRED_PORT_START; candidate <= PREFERRED_PORT_END; candidate++) {
+            ServerSocket srv = null;
+            try {
+                srv = new ServerSocket();
+                srv.setReuseAddress(true);
+                srv.bind(new InetSocketAddress(bindAddr, candidate), 32);
+                return srv;
+            } catch (IOException busy) {
+                if (srv != null) {
+                    try { srv.close(); } catch (IOException ignored) {}
+                }
+            }
+        }
+        ServerSocket fallback = new ServerSocket();
+        fallback.setReuseAddress(true);
+        fallback.bind(new InetSocketAddress(bindAddr, 0), 32);
+        return fallback;
     }
 
     private static MulticastSocket bindSsdpListener(InetAddress group, NetworkInterface nif) {
@@ -180,7 +202,7 @@ final class DlnaServer implements AutoCloseable {
     void announceAlive() {
         if (closed) return;
         try {
-            ioPool.execute(() -> sendSsdpNotify(ip, port, uuid, serverToken, multicastNif, true));
+            ioPool.execute(() -> sendSsdpNotify(ssdpSocket, ssdpSendLock, ip, port, uuid, serverToken, multicastNif, true));
         } catch (RejectedExecutionException ignored) {}
     }
 
@@ -237,16 +259,22 @@ final class DlnaServer implements AutoCloseable {
             try {
                 head = CastProtocol.readHttpHead(in, System.currentTimeMillis() + HEADER_TIMEOUT_MS);
             } catch (IOException badHead) {
+                Log.w("MarcoTV", "DLNA HTTP 400 from " + remoteIp + " err=" + badHead.getMessage());
                 writeEmptyStatus(out, 400, "Bad Request");
                 return;
             }
             int denied = CastProtocol.checkHttpSecurity(head, ip, port);
             if (denied != 0) {
+                Log.w("MarcoTV", "DLNA HTTP " + denied + " " + head.method + " " + head.path
+                        + " from " + remoteIp + " host=" + head.header("host"));
                 writeEmptyStatus(out, denied, statusText(denied));
                 return;
             }
             if ("SUBSCRIBE".equals(head.method) || "UNSUBSCRIBE".equals(head.method)) {
+                Log.i("MarcoTV", "DLNA HTTP 200 " + head.method + " " + head.path + " from " + remoteIp);
                 String subReply = "HTTP/1.1 200 OK\r\n"
+                        + "DATE: " + CastProtocol.httpDateGmt() + "\r\n"
+                        + "SERVER: " + serverToken + "\r\n"
                         + "SID: uuid:marcotv-event-" + uuid + "\r\n"
                         + "TIMEOUT: Second-1800\r\n"
                         + "Content-Length: 0\r\n"
@@ -257,6 +285,7 @@ final class DlnaServer implements AutoCloseable {
             }
             if ("GET".equals(head.method) || "HEAD".equals(head.method)) {
                 boolean headOnly = "HEAD".equals(head.method);
+                Log.i("MarcoTV", "DLNA HTTP 200 " + head.method + " " + head.path + " from " + remoteIp);
                 if (head.path.equals("/")) {
                     writeHttpText(out, 200, "text/html; charset=\"utf-8\"",
                             "<!doctype html><title>Marco TV</title><p>Marco TV DLNA MediaRenderer</p>", headOnly);
@@ -264,7 +293,7 @@ final class DlnaServer implements AutoCloseable {
                 }
                 String xml;
                 if (head.path.equals("/dlna/device.xml")) {
-                    xml = CastProtocol.buildDeviceXml(friendlyName, uuid, ProjectInfo.VERSION, "http://" + ip + ":" + port + "/");
+                    xml = CastProtocol.buildDeviceXml(friendlyName, uuid, ProjectInfo.VERSION, "http://" + ip + ":" + port);
                 } else if (head.path.equals("/dlna/avtransport.xml")) {
                     xml = CastProtocol.AVTRANSPORT_SCPD;
                 } else if (head.path.equals("/dlna/rendering.xml")) {
@@ -288,6 +317,7 @@ final class DlnaServer implements AutoCloseable {
             String body = new String(bodyBytes, StandardCharsets.UTF_8);
             String action = CastProtocol.parseSoapAction(head.header("soapaction"), head.path);
             SoapResult result = soapHandler.onSoapAction(action, body, remoteIp);
+            Log.i("MarcoTV", "DLNA SOAP " + action + " -> " + result.httpStatus + " from " + remoteIp);
             writeHttpXml(out, result.httpStatus, result.xml, false);
         } catch (Exception ignored) {
         } finally {
@@ -353,15 +383,18 @@ final class DlnaServer implements AutoCloseable {
                     String msg = new String(pkt.getData(), pkt.getOffset(), pkt.getLength(), StandardCharsets.UTF_8);
                     List<String> targets = CastProtocol.resolveSsdpSearchTargets(msg, uuid);
                     if (targets.isEmpty()) continue;
-                    DatagramSocket sender = replySock != null ? replySock : sock;
+                    String srcIp = pkt.getAddress() == null ? "" : pkt.getAddress().getHostAddress();
+                    logSearchSample(srcIp, pkt.getPort(), CastProtocol.extractHeader(msg, "ST"), targets.size());
                     for (String target : targets) {
                         String reply = CastProtocol.buildSsdpSearchResponse(ip, port, uuid, serverToken, target);
                         byte[] data = reply.getBytes(StandardCharsets.UTF_8);
                         DatagramPacket outPkt = new DatagramPacket(data, data.length, pkt.getAddress(), pkt.getPort());
                         try {
-                            sender.send(outPkt);
+                            synchronized (ssdpSendLock) {
+                                sock.send(outPkt);
+                            }
                         } catch (IOException fallback) {
-                            if (sender != sock) sock.send(outPkt);
+                            if (replySock != null) replySock.send(outPkt);
                         }
                     }
                 } catch (IOException ignored) {}
@@ -373,18 +406,46 @@ final class DlnaServer implements AutoCloseable {
         }
     }
 
-    private static void sendSsdpNotify(String ip, int port, String uuid, String serverToken, NetworkInterface nif, boolean alive) {
+    private void logSearchSample(String srcIp, int srcPort, String st, int count) {
+        String key = srcIp + "|" + st;
+        long now = System.currentTimeMillis();
+        synchronized (searchLogAt) {
+            Long prev = searchLogAt.get(key);
+            if (prev != null && now - prev < 3000L) return;
+            if (searchLogAt.size() > 64) searchLogAt.clear();
+            searchLogAt.put(key, now);
+        }
+        Log.i("MarcoTV", "DLNA M-SEARCH from " + srcIp + ":" + srcPort + " st=" + st + " -> " + count + " replies");
+    }
+
+    private static void sendSsdpNotify(MulticastSocket sharedSock, Object sendLock, String ip, int port,
+            String uuid, String serverToken, NetworkInterface nif, boolean alive) {
         List<String> messages = CastProtocol.buildSsdpNotifyMessages(ip, port, uuid, serverToken, alive);
-        try (MulticastSocket sock = new MulticastSocket()) {
-            sock.setReuseAddress(true);
-            if (nif != null) {
-                try { sock.setNetworkInterface(nif); } catch (SocketException ignored) {}
-            }
-            try { sock.setTimeToLive(4); } catch (IOException ignored) {}
+        try {
             InetAddress group = InetAddress.getByName(CastProtocol.SSDP_ADDRESS);
-            for (String msg : messages) {
-                byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
-                sock.send(new DatagramPacket(bytes, bytes.length, group, CastProtocol.SSDP_PORT));
+            if (alive && sharedSock != null && !sharedSock.isClosed()) {
+                try {
+                    synchronized (sendLock) {
+                        for (String msg : messages) {
+                            byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
+                            sharedSock.send(new DatagramPacket(bytes, bytes.length, group, CastProtocol.SSDP_PORT));
+                        }
+                    }
+                    return;
+                } catch (IOException ignored) {
+                    // Fall back to dedicated multicast sender below.
+                }
+            }
+            try (MulticastSocket sock = new MulticastSocket()) {
+                sock.setReuseAddress(true);
+                if (nif != null) {
+                    try { sock.setNetworkInterface(nif); } catch (SocketException ignored) {}
+                }
+                try { sock.setTimeToLive(4); } catch (IOException ignored) {}
+                for (String msg : messages) {
+                    byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
+                    sock.send(new DatagramPacket(bytes, bytes.length, group, CastProtocol.SSDP_PORT));
+                }
             }
         } catch (IOException error) {
             Log.w("MarcoTV", "DLNA SSDP notify failed: " + error.getMessage());
@@ -395,7 +456,7 @@ final class DlnaServer implements AutoCloseable {
         if (closed) return;
         closed = true;
         mainHandler.removeCallbacks(ssdpAliveTicker);
-        Thread bye = new Thread(() -> sendSsdpNotify(ip, port, uuid, serverToken, multicastNif, false), "MarcoDlnaBye");
+        Thread bye = new Thread(() -> sendSsdpNotify(null, ssdpSendLock, ip, port, uuid, serverToken, multicastNif, false), "MarcoDlnaBye");
         bye.setDaemon(true);
         bye.start();
         if (ssdpSocket != null) {

@@ -227,13 +227,17 @@ final class CastProtocol {
     static final class HttpHead {
         final String method;
         final String path;
+        final String rawTarget;
+        final String targetHost;
         final String version;
         final Map<String, String> headers;
         final int contentLength;
 
-        HttpHead(String method, String path, String version, Map<String, String> headers, int contentLength) {
+        HttpHead(String method, String path, String rawTarget, String targetHost, String version, Map<String, String> headers, int contentLength) {
             this.method = method;
             this.path = path;
+            this.rawTarget = rawTarget;
+            this.targetHost = targetHost;
             this.version = version;
             this.headers = headers;
             this.contentLength = contentLength;
@@ -262,18 +266,49 @@ final class CastProtocol {
         }
         String raw = new String(buf.toByteArray(), StandardCharsets.US_ASCII);
         String[] lines = raw.split("\r\n");
-        if (lines.length == 0 || lines[0].isEmpty()) throw new IOException("empty request");
-        String[] start = lines[0].split(" ");
+        if (lines.length == 0 || lines[0].trim().isEmpty()) throw new IOException("empty request");
+        String[] start = lines[0].trim().split("\\s+");
         if (start.length != 3 || !(start[2].equals("HTTP/1.1") || start[2].equals("HTTP/1.0"))) {
             throw new IOException("bad request line");
         }
         String method = start[0].toUpperCase(Locale.ROOT);
-        String target = start[1];
-        if (!target.startsWith("/") || target.startsWith("//") || target.contains("#")) {
+        String rawTarget = start[1];
+        if (rawTarget.contains("#") || rawTarget.contains("\\")) {
+            throw new IOException("bad request target");
+        }
+        String target = rawTarget;
+        String targetHost = "";
+        if (target.regionMatches(true, 0, "http://", 0, 7)) {
+            int authStart = 7;
+            int slash = target.indexOf('/', authStart);
+            targetHost = slash >= 0 ? target.substring(authStart, slash) : target.substring(authStart);
+            if (targetHost.isEmpty() || targetHost.contains("@")) {
+                throw new IOException("bad request target");
+            }
+            target = slash >= 0 ? target.substring(slash) : "/";
+        }
+        if (!target.startsWith("/")) {
             throw new IOException("bad request target");
         }
         int q = target.indexOf('?');
-        String path = q >= 0 ? target.substring(0, q) : target;
+        String pathRaw = q >= 0 ? target.substring(0, q) : target;
+        // Collapse repeated slashes (e.g. "//dlna/avtransport.xml" from naive URLBase + SCPDURL join).
+        StringBuilder norm = new StringBuilder(pathRaw.length());
+        boolean prevSlash = false;
+        for (int i = 0; i < pathRaw.length(); i++) {
+            char c = pathRaw.charAt(i);
+            if (c == '/') {
+                if (!prevSlash) norm.append('/');
+                prevSlash = true;
+            } else {
+                norm.append(c);
+                prevSlash = false;
+            }
+        }
+        String path = norm.toString();
+        if (path.contains("/../") || path.endsWith("/..")) {
+            throw new IOException("bad request target");
+        }
 
         Map<String, String> headers = new HashMap<>();
         for (int i = 1; i < lines.length; i++) {
@@ -281,7 +316,8 @@ final class CastProtocol {
             if (line.isEmpty()) continue;
             int colon = line.indexOf(':');
             if (colon < 1 || Character.isWhitespace(line.charAt(0))) throw new IOException("malformed header");
-            String key = line.substring(0, colon).toLowerCase(Locale.ROOT);
+            String key = line.substring(0, colon).trim().toLowerCase(Locale.ROOT);
+            if (key.isEmpty()) throw new IOException("malformed header");
             String val = line.substring(colon + 1).trim();
             if (headers.containsKey(key)) {
                 if (CRITICAL_SINGLE_HEADERS.contains(key)) throw new IOException("duplicate critical header");
@@ -302,7 +338,7 @@ final class CastProtocol {
         } else if ("POST".equals(method)) {
             throw new IOException("missing content-length");
         }
-        return new HttpHead(method, path, start[2], headers, contentLength);
+        return new HttpHead(method, path, rawTarget, targetHost, start[2], headers, contentLength);
     }
 
     /**
@@ -316,7 +352,14 @@ final class CastProtocol {
         if (!("GET".equals(m) || "HEAD".equals(m) || "POST".equals(m) || "SUBSCRIBE".equals(m) || "UNSUBSCRIBE".equals(m))) {
             return 405;
         }
-        if (!isValidHost(head.header("host"), boundIp, boundPort)) {
+        if (!head.targetHost.isEmpty() && !isValidHost(head.targetHost, boundIp, boundPort)) {
+            return 403;
+        }
+        String hostHeader = head.header("host");
+        boolean allowHostlessHttp10Read = hostHeader.isEmpty()
+                && "HTTP/1.0".equals(head.version)
+                && ("GET".equals(m) || "HEAD".equals(m));
+        if (!allowHostlessHttp10Read && !isValidHost(hostHeader, boundIp, boundPort)) {
             return 403;
         }
         String origin = head.header("origin");
@@ -409,10 +452,10 @@ final class CastProtocol {
 
     static String extractHeader(String rawHttp, String name) {
         if (rawHttp == null || name == null) return "";
-        String prefix = name.toLowerCase(Locale.ROOT) + ":";
         for (String line : rawHttp.split("\r?\n")) {
-            if (line.toLowerCase(Locale.ROOT).startsWith(prefix)) {
-                return line.substring(prefix.length()).trim();
+            int colon = line.indexOf(':');
+            if (colon > 0 && line.substring(0, colon).trim().equalsIgnoreCase(name)) {
+                return line.substring(colon + 1).trim();
             }
         }
         return "";
@@ -437,35 +480,39 @@ final class CastProtocol {
 
     static List<String> resolveSsdpSearchTargets(String rawPacket, String uuid) {
         if (rawPacket == null || uuid == null || uuid.isEmpty()) return Collections.emptyList();
-        String trimmed = rawPacket.trim();
-        if (trimmed.length() < 19
-                || !(trimmed.substring(0, 19).equalsIgnoreCase("M-SEARCH * HTTP/1.1")
-                || trimmed.substring(0, 19).equalsIgnoreCase("M-SEARCH * HTTP/1.0"))) {
+        int nl = rawPacket.indexOf('\n');
+        String firstLine = (nl >= 0 ? rawPacket.substring(0, nl) : rawPacket).trim();
+        String[] start = firstLine.split("\\s+");
+        if (start.length < 3
+                || !start[0].equalsIgnoreCase("M-SEARCH")
+                || !start[1].equals("*")
+                || !(start[2].equalsIgnoreCase("HTTP/1.1") || start[2].equalsIgnoreCase("HTTP/1.0"))) {
             return Collections.emptyList();
         }
         String man = extractHeader(rawPacket, "MAN").toLowerCase(Locale.ROOT);
         if (!man.contains("ssdp:discover")) return Collections.emptyList();
         String st = extractHeader(rawPacket, "ST");
         if (st.isEmpty()) return Collections.emptyList();
-        if (st.equalsIgnoreCase("ssdp:all")) {
+        String stLower = st.toLowerCase(Locale.ROOT);
+        if (stLower.equals("ssdp:all")) {
             return notifyTargets(uuid);
         }
-        if (st.equalsIgnoreCase("upnp:rootdevice")) {
+        if (stLower.equals("upnp:rootdevice")) {
             return Collections.singletonList("upnp:rootdevice");
         }
-        if (st.equals("uuid:" + uuid)) {
-            return Collections.singletonList(st);
+        if (stLower.equals("uuid:" + uuid.toLowerCase(Locale.ROOT))) {
+            return Collections.singletonList("uuid:" + uuid);
         }
-        if (st.startsWith("urn:schemas-upnp-org:device:MediaRenderer:")) {
+        if (stLower.startsWith("urn:schemas-upnp-org:device:mediarenderer:")) {
             return Collections.singletonList(DEVICE_TYPE);
         }
-        if (st.startsWith("urn:schemas-upnp-org:service:AVTransport:")) {
+        if (stLower.startsWith("urn:schemas-upnp-org:service:avtransport:")) {
             return Collections.singletonList(SERVICE_AVTRANSPORT);
         }
-        if (st.startsWith("urn:schemas-upnp-org:service:RenderingControl:")) {
+        if (stLower.startsWith("urn:schemas-upnp-org:service:renderingcontrol:")) {
             return Collections.singletonList(SERVICE_RENDERING);
         }
-        if (st.startsWith("urn:schemas-upnp-org:service:ConnectionManager:")) {
+        if (stLower.startsWith("urn:schemas-upnp-org:service:connectionmanager:")) {
             return Collections.singletonList(SERVICE_CONNECTION);
         }
         return Collections.emptyList();
@@ -474,11 +521,12 @@ final class CastProtocol {
     static String buildSsdpSearchResponse(String ip, int port, String uuid, String serverToken, String target) {
         String usn = "uuid:" + uuid + (target.startsWith("uuid:") ? "" : "::" + target);
         return "HTTP/1.1 200 OK\r\n"
-                + "CACHE-CONTROL: max-age=1800\r\n"
+                + "CACHE-CONTROL: max-age=120\r\n"
                 + "DATE: " + httpDateGmt() + "\r\n"
                 + "EXT:\r\n"
                 + "LOCATION: http://" + ip + ":" + port + "/dlna/device.xml\r\n"
                 + "OPT: \"http://schemas.upnp.org/upnp/1/0/\"; ns=01\r\n"
+                + "01-NLS: " + uuid + "\r\n"
                 + "SERVER: " + serverToken + "\r\n"
                 + "ST: " + target + "\r\n"
                 + "USN: " + usn + "\r\n"
@@ -493,8 +541,10 @@ final class CastProtocol {
             String usn = "uuid:" + uuid + (nt.startsWith("uuid:") ? "" : "::" + nt);
             String msg = "NOTIFY * HTTP/1.1\r\n"
                     + "HOST: " + SSDP_ADDRESS + ":" + SSDP_PORT + "\r\n"
-                    + "CACHE-CONTROL: max-age=1800\r\n"
+                    + "CACHE-CONTROL: max-age=120\r\n"
                     + "LOCATION: http://" + ip + ":" + port + "/dlna/device.xml\r\n"
+                    + "OPT: \"http://schemas.upnp.org/upnp/1/0/\"; ns=01\r\n"
+                    + "01-NLS: " + uuid + "\r\n"
                     + "NT: " + nt + "\r\n"
                     + "NTS: " + (alive ? "ssdp:alive" : "ssdp:byebye") + "\r\n"
                     + "SERVER: " + serverToken + "\r\n"
@@ -838,46 +888,50 @@ final class CastProtocol {
     }
 
     static String buildDeviceXml(String friendlyName, String uuid, String modelVersion, String baseUrl) {
-        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                + "<root xmlns=\"urn:schemas-upnp-org:device-1-0\" xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">"
-                + "<specVersion><major>1</major><minor>0</minor></specVersion>"
-                + (baseUrl != null && !baseUrl.isEmpty() ? "<URLBase>" + escapeXml(baseUrl) + "</URLBase>" : "")
-                + "<device>"
-                + "<deviceType>" + DEVICE_TYPE + "</deviceType>"
-                + "<friendlyName>" + escapeXml(friendlyName) + "</friendlyName>"
-                + "<manufacturer>Pilipala</manufacturer>"
-                + "<manufacturerURL>https://github.com/Pilipala9919/MarcoTV</manufacturerURL>"
-                + "<modelDescription>Marco TV DLNA MediaRenderer</modelDescription>"
-                + "<modelName>Marco TV</modelName>"
-                + "<modelNumber>" + escapeXml(modelVersion) + "</modelNumber>"
-                + "<modelURL>https://github.com/Pilipala9919/MarcoTV</modelURL>"
-                + "<serialNumber>1</serialNumber>"
-                + "<UDN>uuid:" + escapeXml(uuid) + "</UDN>"
-                + "<dlna:X_DLNADOC xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">DMR-1.50</dlna:X_DLNADOC>"
-                + "<presentationURL>/</presentationURL>"
-                + "<serviceList>"
-                + "<service>"
-                + "<serviceType>" + SERVICE_AVTRANSPORT + "</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>"
-                + "<SCPDURL>/dlna/avtransport.xml</SCPDURL>"
-                + "<controlURL>/dlna/avtransport/control</controlURL>"
-                + "<eventSubURL>/dlna/avtransport/event</eventSubURL>"
-                + "</service>"
-                + "<service>"
-                + "<serviceType>" + SERVICE_RENDERING + "</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>"
-                + "<SCPDURL>/dlna/rendering.xml</SCPDURL>"
-                + "<controlURL>/dlna/rendering/control</controlURL>"
-                + "<eventSubURL>/dlna/rendering/event</eventSubURL>"
-                + "</service>"
-                + "<service>"
-                + "<serviceType>" + SERVICE_CONNECTION + "</serviceType>"
-                + "<serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>"
-                + "<SCPDURL>/dlna/connection.xml</SCPDURL>"
-                + "<controlURL>/dlna/connection/control</controlURL>"
-                + "<eventSubURL>/dlna/connection/event</eventSubURL>"
-                + "</service>"
-                + "</serviceList>"
-                + "</device></root>";
+        String cleanBase = baseUrl == null ? "" : baseUrl.trim();
+        while (cleanBase.endsWith("/")) {
+            cleanBase = cleanBase.substring(0, cleanBase.length() - 1);
+        }
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n"
+                + "<root xmlns=\"urn:schemas-upnp-org:device-1-0\" xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">\r\n"
+                + "<specVersion>\r\n<major>1</major>\r\n<minor>0</minor>\r\n</specVersion>\r\n"
+                + (!cleanBase.isEmpty() ? "<URLBase>" + escapeXml(cleanBase) + "</URLBase>\r\n" : "")
+                + "<device>\r\n"
+                + "<deviceType>" + DEVICE_TYPE + "</deviceType>\r\n"
+                + "<friendlyName>" + escapeXml(friendlyName) + "</friendlyName>\r\n"
+                + "<manufacturer>Pilipala</manufacturer>\r\n"
+                + "<manufacturerURL>https://github.com/Pilipala9919/MarcoTV</manufacturerURL>\r\n"
+                + "<modelDescription>Marco TV DLNA MediaRenderer</modelDescription>\r\n"
+                + "<modelName>Marco TV</modelName>\r\n"
+                + "<modelNumber>" + escapeXml(modelVersion) + "</modelNumber>\r\n"
+                + "<modelURL>https://github.com/Pilipala9919/MarcoTV</modelURL>\r\n"
+                + "<serialNumber>1</serialNumber>\r\n"
+                + "<UDN>uuid:" + escapeXml(uuid) + "</UDN>\r\n"
+                + "<dlna:X_DLNADOC xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">DMR-1.50</dlna:X_DLNADOC>\r\n"
+                + "<presentationURL>/</presentationURL>\r\n"
+                + "<serviceList>\r\n"
+                + "<service>\r\n"
+                + "<serviceType>" + SERVICE_AVTRANSPORT + "</serviceType>\r\n"
+                + "<serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>\r\n"
+                + "<SCPDURL>/dlna/avtransport.xml</SCPDURL>\r\n"
+                + "<controlURL>/dlna/avtransport/control</controlURL>\r\n"
+                + "<eventSubURL>/dlna/avtransport/event</eventSubURL>\r\n"
+                + "</service>\r\n"
+                + "<service>\r\n"
+                + "<serviceType>" + SERVICE_RENDERING + "</serviceType>\r\n"
+                + "<serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>\r\n"
+                + "<SCPDURL>/dlna/rendering.xml</SCPDURL>\r\n"
+                + "<controlURL>/dlna/rendering/control</controlURL>\r\n"
+                + "<eventSubURL>/dlna/rendering/event</eventSubURL>\r\n"
+                + "</service>\r\n"
+                + "<service>\r\n"
+                + "<serviceType>" + SERVICE_CONNECTION + "</serviceType>\r\n"
+                + "<serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>\r\n"
+                + "<SCPDURL>/dlna/connection.xml</SCPDURL>\r\n"
+                + "<controlURL>/dlna/connection/control</controlURL>\r\n"
+                + "<eventSubURL>/dlna/connection/event</eventSubURL>\r\n"
+                + "</service>\r\n"
+                + "</serviceList>\r\n"
+                + "</device>\r\n</root>";
     }
 }

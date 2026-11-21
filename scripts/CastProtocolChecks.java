@@ -211,7 +211,8 @@ public final class CastProtocolChecks {
         // 7. Strict UPnP 1.0 SCPD & SSDP discovery compliance (Cling / CyberLink / iOS DLNA)
         String ssdpResp = CastProtocol.buildSsdpSearchResponse(TV_IP, PORT, UUID, "Android/9 UPnP/1.0 MarcoTV/0.19.0", CastProtocol.DEVICE_TYPE);
         check("ssdp_response_has_date_and_no_content_length",
-                ssdpResp.contains("\r\nDATE: ") && ssdpResp.contains("\r\nBOOTID.UPNP.ORG: 1") && !ssdpResp.contains("Content-Length"));
+                ssdpResp.contains("\r\nDATE: ") && ssdpResp.contains("\r\n01-NLS: " + UUID)
+                        && ssdpResp.contains("\r\nBOOTID.UPNP.ORG: 1") && !ssdpResp.contains("Content-Length"));
         check("scpd_xmls_have_arguments_and_state_variables",
                 CastProtocol.AVTRANSPORT_SCPD.contains("<argumentList>")
                         && CastProtocol.AVTRANSPORT_SCPD.contains("<relatedStateVariable>AVTransportURI</relatedStateVariable>")
@@ -222,6 +223,38 @@ public final class CastProtocolChecks {
                 "GetDeviceCapabilities".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:AVTransport:1#GetDeviceCapabilities\"", "/dlna/avtransport/control"))
                         && "GetCurrentConnectionIDs".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionIDs\"", "/dlna/connection/control"))
                         && "ListPresets".equals(CastProtocol.parseSoapAction("\"urn:schemas-upnp-org:service:RenderingControl:1#ListPresets\"", "/dlna/rendering/control")));
+
+        // 8. Real-world Chinese video app & UPnP stack compatibility (double-slash, absolute-URI, case-insensitive ST)
+        CastProtocol.HttpHead doubleSlash = parse(
+                "GET //dlna/avtransport.xml HTTP/1.1\r\nHost: " + TV_IP + ":" + PORT + "\r\n\r\n");
+        check("double_slash_scpd_path_allowed",
+                "/dlna/avtransport.xml".equals(doubleSlash.path)
+                        && CastProtocol.checkHttpSecurity(doubleSlash, TV_IP, PORT) == 0);
+        CastProtocol.HttpHead absUri = parse(
+                "GET http://" + TV_IP + ":" + PORT + "/dlna/device.xml HTTP/1.1\r\nHost: " + TV_IP + ":" + PORT + "\r\n\r\n");
+        check("absolute_uri_matching_host_allowed",
+                "/dlna/device.xml".equals(absUri.path)
+                        && CastProtocol.checkHttpSecurity(absUri, TV_IP, PORT) == 0);
+        CastProtocol.HttpHead evilAbsUri = parse(
+                "GET http://evil.example/dlna/device.xml HTTP/1.1\r\nHost: " + TV_IP + ":" + PORT + "\r\n\r\n");
+        check("absolute_uri_foreign_host_rejected_403",
+                CastProtocol.checkHttpSecurity(evilAbsUri, TV_IP, PORT) == 403);
+        CastProtocol.HttpHead http10NoHost = parse("GET /dlna/device.xml HTTP/1.0\r\n\r\n");
+        check("http10_get_without_host_allowed",
+                CastProtocol.checkHttpSecurity(http10NoHost, TV_IP, PORT) == 0);
+        CastProtocol.HttpHead http10PostNoHost = parse(
+                "POST /dlna/avtransport/control HTTP/1.0\r\n"
+                        + "Content-Type: text/xml\r\n"
+                        + "SOAPAction: \"urn:schemas-upnp-org:service:AVTransport:1#Play\"\r\n"
+                        + "Content-Length: 64\r\n\r\n");
+        check("http10_post_without_host_rejected_403",
+                CastProtocol.checkHttpSecurity(http10PostNoHost, TV_IP, PORT) == 403);
+        String looseSearch = "M-SEARCH  *  HTTP/1.1\r\nMAN : \"ssdp:discover\"\r\nST : urn:schemas-upnp-org:device:mediarenderer:1\r\n\r\n";
+        check("loose_case_insensitive_msearch_matched",
+                CastProtocol.resolveSsdpSearchTargets(looseSearch, UUID).contains(CastProtocol.DEVICE_TYPE));
+        String xmlWithBase = CastProtocol.buildDeviceXml("Marco TV", UUID, "0.19.0", "http://" + TV_IP + ":" + PORT + "/");
+        check("device_xml_strips_urlbase_trailing_slash",
+                xmlWithBase.contains("<URLBase>http://" + TV_IP + ":" + PORT + "</URLBase>"));
 
         System.out.println("OK " + passed + " cast protocol & security checks");
     }
