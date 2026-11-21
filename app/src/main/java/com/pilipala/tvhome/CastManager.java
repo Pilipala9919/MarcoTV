@@ -48,6 +48,7 @@ final class CastManager implements DlnaServer.SoapHandler {
     private volatile String currentTitle = "";
     private volatile String currentSource = "";
     private volatile String currentOwnerIp = "";
+    private volatile String pendingApprovalIp = "";
     private volatile String transportState = "STOPPED";
     private volatile int currentDurationMs;
     private volatile int currentPositionMs;
@@ -766,17 +767,25 @@ final class CastManager implements DlnaServer.SoapHandler {
         String safeTitle = (title == null || title.trim().isEmpty()) ? "视频流" : title.trim();
         if (safeTitle.length() > 100) safeTitle = safeTitle.substring(0, 100);
         final String displayTitle = safeTitle;
+        pendingApprovalIp = sourceIp == null ? "" : sourceIp;
         TvDialog approve = new TvDialog.Builder(host).setPageId("cast_approve").setTitle("允许投屏到电视？")
                 .setMessage("请求设备：" + (sourceIp == null || sourceIp.isEmpty() ? "局域网设备" : sourceIp)
                         + "\n投射内容：" + displayTitle
                         + "\n\n允许后本次运行期间不再重复询问该设备。")
                 .setPositiveButton("允许并播放", (d, w) -> {
+                    pendingApprovalIp = "";
                     trustIp(sourceIp);
                     playVideo(uri, displayTitle, sourceIp, true);
                 })
-                .setNegativeButton("拒绝", (d, w) -> transportState = "STOPPED")
+                .setNegativeButton("拒绝", (d, w) -> {
+                    pendingApprovalIp = "";
+                    transportState = "STOPPED";
+                })
                 .create();
-        approve.onLeave(this::syncReceiver);
+        approve.onLeave(() -> {
+            if (sourceIp != null && sourceIp.equals(pendingApprovalIp)) pendingApprovalIp = "";
+            syncReceiver();
+        });
         host.showDialog(approve);
     }
 
@@ -1399,6 +1408,8 @@ final class CastManager implements DlnaServer.SoapHandler {
                 final String title = metaTitle.isEmpty() ? "DLNA 投屏视频" : metaTitle;
                 if (CastProtocol.shouldAutoAllowCast(confirm, trusted)) {
                     transportState = "TRANSITIONING";
+                } else {
+                    pendingApprovalIp = remoteIp == null ? "" : remoteIp;
                 }
                 host.handler.post(() -> requestCastVideo(uri, title, remoteIp));
                 break;
@@ -1416,6 +1427,11 @@ final class CastManager implements DlnaServer.SoapHandler {
             }
             case "Play": {
                 if (!CastProtocol.canControlSession(confirm, trusted, isPlaying(), false)) {
+                    if (!isPlaying() && remoteIp != null && !remoteIp.isEmpty() && remoteIp.equals(pendingApprovalIp)) {
+                        // Client immediately sends Play after SetAVTransportURI while TV awaits user consent;
+                        // acknowledge as no-op so the client keeps its media relay open until approved.
+                        break;
+                    }
                     return DlnaServer.SoapResult.fault(701, "Device not authorized");
                 }
                 host.handler.post(this::resumePlayback);

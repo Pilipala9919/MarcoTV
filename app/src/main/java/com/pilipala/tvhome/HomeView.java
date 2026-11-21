@@ -79,6 +79,11 @@ final class HomeView extends View {
     private float surfaceStrength;
     private float motionSpeed=1;
     private final Paint surfacePaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.DITHER_FLAG);
+    private final Paint shadowPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG|Paint.DITHER_FLAG);
+    private static final float SHADOW_PAD = 80f;
+    private static final float SHADOW_SCALE = 0.5f;
+    private Bitmap ambientShadow, contactShadow;
+    private int shadowBaseH = -1, shadowBaseR = -1;
     private final Matrix surfaceMatrix=new Matrix();
     private final RectF surfaceBounds=new RectF();
     private final LinearGradient surfaceGradient=new LinearGradient(0,0,0,1,
@@ -426,6 +431,7 @@ final class HomeView extends View {
         if(posterRevealMotion!=null)posterRevealMotion.dispose();
         clockScene.release();
         overviewRenderer.detach();
+        recycleShadows();
         super.onDetachedFromWindow();
     }
 
@@ -935,16 +941,12 @@ final class HomeView extends View {
         }
         float cardRadius = radius * zoom;
         if (surfaceStrength > 0) {
-            // Layered tvOS floating elevation shadow (downward-biased, crisp at rest, deep on focus).
+            // Smooth Gaussian-blurred tvOS floating elevation shadow (cached at 0.5x to avoid banding and per-frame blur cost).
             float sBase = opacity * surfaceStrength;
-            drawShadowLayer(canvas, cardRadius, (10 + 18 * emphasis) * zoom, 6.2f * emphasis * zoom, 3.8f * emphasis * zoom,
-                    0x1602060E, sBase * (0.20f + 0.80f * emphasis));
-            drawShadowLayer(canvas, cardRadius, (7.5f + 12.5f * emphasis) * zoom, (1.8f + 2.4f * emphasis) * zoom, (1.0f + 1.6f * emphasis) * zoom,
-                    0x1A02060E, sBase * (0.34f + 0.66f * emphasis));
-            drawShadowLayer(canvas, cardRadius, (4.5f + 7.5f * emphasis) * zoom, (0.8f + 1.1f * emphasis) * zoom, 0.8f * emphasis * zoom,
-                    0x2002060E, sBase * (0.44f + 0.56f * emphasis));
-            drawShadowLayer(canvas, cardRadius, (2.2f + 3.6f * emphasis) * zoom, 0.3f * zoom, 0,
-                    0x2602060E, sBase * (0.50f + 0.50f * emphasis));
+            ensureShadows(baseHeight, radius);
+            float pad = SHADOW_PAD * zoom;
+            drawShadowBitmap(canvas, ambientShadow, pad, (7f + 15f * emphasis) * zoom, sBase * (0.18f + 0.62f * emphasis));
+            drawShadowBitmap(canvas, contactShadow, pad, (3f + 4.5f * emphasis) * zoom, sBase * (0.38f + 0.32f * emphasis));
         }
         paint.setColor(alphaColor(tile.tint != 0 ? tile.tint : tile.banner ? Color.BLACK : 0xFF243541, opacity));
         canvas.drawRoundRect(rect, cardRadius, cardRadius, paint);
@@ -1008,14 +1010,58 @@ final class HomeView extends View {
         }
     }
 
-    private void drawShadowLayer(Canvas canvas, float cardRadius, float dy, float expandX, float expandY, int color, float alpha) {
-        if (alpha <= 0.005f) return;
-        surfaceBounds.set(rect);
-        surfaceBounds.offset(0, dy);
-        surfaceBounds.inset(-expandX, -expandY);
-        surfacePaint.setColor(alphaColor(color, alpha));
-        float r = cardRadius + Math.max(expandX, expandY) * 0.65f;
-        canvas.drawRoundRect(surfaceBounds, r, r, surfacePaint);
+    private void ensureShadows(float baseHeight, float baseRadius) {
+        int bh = Math.max(40, Math.round(baseHeight));
+        int br = Math.max(0, Math.round(Math.min(baseRadius, bh * 0.5f)));
+        if (ambientShadow != null && !ambientShadow.isRecycled()
+                && contactShadow != null && !contactShadow.isRecycled()
+                && shadowBaseH == bh && shadowBaseR == br) {
+            return;
+        }
+        recycleShadows();
+        shadowBaseH = bh;
+        shadowBaseR = br;
+        ambientShadow = renderShadowBitmap(bh, br, 30f, 8f, 6f, 0x9A030712);
+        contactShadow = renderShadowBitmap(bh, br, 11f, 2f, 2f, 0x78030712);
+    }
+
+    private static Bitmap renderShadowBitmap(int baseHeight, int baseRadius, float blurRadius,
+            float insetX, float insetY, int color) {
+        int bw = Math.max(1, Math.round((320f + SHADOW_PAD * 2f) * SHADOW_SCALE));
+        int bh = Math.max(1, Math.round((baseHeight + SHADOW_PAD * 2f) * SHADOW_SCALE));
+        Bitmap bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+        p.setColor(color);
+        p.setMaskFilter(new BlurMaskFilter(Math.max(1f, blurRadius * SHADOW_SCALE), BlurMaskFilter.Blur.NORMAL));
+        RectF shape = new RectF(
+                (SHADOW_PAD + insetX) * SHADOW_SCALE,
+                (SHADOW_PAD + insetY) * SHADOW_SCALE,
+                (SHADOW_PAD + 320f - insetX) * SHADOW_SCALE,
+                (SHADOW_PAD + baseHeight - insetY) * SHADOW_SCALE);
+        float r = Math.max(1f, (baseRadius - Math.min(insetX, insetY) * 0.5f) * SHADOW_SCALE);
+        c.drawRoundRect(shape, r, r, p);
+        return bmp;
+    }
+
+    private void drawShadowBitmap(Canvas canvas, Bitmap bmp, float pad, float dy, float alpha) {
+        if (bmp == null || bmp.isRecycled() || alpha <= 0.005f) return;
+        surfaceBounds.set(rect.left - pad, rect.top - pad + dy, rect.right + pad, rect.bottom + pad + dy);
+        shadowPaint.setAlpha(Math.max(0, Math.min(255, Math.round(255f * alpha))));
+        canvas.drawBitmap(bmp, null, surfaceBounds, shadowPaint);
+    }
+
+    private void recycleShadows() {
+        if (ambientShadow != null) {
+            if (!ambientShadow.isRecycled()) ambientShadow.recycle();
+            ambientShadow = null;
+        }
+        if (contactShadow != null) {
+            if (!contactShadow.isRecycled()) contactShadow.recycle();
+            contactShadow = null;
+        }
+        shadowBaseH = -1;
+        shadowBaseR = -1;
     }
 
     private String clippedLabel(String value, float width, float size) {

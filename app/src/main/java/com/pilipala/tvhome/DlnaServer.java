@@ -3,6 +3,8 @@
 package com.pilipala.tvhome;
 
 import android.content.Context;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
@@ -43,8 +45,8 @@ final class DlnaServer implements AutoCloseable {
     private static final int HEADER_TIMEOUT_MS = 4000;
     private static final int BODY_TIMEOUT_MS = 5000;
     private static final int MAX_PER_IP = 16;
-    private static final int PREFERRED_PORT_START = 49158;
-    private static final int PREFERRED_PORT_END = 49168;
+    // Match well-known DLNA + Marco Movie iOS sideload probe ports (avoiding Xiaomi's 49152).
+    private static final int[] PREFERRED_PORTS = {18652, 49153, 49154, 49595, 18653};
 
     private final Context appContext;
     private final Handler mainHandler;
@@ -65,6 +67,11 @@ final class DlnaServer implements AutoCloseable {
     private final Map<String, Long> searchLogAt = new HashMap<>();
     private MulticastSocket ssdpSocket;
     private WifiManager.MulticastLock multicastLock;
+    private final Object nsdLock = new Object();
+    private NsdManager nsdManager;
+    private NsdManager.RegistrationListener nsdListener;
+    private boolean nsdRegistered;
+    private boolean nsdUnregisterWanted;
     private volatile boolean closed;
     private volatile boolean ssdpSearchBound;
 
@@ -125,13 +132,82 @@ final class DlnaServer implements AutoCloseable {
         Log.i("MarcoTV", "DLNA started on " + ip + ":" + port + " ssdpBound=" + ssdpSearchBound
                 + " nif=" + (multicastNif == null ? "default" : multicastNif.getName()));
 
+        registerNsd();
+
         mainHandler.post(ssdpAliveTicker);
         mainHandler.postDelayed(this::announceAlive, 400L);
         mainHandler.postDelayed(this::announceAlive, 1200L);
     }
 
+    private void registerNsd() {
+        try {
+            final NsdManager mgr = (NsdManager) appContext.getSystemService(Context.NSD_SERVICE);
+            if (mgr == null) return;
+            NsdServiceInfo info = new NsdServiceInfo();
+            info.setServiceName(friendlyName);
+            info.setServiceType("_dlna._tcp.");
+            info.setPort(port);
+            final NsdManager.RegistrationListener listener = new NsdManager.RegistrationListener() {
+                @Override public void onServiceRegistered(NsdServiceInfo registered) {
+                    Log.i("MarcoTV", "DLNA mDNS registered: " + registered.getServiceName() + " _dlna._tcp.:" + port);
+                    boolean unregisterNow;
+                    synchronized (nsdLock) {
+                        nsdRegistered = true;
+                        unregisterNow = nsdUnregisterWanted || closed;
+                        if (unregisterNow) {
+                            nsdRegistered = false;
+                            nsdManager = null;
+                            nsdListener = null;
+                        }
+                    }
+                    if (unregisterNow) {
+                        try { mgr.unregisterService(this); } catch (Throwable ignored) {}
+                    }
+                }
+                @Override public void onRegistrationFailed(NsdServiceInfo info, int errorCode) {
+                    Log.w("MarcoTV", "DLNA mDNS register failed: code=" + errorCode);
+                    synchronized (nsdLock) {
+                        nsdRegistered = false;
+                        nsdManager = null;
+                        nsdListener = null;
+                    }
+                }
+                @Override public void onServiceUnregistered(NsdServiceInfo info) {}
+                @Override public void onUnregistrationFailed(NsdServiceInfo info, int errorCode) {}
+            };
+            synchronized (nsdLock) {
+                if (closed) return;
+                nsdManager = mgr;
+                nsdListener = listener;
+            }
+            mgr.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener);
+        } catch (Throwable error) {
+            Log.w("MarcoTV", "DLNA mDNS unavailable: " + error.getMessage());
+        }
+    }
+
+    private void unregisterNsd() {
+        NsdManager mgr = null;
+        NsdManager.RegistrationListener listener = null;
+        synchronized (nsdLock) {
+            nsdUnregisterWanted = true;
+            if (nsdRegistered) {
+                mgr = nsdManager;
+                listener = nsdListener;
+                nsdRegistered = false;
+                nsdManager = null;
+                nsdListener = null;
+            }
+        }
+        if (mgr != null && listener != null) {
+            try {
+                mgr.unregisterService(listener);
+            } catch (Throwable ignored) {}
+        }
+    }
+
     private static ServerSocket bindHttpServer(InetAddress bindAddr) throws IOException {
-        for (int candidate = PREFERRED_PORT_START; candidate <= PREFERRED_PORT_END; candidate++) {
+        for (int candidate : PREFERRED_PORTS) {
             ServerSocket srv = null;
             try {
                 srv = new ServerSocket();
@@ -456,6 +532,7 @@ final class DlnaServer implements AutoCloseable {
         if (closed) return;
         closed = true;
         mainHandler.removeCallbacks(ssdpAliveTicker);
+        unregisterNsd();
         Thread bye = new Thread(() -> sendSsdpNotify(null, ssdpSendLock, ip, port, uuid, serverToken, multicastNif, false), "MarcoDlnaBye");
         bye.setDaemon(true);
         bye.start();
