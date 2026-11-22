@@ -114,8 +114,62 @@ final class CardStore {
         }
         return out.toString();
     }
+    static final int MIN_WIDTH = 60, MAX_WIDTH = 160;
+    static final int MIN_HEIGHT = 60, MAX_HEIGHT = 150;
+    static final int MIN_DEPTH = 0, MAX_DEPTH = 100;
+    static final int MIN_RADIUS = 0, MAX_RADIUS = 90;
+
+    static final class Dimensions {
+        int width;
+        int height;
+        int depth = -1;
+        int radius = -1;
+        boolean isDefault() {
+            return width == 0 && height == 0 && depth < 0 && radius < 0;
+        }
+        String encode() {
+            return width + "," + height + "," + depth + "," + radius;
+        }
+        static Dimensions parse(String raw) {
+            Dimensions d = new Dimensions();
+            if (!SettingsCatalog.validCardSize(raw)) return d;
+            String[] parts = raw.split(",", -1);
+            d.width = Integer.parseInt(parts[0]);
+            d.height = Integer.parseInt(parts[1]);
+            d.depth = Integer.parseInt(parts[2]);
+            d.radius = Integer.parseInt(parts[3]);
+            return d;
+        }
+    }
+
+    private interface StreamOpener {
+        InputStream open() throws IOException;
+    }
+
+    Dimensions dimensions(String id) {
+        return Dimensions.parse(prefs.getString("size:" + id, ""));
+    }
+
+    void setDimensions(String id, Dimensions d) {
+        if (d == null) {
+            prefs.edit().remove("size:" + id).apply();
+            return;
+        }
+        Dimensions clean = new Dimensions();
+        clean.width = d.width == 0 ? 0 : Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, d.width));
+        clean.height = d.height == 0 ? 0 : Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, d.height));
+        clean.depth = d.depth < 0 ? -1 : Math.max(MIN_DEPTH, Math.min(MAX_DEPTH, d.depth));
+        clean.radius = d.radius < 0 ? -1 : Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, d.radius));
+        if (clean.isDefault()) prefs.edit().remove("size:" + id).apply();
+        else prefs.edit().putString("size:" + id, clean.encode()).apply();
+    }
+
+    void resetDimensions(String id) {
+        prefs.edit().remove("size:" + id).apply();
+    }
+
     void reset(String id) {
-        prefs.edit().remove("name:" + id).remove("cover:" + id).apply();
+        prefs.edit().remove("name:" + id).remove("cover:" + id).remove("size:" + id).apply();
         ArtworkCache.remove("cover:" + id);
         new AtomicFile(imageFile(id)).delete();
     }
@@ -155,7 +209,8 @@ final class CardStore {
         // Imported covers are stored as JPEG, so they never carry alpha; RGB_565 halves the cost.
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = 1;
-        while (bounds.outWidth / options.inSampleSize > 640 || bounds.outHeight / options.inSampleSize > 360) options.inSampleSize *= 2;
+        int maxSide = ArtworkCache.lean(context) ? 640 : 960;
+        while (bounds.outWidth / options.inSampleSize > maxSide || bounds.outHeight / options.inSampleSize > maxSide) options.inSampleSize *= 2;
         options.inPreferredConfig = Bitmap.Config.RGB_565;
         Bitmap decoded;
         try (InputStream in = new AtomicFile(file).openRead()) {
@@ -170,38 +225,66 @@ final class CardStore {
         return decoded;
     }
     void importImage(String id, Uri uri) throws IOException {
+        Bitmap output = writeCoverStream(id, () -> {
+            InputStream in = context.getContentResolver().openInputStream(uri);
+            if (in == null) throw new IOException("无法打开图片");
+            return in;
+        });
+        markImageCover(id, output);
+    }
+    Bitmap saveImageFileOnly(String id, File source) throws IOException {
+        return writeCoverStream(id, () -> new FileInputStream(source));
+    }
+    void markImageCover(String id, Bitmap bitmap) {
+        if (bitmap != null) {
+            bitmap.setHasMipMap(true);
+            ArtworkCache.put("cover:" + id, bitmap);
+        } else {
+            ArtworkCache.remove("cover:" + id);
+        }
+        cover(id, "image");
+    }
+    private Bitmap writeCoverStream(String id, StreamOpener opener) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+        try (InputStream in = opener.open()) {
             BitmapFactory.decodeStream(in, null, bounds);
         }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("不是可读取的图片");
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth > 16384 || bounds.outHeight > 16384
+                || (long) bounds.outWidth * bounds.outHeight > 100000000L) throw new IOException("不是可读取的图片");
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = 1;
-        while (bounds.outWidth / options.inSampleSize > 1280 || bounds.outHeight / options.inSampleSize > 1280) options.inSampleSize *= 2;
+        while (bounds.outWidth / options.inSampleSize > 1920 || bounds.outHeight / options.inSampleSize > 1920) options.inSampleSize *= 2;
         Bitmap decoded;
-        try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+        try (InputStream in = opener.open()) {
             decoded = BitmapFactory.decodeStream(in, null, options);
         }
         if (decoded == null) throw new IOException("无法解码图片");
-        Bitmap cropped = Bitmap.createBitmap(640, 360, Bitmap.Config.RGB_565);
-        Canvas canvas = new Canvas(cropped);
-        float scale = Math.max(640f / decoded.getWidth(), 360f / decoded.getHeight());
-        float w = decoded.getWidth() * scale, h = decoded.getHeight() * scale;
-        canvas.drawBitmap(decoded, null, new RectF((640-w)/2, (360-h)/2, (640+w)/2, (360+h)/2), new Paint(Paint.FILTER_BITMAP_FLAG));
+        int srcW = Math.max(1, decoded.getWidth());
+        int srcH = Math.max(1, decoded.getHeight());
+        float maxSide = ArtworkCache.lean(context) ? 640f : 960f;
+        float fit = Math.min(1f, maxSide / Math.max(srcW, srcH));
+        int outW = Math.max(1, Math.round(srcW * fit));
+        int outH = Math.max(1, Math.round(srcH * fit));
+        Bitmap output = Bitmap.createBitmap(outW, outH, Bitmap.Config.RGB_565);
+        Canvas canvas = new Canvas(output);
+        canvas.drawColor(0xFF1A2534);
+        canvas.drawBitmap(decoded, null, new RectF(0, 0, outW, outH), new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
+        decoded.recycle();
         AtomicFile target = new AtomicFile(imageFile(id));
         FileOutputStream stream = null;
+        boolean saved = false;
         try {
             stream = target.startWrite();
-            if (!cropped.compress(Bitmap.CompressFormat.JPEG, 90, stream)) throw new IOException("保存封面失败");
+            if (!output.compress(Bitmap.CompressFormat.JPEG, 90, stream)) throw new IOException("保存封面失败");
             target.finishWrite(stream);
             stream = null;
-            ArtworkCache.remove("cover:" + id);
-            cover(id, "image");
+            saved = true;
+            output.setHasMipMap(true);
+            return output;
         } finally {
             if (stream != null) target.failWrite(stream);
-            decoded.recycle();
-            cropped.recycle();
+            if (!saved) output.recycle();
         }
     }
 }

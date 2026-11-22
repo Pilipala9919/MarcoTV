@@ -21,13 +21,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Explicit local management session. All state changes are serialized on the UI thread. */
 final class PhoneManager implements PhoneHttp.Handler {
-    static final String[] KEYS={"card_radius","focus_scale","card_surface","label_opacity","clock_size","ambient_clock_size","ambient_clock_brightness",
+    static final String[] KEYS={"card_row_position","card_width","card_height","card_depth","card_radius","focus_scale","card_surface","label_opacity","clock_size","ambient_clock_size","ambient_clock_brightness",
             "ambient_dim","wallpaper_dim","motion_duration"};
-    static final String[] LABELS={"卡片圆角","选中放大幅度","卡片高光","名称显示强度","桌面时间大小","屏保时间大小","屏保时间亮度","屏保背景压暗","壁纸压暗","动效时长"};
-    static final int[] DEFAULTS={32,16,55,0,96,176,100,72,10,260};
+    static final String[] LABELS={"卡片行上下位置","卡片宽度","卡片高度","卡片厚度","卡片圆角","选中放大幅度","卡片高光","名称显示强度","桌面时间大小","屏保时间大小","屏保时间亮度","屏保背景压暗","壁纸压暗","动效时长"};
+    static final int[] DEFAULTS={75,100,100,0,32,16,55,0,96,176,100,72,10,260};
     private final MainActivity host;
     private PhoneHttp server;
-    private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="",initialTab="desktop";
+    private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="",initialTab="desktop",initialCardId="",initialCardLabel="";
     private volatile long until, pairUntil;
     private volatile boolean approved,closed=true;
     private volatile long generation;
@@ -84,11 +84,13 @@ final class PhoneManager implements PhoneHttp.Handler {
     }
     void show(){
         initialTab="desktop";
+        initialCardId="";
+        initialCardLabel="";
         if(active()){
             host.showDialog(new TvDialog.Builder(host).setPageId("phone").setTitle("Marco 互联")
                     .setMessage((approved?"手机已连接":"等待手机扫码确认")+"\n仅限当前局域网；15 分钟未操作自动关闭。\n关闭连接会取消未保存的外观预览。")
                     .setItems(new String[]{"显示连接二维码","无线投屏与镜像","断开并关闭 Marco 互联"},(d,w)->{
-                if(w==0)qr(false);
+                if(w==0)qr(0);
                 else if(w==1)host.cast.show();
                 else{
                     stop();
@@ -98,27 +100,54 @@ final class PhoneManager implements PhoneHttp.Handler {
             }).setNegativeButton("返回桌面",null).create());
             return;
         }
-        startServerAndShowQr(false);
+        startServerAndShowQr(0);
     }
     void showWallpaperImport(){
         initialTab="wallpaper";
+        initialCardId="";
+        initialCardLabel="";
         if(active()){
             if(approved){
                 host.showDialog(new TvDialog.Builder(host).setPageId("wallpaper_qr_active").setTitle("扫码导入壁纸")
                         .setMessage("手机已连接到 Marco 互联。\n你可以直接在手机浏览器「壁纸」页上传照片或 MP4 动态壁纸；也可以重新生成二维码连接另一台手机。")
                         .setItems(new String[]{"断开并重新扫码连接新手机","关闭手机连接"},(d,w)->{
                     stop();
-                    if(w==0)startServerAndShowQr(true);
+                    if(w==0)startServerAndShowQr(1);
                     else host.toast("手机连接已关闭");
                 }).setNegativeButton("返回",null).create());
                 return;
             }
-            qr(true);
+            qr(1);
             return;
         }
-        startServerAndShowQr(true);
+        startServerAndShowQr(1);
     }
-    private void startServerAndShowQr(boolean wallpaperMode){
+    void showCardCoverImport(Tile tile){
+        if(tile==null)return;
+        initialTab="desktop";
+        initialCardId=tile.id;
+        initialCardLabel=tile.label;
+        if(active()){
+            if(approved){
+                host.showDialog(new TvDialog.Builder(host).setPageId("card_qr_active").setTitle("扫码上传封面 · "+tile.label)
+                        .setMessage("手机已连接到 Marco 互联。\n你可以在手机浏览器「桌面」页直接点击「"+tile.label+"」上传图片封面或自定义长宽高；也可以重新生成二维码连接另一台手机。")
+                        .setItems(new String[]{"断开并重新扫码连接新手机","关闭手机连接"},(d,w)->{
+                    stop();
+                    if(w==0){
+                        initialTab="desktop";
+                        initialCardId=tile.id;
+                        initialCardLabel=tile.label;
+                        startServerAndShowQr(2);
+                    }else host.toast("手机连接已关闭");
+                }).setNegativeButton("返回",null).create());
+                return;
+            }
+            qr(2);
+            return;
+        }
+        startServerAndShowQr(2);
+    }
+    private void startServerAndShowQr(int mode){
         String address=address();
         if(address==null){
             host.toast("请先连接可用的 Wi-Fi 或有线局域网");
@@ -141,10 +170,10 @@ final class PhoneManager implements PhoneHttp.Handler {
             host.armIdle();
             if(host.cast!=null)host.cast.syncReceiver();
             host.handler.post(timeout);
-            qr(wallpaperMode);
+            qr(mode);
         }catch(Exception e){
             stop();
-            host.toast(wallpaperMode?"暂时无法开启扫码导入，请检查网络连接后重试":"暂时无法开启Marco 互联，请重新连接网络后重试");
+            host.toast(mode!=0?"暂时无法开启扫码上传，请检查网络连接后重试":"暂时无法开启Marco 互联，请重新连接网络后重试");
         }
     }
     private String address(){
@@ -162,7 +191,9 @@ final class PhoneManager implements PhoneHttp.Handler {
         }catch(Exception ignored){}
         return null;
     }
-    private void qr(boolean wallpaperMode){
+    private void qr(int mode){
+        boolean wallpaperMode=mode==1;
+        boolean cardMode=mode==2;
         if(approved){
             host.toast("本次已配对；连接新手机请先断开并重新开启");
             return;
@@ -173,7 +204,14 @@ final class PhoneManager implements PhoneHttp.Handler {
             clientAddress="";
             pairUntil=SystemClock.elapsedRealtime()+5*60000;
         }
-        String url="http://"+authority+(wallpaperMode?"/?tab=wallpaper#":"/#")+pairCode;
+        String query="/";
+        if(wallpaperMode)query="/?tab=wallpaper";
+        else if(cardMode&&!initialCardId.isEmpty()){
+            try{
+                query="/?tab=desktop&card="+URLEncoder.encode(initialCardId,"UTF-8");
+            }catch(Exception ignored){}
+        }
+        String url="http://"+authority+query+"#"+pairCode;
         QrCode q=QrCode.encodeText(url,QrCode.Ecc.MEDIUM);
         int side=q.size+8,scale=6;
         Bitmap bmp=Bitmap.createBitmap(side*scale,side*scale,Bitmap.Config.RGB_565);
@@ -188,7 +226,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         ImageView image=new ImageView(host);
         image.setImageBitmap(bmp);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        image.setContentDescription(wallpaperMode?"用手机相机扫描导入壁纸":"用手机相机扫描连接电视");
+        image.setContentDescription(wallpaperMode?"用手机相机扫描导入壁纸":cardMode?"用手机相机扫描上传卡片封面":"用手机相机扫描连接电视");
         box.addView(image,new LinearLayout.LayoutParams(dp(210),dp(210)));
         LinearLayout instructions=new LinearLayout(host);
         instructions.setOrientation(LinearLayout.VERTICAL);
@@ -196,7 +234,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         TextView intro=new TextView(host);
         intro.setTextColor(Color.WHITE);
         intro.setTextSize(21);
-        intro.setText(wallpaperMode?"照片与动态壁纸，扫码直传。":"你的电视，随手整理。");
+        intro.setText(wallpaperMode?"照片与动态壁纸，扫码直传。":cardMode?"卡片封面与尺寸，扫码直调。":"你的电视，随手整理。");
         intro.setPadding(0,0,0,dp(12));
         instructions.addView(intro);
         TextView text=new TextView(host);
@@ -205,18 +243,21 @@ final class PhoneManager implements PhoneHttp.Handler {
         text.setLineSpacing(dp(5),1);
         text.setText(wallpaperMode
                 ?"1  手机与电视连接同一 Wi-Fi\n2  手机相机扫码，浏览器直接进入壁纸页\n3  在电视确认允许后，选择照片或 MP4 视频上传\n\n支持静态壁纸（≤ 50 MB）与 MP4 / WebM 动态壁纸（≤ 80 MB）\n上传后自动保存到「我的壁纸」并立即设为桌面壁纸\n二维码 5 分钟有效 · 无需安装手机 App"
-                :"1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 照片/视频快投 · 导入壁纸 · 调整外观\n同时已开启 DLNA，视频 App 可直接投屏\n二维码 5 分钟有效 · 无需手机 App");
+                :cardMode
+                ?"1  手机与电视连接同一 Wi-Fi\n2  手机相机扫码，直接打开「"+initialCardLabel+"」卡片编辑页\n3  在电视确认允许后，选图裁切上传或调整长宽高\n\n支持 JPG / PNG / WebP（≤ 50 MB）\n支持所有应用与信号源卡片 · 上传后电视即时生效\n二维码 5 分钟有效 · 无需安装手机 App"
+                :"1  手机与电视连接同一网络\n2  用手机相机扫码，浏览器打开\n3  在电视上确认允许连接\n\n整理卡片 · 上传封面 · 调整长宽高 · 投屏与壁纸\n同时已开启 DLNA，视频 App 可直接投屏\n二维码 5 分钟有效 · 无需手机 App");
         instructions.addView(text);
         box.addView(instructions,new LinearLayout.LayoutParams(0,-2,1));
         TvDialog.Builder builder=new TvDialog.Builder(host).centered()
-                .setPageId(wallpaperMode?"wallpaper_qr":"phone_qr")
-                .setTitle(wallpaperMode?"扫码导入壁纸":"Marco 互联 · 扫码连接")
+                .setPageId(wallpaperMode?"wallpaper_qr":cardMode?"card_qr":"phone_qr")
+                .setTitle(wallpaperMode?"扫码导入壁纸":cardMode?"扫码上传封面 · "+initialCardLabel:"Marco 互联 · 扫码连接")
                 .setView(box)
                 .setPositiveButton("返回",null);
-        if(!wallpaperMode)builder.setNeutralButton("无线投屏",(d,w)->host.cast.show());
+        if(mode==0)builder.setNeutralButton("无线投屏",(d,w)->host.cast.show());
+        final String manualUrl="http://"+authority+query;
         builder.setNeutralButton("手动连接",(d,w)->host.showDialog(new TvDialog.Builder(host)
                 .setPageId("phone_manual").setTitle("手动连接电视")
-                .setMessage("手机浏览器打开：http://"+authority+(wallpaperMode?"/?tab=wallpaper":"/")+"\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
+                .setMessage("手机浏览器打开："+manualUrl+"\n\n连接码："+pairCode+"\n\n请勿将连接码分享给他人；电视确认后才会授权访问。")
                 .setNegativeButton("返回二维码",null).create()))
                 .setNegativeButton("关闭连接",(d,w)->{
             stop();
@@ -237,6 +278,8 @@ final class PhoneManager implements PhoneHttp.Handler {
         pairCode="";
         cookie="";
         csrf="";
+        initialCardId="";
+        initialCardLabel="";
         host.handler.removeCallbacks(timeout);
         clearPreview();
         if(server!=null){
@@ -311,6 +354,7 @@ final class PhoneManager implements PhoneHttp.Handler {
             }
         }
         if(r.path.equals("/upload"))return upload(r);
+        if(r.path.equals("/upload-cover"))return uploadCover(r);
         if(r.path.equals("/upload-video"))return uploadVideo(r);
         if(r.path.equals("/import-video-url"))return importVideoUrl(r);
         if(r.path.equals("/restore"))return restore(r);
@@ -336,6 +380,9 @@ final class PhoneManager implements PhoneHttp.Handler {
                     if(host.cast!=null)host.cast.trustIp(expectedIp);
                     if("wallpaper".equals(initialTab)&&host.dialogs.popTo("wallpaper")){
                         host.toast("手机已连接，请在手机上传图片或 MP4 动态壁纸");
+                    }else if(!initialCardId.isEmpty()){
+                        host.exitMenus();
+                        host.toast("手机已连接，请在手机编辑「"+initialCardLabel+"」封面与尺寸");
                     }else{
                         host.exitMenus();
                         host.toast("手机已连接，未保存的预览不会写入配置");
@@ -391,8 +438,14 @@ final class PhoneManager implements PhoneHttp.Handler {
                         .put("active",e.unifiedId().equals(activeWp)));
             }
         }
+        JSONObject cardDefaults=new JSONObject()
+                .put("width",host.appearance().getInt("card_width",100))
+                .put("height",host.appearance().getInt("card_height",100))
+                .put("depth",host.appearance().getInt("card_depth",0))
+                .put("radius",host.appearance().getInt("card_radius",32));
         return new JSONObject().put("version",ProjectInfo.VERSION).put("model",Build.MANUFACTURER+" "+Build.MODEL)
-                .put("revision",revision).put("csrf",csrf).put("initialTab",initialTab)
+                .put("revision",revision).put("csrf",csrf).put("initialTab",initialTab).put("initialCard",initialCardId)
+                .put("cardDefaults",cardDefaults)
                 .put("rows",rows).put("hidden",hidden).put("settings",settings).put("preview",previewing())
                 .put("wallpapers",myWallpapers).put("activeWallpaper",activeWp)
                 .put("sort",host.preferences.getString("tv_sort","recent"))
@@ -400,7 +453,11 @@ final class PhoneManager implements PhoneHttp.Handler {
                 .put("freeMB",host.getFilesDir().getUsableSpace()/1048576).put("foreground",host.foreground);
     }
     private JSONObject tile(Tile t)throws Exception{
-        return new JSONObject().put("id",t.id).put("name",host.cards.name(t.id,t.label)).put("pinned",host.cards.contains("pinned",t.id))
+        CardStore.Dimensions d=host.cards.dimensions(t.id);
+        return new JSONObject().put("id",t.id).put("name",host.cards.name(t.id,t.label)).put("kind",t.kind)
+                .put("cover",host.cards.cover(t.id))
+                .put("width",d.width).put("height",d.height).put("depth",d.depth).put("radius",d.radius)
+                .put("pinned",host.cards.contains("pinned",t.id))
                 .put("hidden",host.cards.contains("hidden",t.id));
     }
     private Tile find(String id){
@@ -457,6 +514,10 @@ final class PhoneManager implements PhoneHttp.Handler {
             previewAt=SystemClock.elapsedRealtime();
             host.home.setIdle(false);
             host.home.refreshAppearance();
+            if(next.containsKey("card_width")){
+                host.home.ensureVisible();
+                host.home.animateFocus();
+            }
             host.home.invalidate();
             return json(state());
         }
@@ -530,6 +591,30 @@ final class PhoneManager implements PhoneHttp.Handler {
                 else if(field.equals("pinned")||field.equals("hidden")){
                     host.cards.toggle(field,t.id,b.getBoolean("value"));
                     t.pinned=host.cards.contains("pinned",t.id);
+                    host.loadApplications();
+                }
+                else if(field.equals("size")){
+                    int w=b.optInt("width",0),h=b.optInt("height",0),d=b.optInt("depth",-1),rad=b.optInt("radius",-1);
+                    if((w!=0&&(w<CardStore.MIN_WIDTH||w>CardStore.MAX_WIDTH))
+                            ||(h!=0&&(h<CardStore.MIN_HEIGHT||h>CardStore.MAX_HEIGHT))
+                            ||(d!=-1&&(d<CardStore.MIN_DEPTH||d>CardStore.MAX_DEPTH))
+                            ||(rad!=-1&&(rad<CardStore.MIN_RADIUS||rad>CardStore.MAX_RADIUS)))return fail(400,"尺寸参数超出范围");
+                    CardStore.Dimensions dim=new CardStore.Dimensions();
+                    dim.width=w;
+                    dim.height=h;
+                    dim.depth=d;
+                    dim.radius=rad;
+                    host.cards.setDimensions(t.id,dim);
+                    host.catalog.applyDimensions(t.id,dim);
+                }
+                else if(field.equals("cover")){
+                    String style=b.optString("value","");
+                    if(!Arrays.asList("original","blue","green","amber","purple").contains(style))return fail(400,"不支持的封面样式");
+                    host.cards.cover(t.id,style);
+                    host.loadApplications();
+                }
+                else if(field.equals("reset")){
+                    host.cards.reset(t.id);
                     host.loadApplications();
                 }
                 else return fail(400,"不支持的卡片设置");
@@ -670,6 +755,58 @@ final class PhoneManager implements PhoneHttp.Handler {
             return res;
         }finally{
             if(imported!=null)host.wallpaperLibrary.delete(imported.id);
+            transfer.set(false);
+        }
+    }
+    private PhoneHttp.Response uploadCover(PhoneHttp.Request r)throws Exception{
+        if(!transfer.compareAndSet(false,true))return fail(409,"正在处理文件，请稍候");
+        Bitmap prepared=null;
+        try{
+            if(r.body==null||r.length<=0)return fail(400,"请选择图片");
+            long expected=Long.parseLong(r.header("x-marco-revision"));
+            String rawId=r.header("x-marco-card-id");
+            if(rawId.isEmpty())return fail(400,"缺少卡片标识");
+            String cardId;
+            try{
+                cardId=URLDecoder.decode(rawId,"UTF-8");
+            }catch(Exception e){
+                return fail(400,"无效卡片标识");
+            }
+            if(cardId.isEmpty()||cardId.length()>500)return fail(400,"无效卡片标识");
+            String precheck=main(()->{
+                if(closed||!approved)return "401";
+                if(expected!=revision||!host.foreground)return "409";
+                Tile found=find(cardId);
+                return found==null?"404":"ok:"+found.label;
+            });
+            if("401".equals(precheck))return fail(401,"连接已关闭");
+            if("409".equals(precheck))return fail(409,"电视状态已变化，请刷新后上传");
+            if("404".equals(precheck))return fail(404,"卡片不存在，请刷新后重试");
+            final String tileName=precheck.substring(3);
+            try{
+                prepared=host.cards.saveImageFileOnly(cardId,r.body);
+            }catch(IOException error){
+                return fail(400,error.getMessage()==null?"图片无法读取":error.getMessage());
+            }
+            final Bitmap bmp=prepared;
+            PhoneHttp.Response res=main(()->{
+                if(closed||!approved)return fail(401,"连接已关闭");
+                if(expected!=revision||!host.foreground)return fail(409,"电视状态已变化，请刷新后上传");
+                ownEdit=true;
+                try{
+                    host.cards.markImageCover(cardId,bmp);
+                    host.catalog.applyCoverImage(cardId,bmp);
+                    revision++;
+                    host.toast("已更新卡片封面："+tileName);
+                    return json(state());
+                }finally{
+                    ownEdit=false;
+                }
+            });
+            if(res.code==200)prepared=null;
+            return res;
+        }finally{
+            if(prepared!=null&&!prepared.isRecycled())prepared.recycle();
             transfer.set(false);
         }
     }

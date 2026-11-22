@@ -2,14 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.pilipala.tvhome;
 
+import android.animation.ArgbEvaluator;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.text.InputFilter;
 import android.view.WindowManager;
 import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -225,7 +230,7 @@ final class SettingsNavigator {
         boolean atFirst = row.selected == 0;
         boolean favorite = host.cards.contains("favorites", tile.id);
         String pinLabel = pinned && atFirst ? "取消置顶" : "置顶到首位";
-        String[] options={pinLabel,"移动卡片","重命名","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观",tile.kind==1?"打开输入源":"应用信息"};
+        String[] options={pinLabel,"移动卡片","重命名","自定义长宽高","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观",tile.kind==1?"打开输入源":"应用信息"};
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("tile",tile.id)).setTitle(tile.label)
                 .setItems(options,(d,w)->{
             switch(w){
@@ -250,21 +255,24 @@ final class SettingsNavigator {
                     renameCard(tile);
                     break;
                 case 3:
-                    coverOptions(tile);
+                    cardCustomize(tile);
                     break;
                 case 4:
+                    coverOptions(tile);
+                    break;
+                case 5:
                     host.cards.toggle("favorites",tile.id,!favorite);
                     host.loadApplications();
                     host.toast(favorite?"已取消收藏":"已加入收藏");
                     break;
-                case 5:
+                case 6:
                     cardSettings(tile);
                     break;
-                case 6:
+                case 7:
                     host.cards.reset(tile.id);
                     host.loadApplications();
                     break;
-                case 7:
+                case 8:
                     if(tile.kind==1)host.launch(tile);
                     else{
                     String version="";
@@ -280,11 +288,130 @@ final class SettingsNavigator {
             }
         }).setNegativeButton("返回",null).create());
     }
+    void cardCustomize(Tile tile){
+        if(host.phone!=null)host.phone.clearPreview();
+        CardStore.Dimensions dim=host.cards.dimensions(tile.id);
+        int gWidth=host.preferences.getInt("card_width",100);
+        int gHeight=host.preferences.getInt("card_height",100);
+        int gDepth=host.preferences.getInt("card_depth",0);
+        int gRadius=host.preferences.getInt("card_radius",32);
+        LinearLayout panel=new LinearLayout(host);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setDescendantFocusability(LinearLayout.FOCUS_AFTER_DESCENDANTS);
+        float density=host.getResources().getDisplayMetrics().density;
+        int gap=Math.round(6*density);
+        final ParameterCard[] cards=new ParameterCard[4];
+        Runnable collapseOthers=()->{
+            for(ParameterCard c:cards)if(c!=null&&c.isExpanded())c.collapse(false);
+        };
+        java.util.function.Consumer<ParameterCard> collapseExcept=keep->{
+            for(ParameterCard c:cards)if(c!=null&&c!=keep&&c.isExpanded())c.collapse(false);
+        };
+        cards[0]=new ParameterCard(host,"卡片宽度","%",CardStore.MIN_WIDTH,CardStore.MAX_WIDTH,
+                dim.width>0?dim.width:gWidth,
+                dim.width>0?"已独立设置 · 范围 60%–160%":"当前跟随全局 · 调整即独立生效",
+                v->{
+                    dim.width=v;
+                    host.cards.setDimensions(tile.id,dim);
+                    host.catalog.applyDimensions(tile.id,dim);
+                },null,()->collapseExcept.accept(cards[0]));
+        cards[1]=new ParameterCard(host,"卡片高度","%",CardStore.MIN_HEIGHT,CardStore.MAX_HEIGHT,
+                dim.height>0?dim.height:gHeight,
+                dim.height>0?"已独立设置 · 范围 60%–150%":"当前跟随全局 · 调整即独立生效",
+                v->{
+                    dim.height=v;
+                    host.cards.setDimensions(tile.id,dim);
+                    host.catalog.applyDimensions(tile.id,dim);
+                },null,()->collapseExcept.accept(cards[1]));
+        cards[2]=new ParameterCard(host,"卡片厚度","%",CardStore.MIN_DEPTH,CardStore.MAX_DEPTH,
+                dim.depth>=0?dim.depth:gDepth,
+                dim.depth>=0?"已独立设置 · 立体厚度与悬浮阴影":"当前跟随全局 · 调整即独立生效",
+                v->{
+                    dim.depth=v;
+                    host.cards.setDimensions(tile.id,dim);
+                    host.catalog.applyDimensions(tile.id,dim);
+                },null,()->collapseExcept.accept(cards[2]));
+        cards[3]=new ParameterCard(host,"卡片圆角","",CardStore.MIN_RADIUS,CardStore.MAX_RADIUS,
+                dim.radius>=0?dim.radius:gRadius,
+                dim.radius>=0?"已独立设置 · 范围 0–90":"当前跟随全局 · 调整即独立生效",
+                v->{
+                    dim.radius=v;
+                    host.cards.setDimensions(tile.id,dim);
+                    host.catalog.applyDimensions(tile.id,dim);
+                },null,()->collapseExcept.accept(cards[3]));
+        for(ParameterCard c:cards){
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+            lp.bottomMargin=gap;
+            panel.addView(c,lp);
+        }
+        ArgbEvaluator colors=new ArgbEvaluator();
+        String[] actions={"手机扫码上传封面图片…","更换封面样式 / 本地图片…"};
+        for(int i=0;i<actions.length;i++){
+            final int index=i;
+            TextView row=new TextView(host);
+            row.setText(actions[i]);
+            row.setTextColor(Color.WHITE);
+            row.setTextSize(13.5f);
+            int pad=Math.round(12*density);
+            row.setPadding(pad,pad,pad,pad);
+            row.setFocusable(true);
+            row.setFocusableInTouchMode(true);
+            GradientDrawable surface=TvDialog.background(0xFF232C37,pad);
+            surface.setStroke(Math.round(density),0x14FFFFFF);
+            row.setBackground(surface);
+            UiMotion focus=new UiMotion(row,0,30,value->{
+                surface.setColor((Integer)colors.evaluate(value,0xFF232C37,0xFF334A5E));
+                surface.setStroke(Math.round(density),(Integer)colors.evaluate(value,0x14FFFFFF,0x55FFFFFF));
+            });
+            row.setOnFocusChangeListener((v,focused)->focus.to(focused?1:0));
+            row.setOnClickListener(v->{
+                collapseOthers.run();
+                if(index==0)host.phone.showCardCoverImport(tile);
+                else coverOptions(tile);
+            });
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+            lp.bottomMargin=gap;
+            panel.addView(row,lp);
+        }
+        TvDialog page=new TvDialog.Builder(host)
+                .setPageId(SettingsCatalog.scope("card_size",tile.id))
+                .setTitle("自定义 · "+tile.label)
+                .setPreview("cards")
+                .setView(panel)
+                .setBackHandler(()->{
+                    for(ParameterCard c:cards){
+                        if(c!=null&&c.isExpanded()){
+                            c.collapse(true);
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                .setInlineButton("恢复跟随全局",(d,w)->{
+                    collapseOthers.run();
+                    dim.width=0;
+                    dim.height=0;
+                    dim.depth=-1;
+                    dim.radius=-1;
+                    host.cards.resetDimensions(tile.id);
+                    host.catalog.applyDimensions(tile.id,dim);
+                    cards[0].setValue(gWidth,false);
+                    cards[1].setValue(gHeight,false);
+                    cards[2].setValue(gDepth,false);
+                    cards[3].setValue(gRadius,false);
+                    host.toast("已恢复跟随全局尺寸");
+                })
+                .create();
+        host.showDialog(page);
+        panel.post(()->cards[0].focusHeader());
+    }
     void cardSettings(Tile tile){
         boolean pinned=host.cards.contains("pinned",tile.id),favorite=host.cards.contains("favorites",tile.id);
         ArrayList<String> options=new ArrayList<>();
         options.add(pinned?"取消置顶":"置顶卡片");
         options.add(favorite?"取消收藏":"加入收藏");
+        options.add("自定义长宽高");
+        options.add("更换封面");
         options.add("隐藏卡片");
         if(tile.kind==0)options.add("卸载应用");
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("card",tile.id)).setTitle("单独卡片设置 · "+tile.label)
@@ -299,8 +426,12 @@ final class SettingsNavigator {
                 host.cards.toggle("favorites",tile.id,!favorite);
                 host.loadApplications();
                 cardSettings(tile);
+            }else if(w==2){
+                cardCustomize(tile);
+            }else if(w==3){
+                coverOptions(tile);
             }
-            else if(w==2)host.showDialog(new TvDialog.Builder(host).setPageId("hide_confirm").setTitle("隐藏「"+tile.label+"」？")
+            else if(w==4)host.showDialog(new TvDialog.Builder(host).setPageId("hide_confirm").setTitle("隐藏「"+tile.label+"」？")
                     .setMessage("从桌面与收藏中隐藏，不卸载。可在应用与媒体设置中恢复。")
                     .setPositiveButton("隐藏",(x,y)->{
                 host.cards.toggle("hidden",tile.id,true);
@@ -393,11 +524,14 @@ final class SettingsNavigator {
     }
 
     void coverOptions(Tile tile) {
-        String[] names = {"原始图标或横幅", "本地图片…", "午夜蓝", "森林绿", "暖琥珀", "雾紫"};
-        String[] styles = {"original", "image", "blue", "green", "amber", "purple"};
+        String[] names = {"手机扫码上传图片…", "电视本地图片…", "原始图标或横幅", "午夜蓝", "森林绿", "暖琥珀", "雾紫"};
+        String[] styles = {"qr", "image", "original", "blue", "green", "amber", "purple"};
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("cover",tile.id)).setTitle("更换封面 · " + tile.label)
                 .setItems(names, (d, which) -> {
-            if (which == 1) {
+            if (which == 0) {
+                host.phone.showCardCoverImport(tile);
+            }
+            else if (which == 1) {
                 host.cover.pendingId = tile.id;
                 host.handler.post(host.cover::chooseCoverImage);
             }

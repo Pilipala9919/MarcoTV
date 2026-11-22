@@ -123,7 +123,8 @@ final class TvDialog extends Dialog {
         if(isShowing())((MainActivity)spec.activity).home.preview(key);
     }
     boolean isPersonalization(){
-        return "personalization".equals(pageKey());
+        String key=pageKey();
+        return "personalization".equals(key)||key.startsWith("card_size:");
     }
     boolean isFullscreen(){
         return spec.fullscreen;

@@ -41,7 +41,9 @@ final class PersonalizationPanel extends LinearLayout {
 
         section("cards", "桌面卡片与动效");
         slider("卡片行上下位置", "card_row_position", 0, 100, 75, "%", "0% 靠上 · 100% 靠下；默认 75%");
+        slider("卡片宽度", "card_width", 60, 160, 100, "%", "60% 紧凑 · 100% 标准 · 160% 宽幅");
         slider("卡片高度", "card_height", 70, 130, 100, "%", null);
+        slider("卡片厚度", "card_depth", 0, 100, 0, "%", "立体厚度与悬浮阴影深度");
         slider("卡片圆角", "card_radius", 0, 90, 32, "", null);
         slider("选中放大", "focus_scale", 0, 30, 16, "%", null);
         slider("未选中名称亮度", "label_opacity", 0, 100, 0, "%", null);
@@ -141,6 +143,10 @@ final class PersonalizationPanel extends LinearLayout {
                     host.preferences.edit().putInt(key, value).apply();
                     if (key.equals("clock_style")) updateClockControls();
                     host.home.refreshAppearance();
+                    if (key.equals("card_width")) {
+                        host.home.ensureVisible();
+                        host.home.animateFocus();
+                    }
                     host.home.invalidate();
                     if (key.equals("ambient_transition")) host.home.replayPreview();
                     if (key.equals("idle_seconds")) host.screensaver.resume();

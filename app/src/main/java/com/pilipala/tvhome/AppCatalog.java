@@ -189,6 +189,11 @@ final class AppCatalog {
             for (Tile tile : catalog) {
                 tile.label = host.cards.name(tile.id, tile.label);
                 tile.pinned=host.cards.contains("pinned",tile.id);
+                CardStore.Dimensions dim = host.cards.dimensions(tile.id);
+                tile.customWidth = dim.width;
+                tile.customHeight = dim.height;
+                tile.customDepth = dim.depth;
+                tile.customRadius = dim.radius;
                 String style = host.cards.cover(tile.id);
                 if (style.equals("image")) {
                     Bitmap custom = host.cards.loadImage(tile.id);
@@ -267,7 +272,47 @@ final class AppCatalog {
         t.kind = source.kind;
         t.tint = source.tint;
         t.glyph = source.glyph;
+        t.customWidth = source.customWidth;
+        t.customHeight = source.customHeight;
+        t.customDepth = source.customDepth;
+        t.customRadius = source.customRadius;
         return t;
+    }
+
+    void applyDimensions(String id, CardStore.Dimensions dim) {
+        if (id == null || dim == null) return;
+        for (Tile t : host.allTiles) if (id.equals(t.id)) copyDimensions(t, dim);
+        for (Row r : host.home.rows) {
+            for (Tile t : r.tiles) if (id.equals(t.id)) copyDimensions(t, dim);
+        }
+        host.home.ensureVisible();
+        host.home.animateFocus();
+        host.home.invalidate();
+    }
+
+    private static void copyDimensions(Tile t, CardStore.Dimensions dim) {
+        t.customWidth = dim.width;
+        t.customHeight = dim.height;
+        t.customDepth = dim.depth;
+        t.customRadius = dim.radius;
+        t.displayLabel = null;
+        t.coverLabel = null;
+    }
+
+    void applyCoverImage(String id, Bitmap bmp) {
+        if (id == null || bmp == null) return;
+        for (Tile t : host.allTiles) if (id.equals(t.id)) assignCoverImage(t, bmp);
+        for (Row r : host.home.rows) {
+            for (Tile t : r.tiles) if (id.equals(t.id)) assignCoverImage(t, bmp);
+        }
+        host.home.invalidate();
+    }
+
+    private static void assignCoverImage(Tile t, Bitmap bmp) {
+        t.artwork = bmp;
+        t.banner = true;
+        t.shader = null;
+        t.tint = 0;
     }
     private void sortSaved(Row row) {
         final List<String> order = Arrays.asList(host.preferences.getString(row.orderKey, "").split("\\|"));

@@ -58,7 +58,7 @@ public final class MainActivity extends Activity {
     }
     int menuEpoch;
     final ArrayList<Tile> allTiles = new ArrayList<>();
-    private final AppCatalog catalog = new AppCatalog(this);
+    final AppCatalog catalog = new AppCatalog(this);
     private final WallpaperLoader wallpapers = new WallpaperLoader(this);
     private boolean ambientRequested;
     final Handler handler = new Handler(Looper.getMainLooper());

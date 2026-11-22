@@ -37,6 +37,7 @@ public final class PhoneHttpChecks {
             public PhoneHttp.Response handle(PhoneHttp.Request r)throws Exception{
                 if(r.path.equals("/cast"))return PhoneHttp.Response.text(200,"cast:"+(r.body==null?0:r.body.length()));
                 if(r.path.equals("/upload"))return PhoneHttp.Response.text(200,"upload:"+(r.body==null?0:r.body.length()));
+                if(r.path.equals("/upload-cover"))return PhoneHttp.Response.text(200,"upload-cover:"+(r.body==null?0:r.body.length()));
                 if(r.path.equals("/upload-video"))return PhoneHttp.Response.text(200,"upload-video:"+(r.body==null?0:r.body.length()));
                 return PhoneHttp.Response.text(200,r.remoteAddress+":"+r.text());
             }
@@ -58,6 +59,8 @@ public final class PhoneHttpChecks {
             check("upload_limit_relaxed_to_50mb",PhoneHttp.MAX_UPLOAD_BYTES==50L*1024*1024);
             check("authorized_upload_accepts_body",send(port,"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n"+largePayload).endsWith("upload:70000"));
             check("upload_over_50mb_rejected_413",send(port,"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: "+(PhoneHttp.MAX_UPLOAD_BYTES+1)+"\r\n\r\n").startsWith("HTTP/1.1 413"));
+            check("authorized_cover_upload_accepts_body",send(port,"POST /upload-cover HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n"+largePayload).endsWith("upload-cover:70000"));
+            check("cover_upload_over_50mb_rejected_413",send(port,"POST /upload-cover HTTP/1.1\r\nHost: localhost\r\nContent-Length: "+(PhoneHttp.MAX_UPLOAD_BYTES+1)+"\r\n\r\n").startsWith("HTTP/1.1 413"));
             check("video_upload_limit_is_80mb",PhoneHttp.MAX_VIDEO_UPLOAD_BYTES==80L*1024*1024);
             check("authorized_video_upload_accepts_body",send(port,"POST /upload-video HTTP/1.1\r\nHost: localhost\r\nContent-Length: 70000\r\n\r\n"+largePayload).endsWith("upload-video:70000"));
             check("video_upload_over_80mb_rejected_413",send(port,"POST /upload-video HTTP/1.1\r\nHost: localhost\r\nContent-Length: "+(PhoneHttp.MAX_VIDEO_UPLOAD_BYTES+1)+"\r\n\r\n").startsWith("HTTP/1.1 413"));

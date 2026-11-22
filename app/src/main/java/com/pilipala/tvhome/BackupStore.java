@@ -193,6 +193,7 @@ final class BackupStore {
                     if(key.equals("tv_sort")&&!Arrays.asList(AppOrder.MODES).contains(value))throw new IOException("sort");
                     if(key.startsWith("cover:")&&!Arrays.asList("original","image","blue","green","amber","purple")
                             .contains(value))throw new IOException("cover");
+                    if(key.startsWith("size:")&&!SettingsCatalog.validCardSize((String)value))throw new IOException("size");
                     if(key.startsWith("manual:")){
                         ComponentName component=ComponentName.unflattenFromString((String)value);
                         if(component==null||!component.getPackageName().equals(key.substring(7)))throw new IOException("component");

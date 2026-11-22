@@ -160,7 +160,7 @@ final class AppearanceDeviceChecks {
                 editorPage[0]=(TvDialog)field(host.dialogs,"activeDialog");editor[0]=(PersonalizationPanel)field(field(editorPage[0],"spec"),"view");
                 java.util.Map<String,ParameterCard> controls=(java.util.Map<String,ParameterCard>)field(editor[0],"controls");
                 ChoiceMenu fontMenu=(ChoiceMenu)field(editor[0],"clockStyle");
-                check.accept("personalization_contains_twenty_four_controls",controls.size()==23&&fontMenu!=null&&!controls.containsKey("clock_style"));
+                check.accept("personalization_contains_twenty_six_controls",controls.size()==25&&fontMenu!=null&&!controls.containsKey("clock_style"));
                 ParameterCard radiusCard=controls.get("card_radius");
                 check.accept("parameter_card_starts_collapsed",!radiusCard.isExpanded());
                 radiusCard.expand();

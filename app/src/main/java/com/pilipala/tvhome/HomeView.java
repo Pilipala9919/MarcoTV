@@ -20,6 +20,11 @@ final class Tile {
     final MotionSpring emphasis = new MotionSpring(0, 22, 0.001f);
     final MotionSpring press = new MotionSpring(0, 32, 0.001f);
     String displayLabel, coverLabel;
+    float displayLabelWidth, coverLabelWidth;
+    int customWidth;
+    int customHeight;
+    int customDepth = -1;
+    int customRadius = -1;
     int kind;
     // 0 installed application, 1 TV input
 }
@@ -82,8 +87,21 @@ final class HomeView extends View {
     private final Paint shadowPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG|Paint.DITHER_FLAG);
     private static final float SHADOW_PAD = 80f;
     private static final float SHADOW_SCALE = 0.5f;
-    private Bitmap ambientShadow, contactShadow;
-    private int shadowBaseH = -1, shadowBaseR = -1;
+    private static final float CARD_GAP = 30f;
+    private static final float SHELF_START_X = 112f;
+    private static final int MAX_SHADOW_CACHE = 12;
+    private final LinkedHashMap<Long, Bitmap[]> shadowCache = new LinkedHashMap<Long, Bitmap[]>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Long, Bitmap[]> eldest) {
+            if (size() > MAX_SHADOW_CACHE) {
+                Bitmap[] pair = eldest.getValue();
+                if (pair != null) {
+                    for (Bitmap b : pair) if (b != null && !b.isRecycled()) b.recycle();
+                }
+                return true;
+            }
+            return false;
+        }
+    };
     private final Matrix surfaceMatrix=new Matrix();
     private final RectF surfaceBounds=new RectF();
     private final LinearGradient surfaceGradient=new LinearGradient(0,0,0,1,
@@ -92,11 +110,17 @@ final class HomeView extends View {
             new int[]{0x24FFFFFF,0x0AFFFFFF,0x00000000},new float[]{0,.34f,1},Shader.TileMode.CLAMP);
     private final LinearGradient rimGradient=new LinearGradient(0,0,0,1,
             new int[]{0xF4FFFFFF,0x76FFFFFF,0x34FFFFFF},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
+    private final LinearGradient depthSlabGradient=new LinearGradient(0,0,1,0,
+            new int[]{0x38FFFFFF,0x0CFFFFFF,0x22FFFFFF,0x08FFFFFF,0x34FFFFFF},new float[]{0f,.18f,.50f,.82f,1f},Shader.TileMode.CLAMP);
     private final MotionSpring entrance=new MotionSpring(1,15,.001f);
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
-    private final MotionSpring magicFocus=new MotionSpring(0,20,.001f);
+    private final MotionSpring[] headerFocus={
+        new MotionSpring(0,20,.001f),
+        new MotionSpring(0,20,.001f),
+        new MotionSpring(0,20,.001f),
+        new MotionSpring(0,20,.001f)
+    };
     private final Paint magicPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.DITHER_FLAG);
-    private final LinearGradient magicGradient=new LinearGradient(-11,-7,23,18,0xB078CADC,0x7039587F,Shader.TileMode.CLAMP);
     private boolean edgeOpen;
     private int edgeSelected;
     private final String[] edgeItems={"添加应用","编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
@@ -146,10 +170,6 @@ final class HomeView extends View {
             paint.setTypeface(normal);
             paint.setTextSize(23);
             float textWidth=paint.measureText(labels[i]);
-            if(i==0){
-                paint.setTextSize(14);
-                textWidth=Math.max(textWidth,paint.measureText("by Pilipala"));
-            }
             headerContentRight[i]=Math.round(headerTextX[i]+textWidth);
             cursor=headerContentRight[i]+HEADER_ITEM_GAP;
         }
@@ -367,7 +387,7 @@ final class HomeView extends View {
         }
         headerAlpha.target(row==-1?1:0);
         section.target(Math.max(0, row));
-        magicFocus.target(row==-1&&topSelected==2?1:0);
+        for(int i=0;i<headerFocus.length;i++)headerFocus[i].target(row==-1&&topSelected==i?1:0);
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             for (int j = 0; j < r.tiles.size(); j++) r.tiles.get(j).emphasis.target(i == row && j == r.selected ? 1 : 0);
@@ -397,7 +417,7 @@ final class HomeView extends View {
         boolean moving = section.step(dt);
         moving|=edge.step(dt);
         moving|=entrance.step(dt);
-        moving|=magicFocus.step(dt);
+        for(MotionSpring focus:headerFocus)moving|=focus.step(dt);
         moving|=headerLeft.step(dt);
         moving|=headerRight.step(dt);
         moving|=headerAlpha.step(dt);
@@ -442,8 +462,22 @@ final class HomeView extends View {
     void ensureVisible() {
         if (row < 0 || row >= rows.size()) return;
         Row r = rows.get(row);
-        float next = Math.max(0, r.selected - 1) * 350f;
-        r.scroll.target(next);
+        if (r.tiles.isEmpty()) {
+            r.scroll.target(0);
+            return;
+        }
+        int sel = Math.max(0, Math.min(r.selected, r.tiles.size() - 1));
+        float target = 0f;
+        if (sel > 0) {
+            float prevLeft = tileCenterX(r, sel - 1) - tileWidth(r.tiles.get(sel - 1)) * 0.5f;
+            target = Math.max(0f, prevLeft - SHELF_START_X);
+        }
+        float selW = tileWidth(r.tiles.get(sel));
+        float selRight = tileCenterX(r, sel) + selW * 0.5f;
+        if (selRight - target > 1920f - SHELF_START_X) {
+            target = Math.max(target, selRight - (1920f - SHELF_START_X));
+        }
+        r.scroll.target(target);
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -517,29 +551,30 @@ final class HomeView extends View {
             paint.setTextSize(23);
             float labelBaseline=113f-(paint.ascent()+paint.descent())/2f;
             for(int i=0;i<4;i++){
-                int color=alphaColor(i==topSelected&&row==-1?Color.WHITE:0xD4FFFFFF,contentAlpha);
+                float focus=clamp01(headerFocus[i].value);
+                int color=alphaColor((Math.round(212+43*focus)<<24)|0xFFFFFF,contentAlpha);
                 float ix=headerIconX[i],tx=headerTextX[i];
                 if(i==0){
-                    settingsIcon(canvas,ix,113,color);
-                    text(canvas,"MARCO TV",tx,110,23,normal,color,Paint.Align.LEFT);
-                    text(canvas,"by Pilipala",tx,134,14,normal,alphaColor(0x78FFFFFF,contentAlpha),Paint.Align.LEFT);
+                    settingsIcon(canvas,ix,113,color,focus);
+                    text(canvas,"MARCO TV",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
                 else if(i==1){
-                    connectIcon(canvas,ix,112,color);
+                    connectIcon(canvas,ix,112,color,focus);
                     text(canvas,"Marco 互联",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
                 else if(i==2){
-                    magicIcon(canvas,ix,112,color);
+                    magicIcon(canvas,ix,112,color,focus);
                     text(canvas,"Magic Desktop",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
                 else{
-                    allAppsIcon(canvas,ix,113,color);
+                    allAppsIcon(canvas,ix,113,color,focus);
                     text(canvas,"全部应用",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
                 }
             }
             if(host.phone!=null&&host.phone.active()){
-                paint.setColor(0xFF9FE0C4);
-                canvas.drawCircle(headerIconX[1]+20,95,4.5f,paint);
+                float connectFocus=clamp01(headerFocus[1].value);
+                paint.setColor(alphaColor(0xFF9FE0C4,contentAlpha));
+                canvas.drawCircle(headerIconX[1]+20+1.8f*connectFocus,95+1.0f*connectFocus,4.5f,paint);
             }
             canvas.restoreToCount(headerSave);
             wifiIcon(canvas,Math.round(wifiX),113,row==-1&&topSelected==4?alphaColor(Color.WHITE,contentAlpha):muted);
@@ -566,7 +601,8 @@ final class HomeView extends View {
                 }
                 canvas.restoreToCount(shelfClip);
                 int next = Math.max(0, row) + 1;
-                float bottomLabelY = shelfCenterY() + cardHeight() / 2f + 68f;
+                float rowH = row >= 0 && row < rows.size() ? rowMaxHeight(rows.get(row)) : cardHeight();
+                float bottomLabelY = shelfCenterY() + rowH / 2f + 68f;
                 float nextHintFade = Math.max(0f, Math.min(1f, (945f - bottomLabelY) / 65f));
                 if (next < rows.size() && nextHintFade > 0.01f) {
                     Row r = rows.get(next);
@@ -583,8 +619,21 @@ final class HomeView extends View {
         canvas.restore();
     }
 
+    private static float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
+    }
+
     private int alphaColor(int color, float a) {
-        return (color & 0x00FFFFFF) | (Math.round(Color.alpha(color) * a) << 24);
+        return (color & 0x00FFFFFF) | (Math.round(Color.alpha(color) * clamp01(a)) << 24);
+    }
+
+    private static int blendColor(int from, int to, float t) {
+        float k = clamp01(t);
+        int a = Math.round(Color.alpha(from) + (Color.alpha(to) - Color.alpha(from)) * k);
+        int r = Math.round(Color.red(from) + (Color.red(to) - Color.red(from)) * k);
+        int g = Math.round(Color.green(from) + (Color.green(to) - Color.green(from)) * k);
+        int b = Math.round(Color.blue(from) + (Color.blue(to) - Color.blue(from)) * k);
+        return Color.argb(a, r, g, b);
     }
 
     private void drawPlayback(Canvas canvas,float opacity) {
@@ -652,10 +701,20 @@ final class HomeView extends View {
         text(canvas, text, x, y, size, font, color, align);
     }
 
-    private void settingsIcon(Canvas canvas,float x,float y,int color){
+    private void settingsIcon(Canvas canvas,float x,float y,int color,float focus){
+        float f=clamp01(focus);
+        float alpha=Color.alpha(color)/255f;
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
+        float zoom=1f+0.06f*f;
+        canvas.scale(zoom,zoom);
+        canvas.rotate(45f*f);
         paint.setShader(null);
+        if(f>0.01f){
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(alphaColor(0x448CD6F0,alpha*f));
+            canvas.drawCircle(0,0,9.5f,paint);
+        }
         paint.setColor(color);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
@@ -669,11 +728,12 @@ final class HomeView extends View {
             canvas.drawLine(cos*11.6f,sin*11.6f,cos*15.4f,sin*15.4f,paint);
         }
         paint.setStyle(Paint.Style.FILL);
-        canvas.drawCircle(0,0,3.6f,paint);
+        canvas.drawCircle(0,0,3.6f+0.6f*f,paint);
         canvas.restore();
     }
-    private void magicIcon(Canvas canvas,float x,float y,int color){
-        float spread=Math.round(2*Math.max(0,Math.min(1,magicFocus.value)));
+    private void magicIcon(Canvas canvas,float x,float y,int color,float focus){
+        float f=clamp01(focus);
+        float spread=2f*f;
         float alpha=Color.alpha(color)/255f;
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
@@ -698,53 +758,95 @@ final class HomeView extends View {
         // Front glass card with crisp stroke and sharp 4-point sparkle
         rect.set(-9+spread,-6+spread,18+spread,14+spread);
         magicPaint.setStyle(Paint.Style.FILL);
-        magicPaint.setColor(alphaColor(0x308CD6F0,alpha));
+        magicPaint.setColor(alphaColor(0xFF8CD6F0,alpha*(0.18f+0.14f*f)));
         canvas.drawRoundRect(rect,4.5f,4.5f,magicPaint);
         magicPaint.setStyle(Paint.Style.STROKE);
         magicPaint.setStrokeWidth(2.6f);
         magicPaint.setColor(color);
         canvas.drawRoundRect(rect,4.5f,4.5f,magicPaint);
         // Crisp 4-point star sparkle centered on front card
-        float sx=4.5f+spread,sy=4f+spread,sr=5.2f,si=1.7f;
+        float sx=4.5f+spread,sy=4f+spread;
+        float sr=5.2f*(1f+0.16f*f),si=1.7f*(1f+0.10f*f);
+        canvas.save();
+        canvas.translate(sx,sy);
+        canvas.rotate(90f*f);
         iconPath.reset();
-        iconPath.moveTo(sx,sy-sr);
-        iconPath.lineTo(sx+si,sy-si);
-        iconPath.lineTo(sx+sr,sy);
-        iconPath.lineTo(sx+si,sy+si);
-        iconPath.lineTo(sx,sy+sr);
-        iconPath.lineTo(sx-si,sy+si);
-        iconPath.lineTo(sx-sr,sy);
-        iconPath.lineTo(sx-si,sy-si);
+        iconPath.moveTo(0,-sr);
+        iconPath.lineTo(si,-si);
+        iconPath.lineTo(sr,0);
+        iconPath.lineTo(si,si);
+        iconPath.lineTo(0,sr);
+        iconPath.lineTo(-si,si);
+        iconPath.lineTo(-sr,0);
+        iconPath.lineTo(-si,-si);
         iconPath.close();
         magicPaint.setStyle(Paint.Style.FILL);
         magicPaint.setColor(color);
         canvas.drawPath(iconPath,magicPaint);
         canvas.restore();
+        canvas.restore();
     }
-    private void connectIcon(Canvas canvas,float x,float y,int color){
+    private void connectIcon(Canvas canvas,float x,float y,int color,float focus){
+        float f=clamp01(focus);
+        float alpha=Color.alpha(color)/255f;
+        float tvX=-1.5f*f,tvY=-1.0f*f;
+        float phoneX=1.8f*f,phoneY=1.0f*f;
+        float gapX=phoneX-tvX,gapY=phoneY-tvY;
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
         paint.setShader(null);
-        paint.setColor(color);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2.6f);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
         // Open-path TV display leaving clean space for the overlapping phone (no blurry clipRect)
+        canvas.save();
+        canvas.translate(tvX,tvY);
+        paint.setColor(blendColor(color,alphaColor(0xDDFFFFFF,alpha),f*0.5f));
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.6f);
         iconPath.reset();
-        iconPath.moveTo(2,7);
+        iconPath.moveTo(Math.min(8f,2f+gapX),7);
         iconPath.lineTo(-17,7);
         iconPath.quadTo(-20,7,-20,4);
         iconPath.lineTo(-20,-10);
         iconPath.quadTo(-20,-13,-17,-13);
         iconPath.lineTo(8,-13);
         iconPath.quadTo(11,-13,11,-10);
-        iconPath.lineTo(11,-8);
+        iconPath.lineTo(11,Math.min(4f,-8f+gapY));
         canvas.drawPath(iconPath,paint);
         // Crisp TV stand
         canvas.drawLine(-7,7,-7,12,paint);
         canvas.drawLine(-13,12,-1,12,paint);
-        // Crisp phone outline
+        // Subtle link waves blooming from the phone toward the TV screen on focus
+        if(f>0.02f){
+            float w1=clamp01(f*1.4f);
+            float w2=clamp01((f-0.22f)/0.78f);
+            paint.setStrokeWidth(2.0f);
+            float cx=2.5f,cy=0.5f;
+            if(w1>0.01f){
+                float r1=3.2f+2.4f*w1;
+                paint.setColor(alphaColor(0xFF9DE0FA,alpha*w1*0.92f));
+                rect.set(cx-r1,cy-r1,cx+r1,cy+r1);
+                canvas.drawArc(rect,195,60,false,paint);
+            }
+            if(w2>0.01f){
+                float r2=6.8f+3.4f*w2;
+                paint.setColor(alphaColor(0xFF9DE0FA,alpha*w2*0.78f));
+                rect.set(cx-r2,cy-r2,cx+r2,cy+r2);
+                canvas.drawArc(rect,195,60,false,paint);
+            }
+        }
+        canvas.restore();
+        // Crisp phone card shifting slightly forward on focus
+        canvas.translate(phoneX,phoneY);
+        if(f>0.01f){
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(alphaColor(0x368CD6F0,alpha*f));
+            rect.set(5,-6,20,15);
+            canvas.drawRoundRect(rect,3.8f,3.8f,paint);
+        }
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.6f);
+        paint.setColor(color);
         rect.set(5,-6,20,15);
         canvas.drawRoundRect(rect,3.8f,3.8f,paint);
         // Crisp speaker & home pill
@@ -755,16 +857,25 @@ final class HomeView extends View {
         canvas.drawRoundRect(rect,1f,1f,paint);
         canvas.restore();
     }
-    private void allAppsIcon(Canvas canvas,float x,float y,int color){
+    private void allAppsIcon(Canvas canvas,float x,float y,int color,float focus){
+        float f=clamp01(focus);
+        float alpha=Color.alpha(color)/255f;
+        float spacing=10f+1.8f*f;
+        int accent=blendColor(color,alphaColor(0xFF8CD6F0,alpha),f);
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
         paint.setShader(null);
-        paint.setColor(color);
         paint.setStyle(Paint.Style.FILL);
-        float[] pos={-13,-3,7};
-        for(float py:pos)for(float px:pos){
-            rect.set(px,py,px+6,py+6);
-            canvas.drawRoundRect(rect,1.8f,1.8f,paint);
+        for(int ry=-1;ry<=1;ry++){
+            for(int rx=-1;rx<=1;rx++){
+                boolean center=rx==0&&ry==0;
+                float cx=rx*spacing,cy=ry*spacing;
+                float half=center?3f+0.65f*f:3f;
+                float corner=center?1.8f+0.5f*f:1.8f+0.3f*f;
+                paint.setColor(center?accent:color);
+                rect.set(cx-half,cy-half,cx+half,cy+half);
+                canvas.drawRoundRect(rect,corner,corner,paint);
+            }
         }
         canvas.restore();
     }
@@ -901,8 +1012,56 @@ final class HomeView extends View {
         canvas.restore();
     }
 
+    float cardWidth(){
+        return 3.2f*Math.max(60,Math.min(160,host.appearance().getInt("card_width",100)));
+    }
     float cardHeight(){
         return 1.8f*Math.max(70,Math.min(130,host.appearance().getInt("card_height",100)));
+    }
+    int cardDepth(){
+        return Math.max(0,Math.min(100,host.appearance().getInt("card_depth",0)));
+    }
+    float tileWidth(Tile t){
+        if(t!=null&&t.customWidth>0){
+            return 3.2f*Math.max(CardStore.MIN_WIDTH,Math.min(CardStore.MAX_WIDTH,t.customWidth));
+        }
+        return cardWidth();
+    }
+    float tileHeight(Tile t){
+        if(t!=null&&t.customHeight>0){
+            return 1.8f*Math.max(CardStore.MIN_HEIGHT,Math.min(CardStore.MAX_HEIGHT,t.customHeight));
+        }
+        return cardHeight();
+    }
+    float tileDepth(Tile t){
+        int d=t!=null&&t.customDepth>=0?Math.max(CardStore.MIN_DEPTH,Math.min(CardStore.MAX_DEPTH,t.customDepth)):cardDepth();
+        return d/100f;
+    }
+    float tileRadius(Tile t){
+        if(t!=null&&t.customRadius>=0){
+            return Math.max(CardStore.MIN_RADIUS,Math.min(CardStore.MAX_RADIUS,t.customRadius));
+        }
+        return radius;
+    }
+    private float tileCenterX(Row r,int index){
+        float cursor=SHELF_START_X;
+        for(int i=0;i<index&&i<r.tiles.size();i++){
+            cursor+=tileWidth(r.tiles.get(i))+CARD_GAP;
+        }
+        if(index>=0&&index<r.tiles.size()){
+            cursor+=tileWidth(r.tiles.get(index))*0.5f;
+        }
+        return cursor;
+    }
+    private float rowMaxHeight(Row r){
+        float maxH=cardHeight();
+        if(r!=null){
+            for(Tile t:r.tiles){
+                float th=tileHeight(t);
+                if(th>maxH)maxH=th;
+            }
+        }
+        return maxH;
     }
     float shelfCenterY(){
         float half=cardHeight()/2f,position=Math.max(0,Math.min(100,host.appearance().getInt("card_row_position",75)))/100f;
@@ -917,36 +1076,70 @@ final class HomeView extends View {
         float arrival=Math.max(0,Math.min(1,entrance.value));
         y+=30*(1-arrival);
         opacity*=.65f+.35f*arrival;
-        drawShelfIcon(canvas, r.orderKey, 130, y - cardHeight()/2-86, opacity);
-        shadowText(canvas, r.title, 166, y - cardHeight()/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT, opacity);
+        float rowMaxH=rowMaxHeight(r);
+        drawShelfIcon(canvas, r.orderKey, 130, y - rowMaxH/2-86, opacity);
+        shadowText(canvas, r.title, 166, y - rowMaxH/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT, opacity);
         if(r.tiles.isEmpty())shadowText(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xD6FFFFFF,opacity),Paint.Align.LEFT,opacity);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
-        for (int i = 0; i < r.tiles.size(); i++) if (i != raised) drawTile(canvas, r.tiles.get(i), 272 + i * 350 - r.scroll.value, y, opacity);
-        if (raised >= 0) drawTile(canvas, r.tiles.get(raised), 272 + raised * 350 - r.scroll.value, y, opacity);
+        float cursor = SHELF_START_X;
+        float raisedX = 0f;
+        for (int i = 0; i < r.tiles.size(); i++) {
+            Tile tile = r.tiles.get(i);
+            float tw = tileWidth(tile);
+            float cx = cursor + tw * 0.5f - r.scroll.value;
+            cursor += tw + CARD_GAP;
+            if (i == raised) raisedX = cx;
+            else drawTile(canvas, tile, cx, y, opacity);
+        }
+        if (raised >= 0) drawTile(canvas, r.tiles.get(raised), raisedX, y, opacity);
     }
 
     private void drawTile(Canvas canvas, Tile tile, float x, float shelfY, float opacity) {
-        if (x < -250 || x > 2180) return;
+        float baseWidth = tileWidth(tile);
+        float baseHeight = tileHeight(tile);
+        if (x + baseWidth * 0.75f < -120 || x - baseWidth * 0.75f > 2040) return;
         float emphasis = clampedEmphasis(tile);
         float press = Math.max(0, Math.min(1, tile.press.value));
         float zoom = (1 + focusScale * emphasis) * (1 - .035f * press);
         float y = shelfY - 16 * emphasis;
-        float baseHeight = cardHeight(), contentZoom = zoom * Math.min(1, baseHeight / 180);
-        float w = 320 * zoom, h = baseHeight * zoom;
+        float contentZoom = zoom * Math.min(1f, Math.min(baseWidth / 320f, baseHeight / 180f));
+        float w = baseWidth * zoom, h = baseHeight * zoom;
         if ((emphasis < 0.002f || emphasis > 0.998f) && press < 0.002f) {
             rect.set(Math.round(x - w / 2), Math.round(y - h / 2), Math.round(x + w / 2), Math.round(y + h / 2));
         } else {
             rect.set(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
         }
-        float cardRadius = radius * zoom;
-        if (surfaceStrength > 0) {
+        float baseRad = tileRadius(tile);
+        float cardRadius = Math.min(baseRad * zoom, Math.min(w, h) * 0.5f);
+        float depth = tileDepth(tile);
+        float thickness = 18f * depth * zoom;
+        if (surfaceStrength > 0 || depth > 0.005f) {
             // Smooth Gaussian-blurred tvOS floating elevation shadow (cached at 0.5x to avoid banding and per-frame blur cost).
-            float sBase = opacity * surfaceStrength;
-            ensureShadows(baseHeight, radius);
+            float sBase = opacity * Math.max(surfaceStrength, depth * 0.85f);
+            Bitmap[] shadows = ensureShadows(baseWidth, baseHeight, baseRad);
             float pad = SHADOW_PAD * zoom;
-            drawShadowBitmap(canvas, ambientShadow, pad, (7f + 15f * emphasis) * zoom, sBase * (0.18f + 0.62f * emphasis));
-            drawShadowBitmap(canvas, contactShadow, pad, (3f + 4.5f * emphasis) * zoom, sBase * (0.38f + 0.32f * emphasis));
+            drawShadowBitmap(canvas, shadows[0], pad, (7f + 15f * emphasis + 14f * depth) * zoom + thickness * 0.65f, sBase * (0.18f + 0.62f * emphasis));
+            drawShadowBitmap(canvas, shadows[1], pad, (3f + 4.5f * emphasis) * zoom + thickness, sBase * (0.38f + 0.32f * emphasis));
+        }
+        if (thickness > 0.5f) {
+            surfaceBounds.set(rect.left, rect.top + thickness, rect.right, rect.bottom + thickness);
+            int baseEdge = tile.tint != 0 ? blendColor(tile.tint, 0xFF060B12, 0.55f) : 0xFF0D1521;
+            paint.setColor(alphaColor(baseEdge, opacity * 0.96f));
+            canvas.drawRoundRect(surfaceBounds, cardRadius, cardRadius, paint);
+            surfaceMatrix.setScale(surfaceBounds.width(), surfaceBounds.height());
+            surfaceMatrix.postTranslate(surfaceBounds.left, surfaceBounds.top);
+            depthSlabGradient.setLocalMatrix(surfaceMatrix);
+            surfacePaint.setShader(depthSlabGradient);
+            surfacePaint.setAlpha(Math.round(255 * opacity * (0.35f + 0.45f * depth)));
+            canvas.drawRoundRect(surfaceBounds, cardRadius, cardRadius, surfacePaint);
+            surfacePaint.setShader(null);
+            surfaceBounds.inset(0.8f * zoom, 0.8f * zoom);
+            surfacePaint.setStyle(Paint.Style.STROKE);
+            surfacePaint.setStrokeWidth(1.2f * zoom);
+            surfacePaint.setColor(alphaColor(0x46FFFFFF, opacity * (0.4f + 0.6f * emphasis)));
+            canvas.drawRoundRect(surfaceBounds, Math.max(0, cardRadius - 0.8f * zoom), Math.max(0, cardRadius - 0.8f * zoom), surfacePaint);
+            surfacePaint.setStyle(Paint.Style.FILL);
         }
         paint.setColor(alphaColor(tile.tint != 0 ? tile.tint : tile.banner ? Color.BLACK : 0xFF243541, opacity));
         canvas.drawRoundRect(rect, cardRadius, cardRadius, paint);
@@ -969,7 +1162,11 @@ final class HomeView extends View {
             }
         } else if (tile.tint != 0) {
             icon(canvas, tile.glyph, rect.centerX(), rect.centerY() - 20 * contentZoom, 60 * contentZoom, alphaColor(0xB8FFFFFF, opacity));
-            if (tile.coverLabel == null) tile.coverLabel = clippedLabel(tile.label, 235, 28);
+            float coverMax = Math.max(100f, baseWidth - 85f);
+            if (tile.coverLabel == null || Math.abs(tile.coverLabelWidth - coverMax) > 1f) {
+                tile.coverLabelWidth = coverMax;
+                tile.coverLabel = clippedLabel(tile.label, coverMax, 28);
+            }
             text(canvas, tile.coverLabel, rect.centerX(), rect.centerY() + 48 * contentZoom, 28 * contentZoom, bold, alphaColor(Color.WHITE, opacity), Paint.Align.CENTER);
         } else icon(canvas, tile.kind == 1 ? "\ue333" : "\ue859", rect.centerX(), rect.centerY(), 112 * contentZoom, alphaColor(Color.WHITE, opacity));
         if (surfaceStrength > 0) {
@@ -1001,33 +1198,38 @@ final class HomeView extends View {
             surfacePaint.setStyle(Paint.Style.FILL);
         }
         if (emphasis > .005f || labelOpacity > 0) {
-            if (tile.displayLabel == null) {
-                tile.displayLabel = clippedLabel(tile.label, 300, 36);
+            float labelMax = Math.max(120f, baseWidth - 20f);
+            if (tile.displayLabel == null || Math.abs(tile.displayLabelWidth - labelMax) > 1f) {
+                tile.displayLabelWidth = labelMax;
+                tile.displayLabel = clippedLabel(tile.label, labelMax, 36);
             }
             float textAlpha = opacity * (labelOpacity + (1 - labelOpacity) * emphasis);
-            shadowText(canvas, tile.displayLabel, Math.max(112, x - 160), shelfY + baseHeight / 2 + 68 - 4 * emphasis, 36, bold,
+            shadowText(canvas, tile.displayLabel, Math.max(112, x - baseWidth / 2f), shelfY + baseHeight / 2 + thickness * 0.85f + 68 - 4 * emphasis, 36, bold,
                     alphaColor(Color.WHITE, textAlpha), Paint.Align.LEFT, textAlpha);
         }
     }
 
-    private void ensureShadows(float baseHeight, float baseRadius) {
+    private Bitmap[] ensureShadows(float baseWidth, float baseHeight, float baseRadius) {
+        int bw = Math.max(60, Math.round(baseWidth));
         int bh = Math.max(40, Math.round(baseHeight));
-        int br = Math.max(0, Math.round(Math.min(baseRadius, bh * 0.5f)));
-        if (ambientShadow != null && !ambientShadow.isRecycled()
-                && contactShadow != null && !contactShadow.isRecycled()
-                && shadowBaseH == bh && shadowBaseR == br) {
-            return;
+        int br = Math.max(0, Math.round(Math.min(baseRadius, Math.min(bw, bh) * 0.5f)));
+        long key = (((long) bw) << 32) | (((long) bh) << 16) | (br & 0xFFFFL);
+        Bitmap[] cached = shadowCache.get(key);
+        if (cached != null && cached[0] != null && !cached[0].isRecycled()
+                && cached[1] != null && !cached[1].isRecycled()) {
+            return cached;
         }
-        recycleShadows();
-        shadowBaseH = bh;
-        shadowBaseR = br;
-        ambientShadow = renderShadowBitmap(bh, br, 30f, 8f, 6f, 0x9A030712);
-        contactShadow = renderShadowBitmap(bh, br, 11f, 2f, 2f, 0x78030712);
+        Bitmap[] pair = new Bitmap[]{
+                renderShadowBitmap(bw, bh, br, 30f, 8f, 6f, 0x9A030712),
+                renderShadowBitmap(bw, bh, br, 11f, 2f, 2f, 0x78030712)
+        };
+        shadowCache.put(key, pair);
+        return pair;
     }
 
-    private static Bitmap renderShadowBitmap(int baseHeight, int baseRadius, float blurRadius,
+    private static Bitmap renderShadowBitmap(int baseWidth, int baseHeight, int baseRadius, float blurRadius,
             float insetX, float insetY, int color) {
-        int bw = Math.max(1, Math.round((320f + SHADOW_PAD * 2f) * SHADOW_SCALE));
+        int bw = Math.max(1, Math.round((baseWidth + SHADOW_PAD * 2f) * SHADOW_SCALE));
         int bh = Math.max(1, Math.round((baseHeight + SHADOW_PAD * 2f) * SHADOW_SCALE));
         Bitmap bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
@@ -1037,7 +1239,7 @@ final class HomeView extends View {
         RectF shape = new RectF(
                 (SHADOW_PAD + insetX) * SHADOW_SCALE,
                 (SHADOW_PAD + insetY) * SHADOW_SCALE,
-                (SHADOW_PAD + 320f - insetX) * SHADOW_SCALE,
+                (SHADOW_PAD + baseWidth - insetX) * SHADOW_SCALE,
                 (SHADOW_PAD + baseHeight - insetY) * SHADOW_SCALE);
         float r = Math.max(1f, (baseRadius - Math.min(insetX, insetY) * 0.5f) * SHADOW_SCALE);
         c.drawRoundRect(shape, r, r, p);
@@ -1052,16 +1254,12 @@ final class HomeView extends View {
     }
 
     private void recycleShadows() {
-        if (ambientShadow != null) {
-            if (!ambientShadow.isRecycled()) ambientShadow.recycle();
-            ambientShadow = null;
+        for (Bitmap[] pair : shadowCache.values()) {
+            if (pair != null) {
+                for (Bitmap b : pair) if (b != null && !b.isRecycled()) b.recycle();
+            }
         }
-        if (contactShadow != null) {
-            if (!contactShadow.isRecycled()) contactShadow.recycle();
-            contactShadow = null;
-        }
-        shadowBaseH = -1;
-        shadowBaseR = -1;
+        shadowCache.clear();
     }
 
     private String clippedLabel(String value, float width, float size) {
@@ -1279,7 +1477,17 @@ final class HomeView extends View {
         }
         if (!rows.isEmpty() && inShelfTouchBand(y)) {
             Row r = rows.get(Math.max(0, row));
-            int index = Math.round((x - 272 + r.scroll.value) / 350);
+            int index = -1;
+            float cursor = SHELF_START_X;
+            for (int i = 0; i < r.tiles.size(); i++) {
+                float tw = tileWidth(r.tiles.get(i));
+                float cx = cursor + tw * 0.5f - r.scroll.value;
+                cursor += tw + CARD_GAP;
+                if (x >= cx - tw * 0.5f - CARD_GAP * 0.5f && x <= cx + tw * 0.5f + CARD_GAP * 0.5f) {
+                    index = i;
+                    break;
+                }
+            }
             if (index >= 0 && index < r.tiles.size()) {
                 if (row >= 0 && index == r.selected) host.launch(r.tiles.get(index));
                 else {

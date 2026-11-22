@@ -2,25 +2,159 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let previewKey="";
-let state=null,csrf='',pending=false,tab='desktop',draft={},previewTimer,previewChain=Promise.resolve(),image=null,videoFile=null,videoObjectUrl='',report='',pairTimer,drag=null,editVersion=null,initialTabApplied=false;
-const queryTab=new URLSearchParams(location.search).get('tab');
+let state=null,csrf='',pending=false,tab='desktop',draft={},previewTimer,previewChain=Promise.resolve(),image=null,videoFile=null,videoObjectUrl='',report='',pairTimer,drag=null,editVersion=null,initialTabApplied=false,initialCardApplied=false;
+const queryParams=new URLSearchParams(location.search);
+const queryTab=queryParams.get('tab');
+const queryCard=queryParams.get('card')||'';
 function selectTab(next){if(!next||!$(next))return;tab=next;document.querySelectorAll('.tab').forEach(s=>s.hidden=s.id!==tab);document.querySelectorAll('[data-tab]').forEach(n=>{if(n.dataset.tab===tab)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});window.scrollTo(0,0);}
 function el(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4500);}
 async function request(path,body){const opts={credentials:'same-origin',cache:'no-store',headers:{}};if(body!==undefined){opts.method='POST';opts.headers['Content-Type']='application/json';opts.headers['X-Marco-Csrf']=csrf;opts.body=JSON.stringify(body);}const res=await fetch(path,opts);const text=await res.text();let data;try{data=JSON.parse(text);}catch{data={error:text};}if(!res.ok)throw new Error(data.error||'操作未完成，请重试');return data;}
 async function refresh(render=true){try{const next=await request('/state');csrf=next.csrf;if(state&&next.revision!==state.revision&&Object.keys(draft).length){draft={};editVersion=null;toast('电视上的设置已变化，未保存预览已取消');}state=next;connected();if(render&&!drag&&!$('sheet').open)draw();}catch(e){$('connection').textContent='连接中断 · 请检查电视与网络';throw e;}}
-function connected(){$('pair').hidden=true;$('connected').hidden=false;$('tabs').hidden=false;$('heading').textContent='把桌面整理成你的样子。';$('connection').textContent=state.model+' · 已连接';if(!initialTabApplied){initialTabApplied=true;const wanted=queryTab||state.initialTab;if(wanted&&$(wanted))selectTab(wanted);}}
+function findTileById(id){if(!state||!id)return null;for(const row of (state.rows||[]))for(const t of (row.tiles||[]))if(t.id===id)return t;for(const t of (state.hidden||[]))if(t.id===id)return t;return null;}
+function connected(){$('pair').hidden=true;$('connected').hidden=false;$('tabs').hidden=false;$('heading').textContent='把桌面整理成你的样子。';$('connection').textContent=state.model+' · 已连接';if(!initialTabApplied){initialTabApplied=true;const wanted=queryTab||state.initialTab;if(wanted&&$(wanted))selectTab(wanted);}if(!initialCardApplied){const wantedCard=queryCard||state.initialCard;if(wantedCard){const target=findTileById(wantedCard);if(target){initialCardApplied=true;setTimeout(()=>cardSheet(target),60);}}}}
 async function act(data){if(pending)return;pending=true;try{const next=await request('/action',{revision:state.revision,...data});state=next;draw();return true;}catch(e){toast(e.message);await refresh().catch(()=>{});return false;}finally{pending=false;}}
 function draw(){drawRows();drawSliders();drawWallpapers();$('sort').value=state.sort;$('device').textContent=state.model+' · Marco TV '+state.version+' · 可用空间 '+state.freeMB+' MB';$('previewStatus').textContent=state.preview?'正在电视预览 · 尚未保存':'当前为已保存设置';if(state.cast&&$('castNow'))$('castNow').textContent=state.cast.playing?('正在电视投屏：'+(state.cast.title||'投屏画面')+'（'+(state.cast.state==='PAUSED_PLAYBACK'?'已暂停':'播放中')+'）'):('DLNA 投屏设备名：'+(state.cast.deviceName||'Marco TV')+' · 视频 App 点击 TV 图标即可直接投屏');}
 function drawWallpapers(){const box=$('myWallpapers');if(!box)return;box.replaceChildren();const list=state.wallpapers||[];if(!list.length){box.append(el('p','暂未导入自定义壁纸，可在上方上传照片或 MP4 动态壁纸。','muted'));return;}for(const w of list){const row=el('div',undefined,'wpRow');const label=(w.video?'[动态] ':'')+w.title+(w.active?'（使用中）':'');button(row,label,()=>act({op:'wallpaper_entry',id:w.id}));const del=el('button','删除','danger');del.onclick=()=>act({op:'wallpaper_delete',id:w.id});row.append(del);box.append(row);}}
-function tile(t,group){const box=el('div',undefined,'tile');box.dataset.id=t.id;const face=el('button',undefined,'face');const art=el('span',undefined,'art');const img=el('img');img.src='/art?id='+encodeURIComponent(t.id);img.alt='';img.loading='lazy';img.onerror=()=>{img.remove();art.textContent=t.name.slice(0,6);};art.append(img);face.append(art,el('span',t.name,'name'));face.onclick=()=>cardSheet(t);box.append(face);
+function tile(t,group){const box=el('div',undefined,'tile');box.dataset.id=t.id;const face=el('button',undefined,'face');const art=el('span',undefined,'art');const img=el('img');img.src='/art?id='+encodeURIComponent(t.id)+'&v='+(state?state.revision:0);img.alt='';img.loading='lazy';img.onerror=()=>{img.remove();art.textContent=t.name.slice(0,6);};art.append(img);const nameEl=el('span',t.name,'name');if(t.width>0||t.height>0||t.depth>=0||t.radius>=0)nameEl.append(el('span','自定义','sizeTag'));face.append(art,nameEl);face.onclick=()=>cardSheet(t);box.append(face);
  if(group){const handle=el('button','⠿','handle');handle.setAttribute('aria-label','拖动或调整 '+t.name+' 的顺序');box.append(handle);handle.onclick=e=>{if(e.detail===0)moveSheet(t,group);};handle.onpointerdown=e=>{if(pending||drag)return;e.preventDefault();handle.setPointerCapture(e.pointerId);drag={box,group,startX:e.clientX,startY:e.clientY,target:null,moved:false};box.classList.add('dragging');};handle.onpointermove=e=>{if(!drag||drag.box!==box)return;drag.moved=drag.moved||Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>6;const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.tile');document.querySelectorAll('.drop').forEach(n=>n.classList.remove('drop'));if(target&&target.parentNode===box.parentNode&&target!==box){drag.target=target;target.classList.add('drop');}};const end=async(e,cancel)=>{if(!drag||drag.box!==box)return;const d=drag;drag=null;box.classList.remove('dragging');document.querySelectorAll('.drop').forEach(n=>n.classList.remove('drop'));if(!cancel&&d.moved&&d.target){const row=state.rows.find(r=>r.id===group);const ids=row.tiles.map(t=>t.id);const from=ids.indexOf(t.id),to=ids.indexOf(d.target.dataset.id);ids.splice(from,1);ids.splice(to,0,t.id);await act({op:'reorder',group,ids});}else if(!cancel&&!d.moved)moveSheet(t,group);};handle.onpointerup=e=>end(e,false);handle.onpointercancel=e=>end(e,true);}
  return box;}
 function drawRows(){const root=$('rows');root.replaceChildren();for(const row of state.rows){const title=el('h3',row.name),grid=el('div',undefined,'grid');for(const t of row.tiles)grid.append(tile(t,row.id));root.append(title,grid);if(!row.tiles.length)grid.append(el('p','暂无卡片，可从“添加应用”选择。'));}const h=$('hidden');h.replaceChildren();for(const t of state.hidden){const b=el('button','恢复 '+t.name,'option');b.onclick=()=>act({op:'card',id:t.id,field:'hidden',value:false});h.append(b);}}
 function sheet(title){$('sheetTitle').textContent=title;$('sheetBody').replaceChildren();if(!$('sheet').open)$('sheet').showModal();return $('sheetBody');}
 $('closeSheet').onclick=()=>$('sheet').close();
 function button(parent,title,fn){const b=el('button',title,'option');b.onclick=fn;parent.append(b);return b;}
-function cardSheet(t){const body=sheet(t.name);const label=el('label','卡片名称'),input=el('input');input.value=t.name;input.maxLength=60;label.append(input);body.append(label);button(body,'保存名称',async()=>{if(await act({op:'card',id:t.id,field:'name',value:input.value}))$('sheet').close();});button(body,t.pinned?'取消置顶':'置顶此卡片',async()=>{if(await act({op:'card',id:t.id,field:'pinned',value:!t.pinned}))$('sheet').close();});button(body,'隐藏卡片',async()=>{if(await act({op:'card',id:t.id,field:'hidden',value:true}))$('sheet').close();});}
+function cardSheet(t){
+ const latest=findTileById(t.id)||t;
+ const defs=(state&&state.cardDefaults)||{width:100,height:100,depth:0,radius:32};
+ const body=sheet((latest.kind===1?'信号源 · ':'')+latest.name);
+ const cur={width:latest.width||0,height:latest.height||0,depth:latest.depth!==undefined?latest.depth:-1,radius:latest.radius!==undefined?latest.radius:-1};
+ const effW=()=>cur.width>0?cur.width:defs.width;
+ const effH=()=>cur.height>0?cur.height:defs.height;
+ // 1. Cover image upload & cropper
+ const coverSec=el('div',undefined,'sheetSection');
+ coverSec.append(el('h3','封面图片'));
+ const previewImg=el('img',undefined,'coverPreview');
+ previewImg.src='/art?id='+encodeURIComponent(latest.id)+'&v='+(state?state.revision:0);
+ previewImg.alt=latest.name;
+ previewImg.onerror=()=>{previewImg.hidden=true;};
+ coverSec.append(previewImg);
+ const fileLabel=el('label','从手机相册选择图片上传','file');
+ const fileInput=el('input');
+ fileInput.type='file';
+ fileInput.accept='image/jpeg,image/png,image/webp';
+ fileLabel.append(fileInput);
+ coverSec.append(fileLabel);
+ const cropBox=el('div');
+ cropBox.hidden=true;
+ const cropCanvas=el('canvas',undefined,'cardCropCanvas');
+ const cZoomL=el('label','放大'),cZoom=el('input');cZoom.type='range';cZoom.min=100;cZoom.max=250;cZoom.value=100;cZoomL.append(cZoom);
+ const cXL=el('label','水平位置'),cX=el('input');cX.type='range';cX.min=0;cX.max=100;cX.value=50;cXL.append(cX);
+ const cYL=el('label','垂直位置'),cY=el('input');cY.type='range';cY.min=0;cY.max=100;cY.value=50;cYL.append(cY);
+ const uploadBtn=el('button','上传并设为卡片封面','primary');
+ uploadBtn.style.width='100%';
+ const prog=el('progress');prog.max=100;prog.value=0;prog.hidden=true;
+ const statusP=el('p','','muted');
+ cropBox.append(cropCanvas,cZoomL,cXL,cYL,uploadBtn);
+ coverSec.append(cropBox,prog,statusP);
+ let chosenImg=null;
+ function renderCardCrop(){
+  if(!chosenImg)return;
+  const aspect=(3.2*effW())/(1.8*effH());
+  let cw,ch;
+  if(aspect>=1){cw=960;ch=Math.max(200,Math.round(960/aspect));}
+  else{ch=960;cw=Math.max(200,Math.round(960*aspect));}
+  cropCanvas.width=cw;cropCanvas.height=ch;
+  const ctx=cropCanvas.getContext('2d');
+  const scale=Math.max(cw/chosenImg.width,ch/chosenImg.height)*Number(cZoom.value)/100;
+  const w=chosenImg.width*scale,h=chosenImg.height*scale;
+  const x=(cw-w)*Number(cX.value)/100,y=(ch-h)*Number(cY.value)/100;
+  ctx.fillStyle='#1a2534';ctx.fillRect(0,0,cw,ch);ctx.drawImage(chosenImg,x,y,w,h);
+ }
+ fileInput.onchange=()=>{
+  const f=fileInput.files[0];if(!f)return;
+  if(f.size>50*1024*1024){toast('请选择小于 50 MB 的图片');return;}
+  const url=URL.createObjectURL(f),imgObj=new Image();
+  imgObj.onload=()=>{
+   URL.revokeObjectURL(url);
+   if(imgObj.naturalWidth*imgObj.naturalHeight>100000000){toast('图片像素过大，请在相册缩小后重试');return;}
+   chosenImg=imgObj;cropBox.hidden=false;cZoom.value=100;cX.value=50;cY.value=50;renderCardCrop();
+   statusP.textContent='裁切比例已自动匹配当前卡片尺寸';
+  };
+  imgObj.onerror=()=>{URL.revokeObjectURL(url);toast('图片无法读取，请选择 JPEG、PNG 或 WebP');};
+  imgObj.src=url;
+ };
+ for(const sl of [cZoom,cX,cY])sl.oninput=renderCardCrop;
+ uploadBtn.onclick=()=>{
+  if(!chosenImg)return;
+  uploadBtn.disabled=true;
+  cropCanvas.toBlob(async blob=>{
+   try{
+    if(!blob)throw new Error('图片处理失败');
+    prog.hidden=false;prog.value=0;statusP.textContent='正在上传到电视…';
+    state=await upload('/upload-cover',blob,n=>prog.value=n,{'X-Marco-Card-Id':encodeURIComponent(latest.id)});
+    draw();
+    previewImg.hidden=false;
+    previewImg.src='/art?id='+encodeURIComponent(latest.id)+'&v='+state.revision;
+    cropBox.hidden=true;chosenImg=null;fileInput.value='';
+    statusP.textContent='已上传并应用到电视';
+    toast('封面已应用到电视');
+   }catch(e){statusP.textContent=e.message;await refresh(false).catch(()=>{});}
+   finally{uploadBtn.disabled=false;prog.hidden=true;}
+  },'image/jpeg',.92);
+ };
+ const presetRow=el('div',undefined,'presetRow');
+ for(const [labelText,styleKey] of [['原始图标','original'],['午夜蓝','blue'],['森林绿','green'],['暖琥珀','amber'],['雾紫','purple']]){
+  const pb=el('button',labelText);
+  pb.onclick=async()=>{if(await act({op:'card',id:latest.id,field:'cover',value:styleKey})){toast('已更新封面样式');setTimeout(()=>{refresh().then(()=>{const fresh=findTileById(latest.id);if(fresh&&$('sheet').open)cardSheet(fresh);}).catch(()=>{});},500);}};
+  presetRow.append(pb);
+ }
+ coverSec.append(presetRow);
+ body.append(coverSec);
+ // 2. Card dimensions (width / height / depth / radius)
+ const sizeSec=el('div',undefined,'sheetSection');
+ sizeSec.append(el('h3','卡片长宽高与圆角'));
+ function makeSizeSlider(title,min,max,getVal,setVal,unit,isCustom){
+  const l=el('label',title),vSpan=el('span','','value'),sl=el('input');
+  sl.type='range';sl.min=min;sl.max=max;sl.step=1;sl.value=getVal();
+  function syncText(){vSpan.textContent=sl.value+unit+(isCustom()?'':'（跟随全局）');}
+  syncText();
+  sl.oninput=()=>{setVal(Number(sl.value));syncText();renderCardCrop();};
+  l.append(vSpan,sl);sizeSec.append(l);
+  return {sl,syncText};
+ }
+ const sW=makeSizeSlider('宽度',60,160,effW,v=>cur.width=v,'%',()=>cur.width>0);
+ const sH=makeSizeSlider('高度',60,150,effH,v=>cur.height=v,'%',()=>cur.height>0);
+ const sD=makeSizeSlider('厚度（立体深度）',0,100,()=>cur.depth>=0?cur.depth:defs.depth,v=>cur.depth=v,'%',()=>cur.depth>=0);
+ const sR=makeSizeSlider('圆角',0,90,()=>cur.radius>=0?cur.radius:defs.radius,v=>cur.radius=v,'',()=>cur.radius>=0);
+ const sizeBtns=el('div',undefined,'rowBtns');
+ const applySizeBtn=el('button','应用卡片尺寸','primary');
+ applySizeBtn.onclick=async()=>{
+  if(await act({op:'card',id:latest.id,field:'size',width:cur.width,height:cur.height,depth:cur.depth,radius:cur.radius})){
+   toast('卡片尺寸已即时生效');
+  }
+ };
+ const resetSizeBtn=el('button','恢复跟随全局');
+ resetSizeBtn.onclick=async()=>{
+  cur.width=0;cur.height=0;cur.depth=-1;cur.radius=-1;
+  sW.sl.value=defs.width;sH.sl.value=defs.height;sD.sl.value=defs.depth;sR.sl.value=defs.radius;
+  sW.syncText();sH.syncText();sD.syncText();sR.syncText();renderCardCrop();
+  if(await act({op:'card',id:latest.id,field:'size',width:0,height:0,depth:-1,radius:-1})){
+   toast('已恢复跟随全局尺寸');
+  }
+ };
+ sizeBtns.append(applySizeBtn,resetSizeBtn);
+ sizeSec.append(sizeBtns);
+ body.append(sizeSec);
+ // 3. Name & card actions
+ const metaSec=el('div',undefined,'sheetSection');
+ metaSec.append(el('h3','名称与管理'));
+ const label=el('label','卡片名称'),input=el('input');input.value=latest.name;input.maxLength=60;label.append(input);metaSec.append(label);
+ button(metaSec,'保存名称',async()=>{if(await act({op:'card',id:latest.id,field:'name',value:input.value})){$('sheetTitle').textContent=(latest.kind===1?'信号源 · ':'')+(input.value.trim()||latest.name);toast('名称已保存');}});
+ button(metaSec,latest.pinned?'取消置顶':'置顶此卡片',async()=>{if(await act({op:'card',id:latest.id,field:'pinned',value:!latest.pinned}))$('sheet').close();});
+ button(metaSec,'隐藏卡片',async()=>{if(await act({op:'card',id:latest.id,field:'hidden',value:true}))$('sheet').close();});
+ button(metaSec,'恢复默认外观（名称 / 封面 / 尺寸）',async()=>{if(await act({op:'card',id:latest.id,field:'reset'})){$('sheet').close();toast('已恢复默认外观');}});
+ body.append(metaSec);
+}
 function moveSheet(t,group){const body=sheet('调整顺序 · '+t.name);for(const [title,delta] of [['向前移动',-1],['向后移动',1]])button(body,title,async()=>{const row=state.rows.find(r=>r.id===group),ids=row.tiles.map(a=>a.id),i=ids.indexOf(t.id),j=i+delta;if(j<0||j>=ids.length){toast('已经到边缘了');return;}[ids[i],ids[j]]=[ids[j],ids[i]];if(await act({op:'reorder',group,ids}))$('sheet').close();});}
 $('sort').onchange=()=>act({op:'sort',mode:$('sort').value});
 function drawSliders(){if(Object.keys(draft).length)return;const root=$('sliders');root.replaceChildren();for(const s of state.settings){const label=el('label',s.label),value=el('span',String(s.value),'value'),slider=el('input');slider.type='range';slider.min=s.min;slider.max=s.max;slider.step=1;slider.value=s.value;label.append(value,slider);root.append(label);slider.oninput=()=>{if(editVersion===null)editVersion=state.revision;previewKey=s.key;draft[s.key]=Number(slider.value);value.textContent=slider.value;$('previewStatus').textContent='正在电视预览 · 尚未保存';mini();clearTimeout(previewTimer);previewTimer=setTimeout(sendPreview,140);};slider.onchange=()=>{clearTimeout(previewTimer);sendPreview();};}mini();}

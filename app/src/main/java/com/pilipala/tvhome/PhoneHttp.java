@@ -147,7 +147,7 @@ final class PhoneHttp implements AutoCloseable {
                     s.setSoTimeout(12000);
                     long max=(request.path.equals("/restore")||request.path.equals("/cast"))?128L*1024*1024
                             :request.path.equals("/upload-video")?MAX_VIDEO_UPLOAD_BYTES
-                            :request.path.equals("/upload")?MAX_UPLOAD_BYTES:65536;
+                            :(request.path.equals("/upload")||request.path.equals("/upload-cover"))?MAX_UPLOAD_BYTES:65536;
                     if(request.length>max)result=Response.text(413,"文件过大");
                     else{
                         if(request.length>0){

@@ -16,7 +16,9 @@ final class SettingsCatalog {
     static {
         Map<String,int[]> specs=new LinkedHashMap<>();
         specs.put("card_row_position",new int[]{0,100,75});
+        specs.put("card_width",new int[]{60,160,100});
         specs.put("card_height",new int[]{70,130,100});
+        specs.put("card_depth",new int[]{0,100,0});
         specs.put("card_radius",new int[]{0,90,32});
         specs.put("focus_scale",new int[]{0,30,16});
         specs.put("label_opacity",new int[]{0,100,0});
@@ -59,7 +61,7 @@ final class SettingsCatalog {
     static boolean allowed(String group,String key){
         if(group==null||key==null)return false;
         if(group.equals("home"))return HOME_KEYS.contains(key)||(key.startsWith("opened:")&&key.length()>7&&key.length()<=507);
-        if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps","pin_order").contains(key)||key.matches("(name|cover|manual):.{1,500}");
+        if(group.equals("cards"))return Arrays.asList("favorites","hidden","pinned","manual_apps","pin_order").contains(key)||key.matches("(name|cover|manual|size):.{1,500}");
         if(group.equals("cast"))return key.equals("cast_mode")||key.equals("cast_confirm");
         return group.equals("menu_order")&&ORDER_KEYS.contains(key);
     }
@@ -74,6 +76,20 @@ final class SettingsCatalog {
     }
     static boolean imageName(String name){
         return name!=null&&(name.equals("wallpaper-image")||name.matches("cover-[a-f0-9]{64}\\.jpg"));
+    }
+    static boolean validCardSize(String raw){
+        if(raw==null||raw.isEmpty()||raw.length()>32)return false;
+        String[] parts=raw.split(",",-1);
+        if(parts.length!=4)return false;
+        try{
+            int w=Integer.parseInt(parts[0]);
+            int h=Integer.parseInt(parts[1]);
+            int d=Integer.parseInt(parts[2]);
+            int r=Integer.parseInt(parts[3]);
+            return (w==0||(w>=60&&w<=160))&&(h==0||(h>=60&&h<=150))&&(d==-1||(d>=0&&d<=100))&&(r==-1||(r>=0&&r<=90));
+        }catch(NumberFormatException ignored){
+            return false;
+        }
     }
     static String remap(String saved,String[] from,String[] to){
         if(from.length!=to.length)throw new IllegalArgumentException("migration mapping");
