@@ -129,6 +129,14 @@ Copyright © 2026 **Pilipala**。原创代码、文档及内置生成壁纸按 G
 
 作者免费发行软件，不设置购买、会员或激活码。退款提示说明免费发行政策，不是对开源协议另加禁止商业使用条款。
 
+## 捐赠支持
+
+Marco TV 完全免费开源，捐赠全凭自愿，不影响任何功能。感谢你的支持。
+
+| 微信收款码 | 支付宝收款码 |
+| --- | --- |
+| <img src="docs/images/donate-wechat.jpg" width="260" alt="微信捐赠收款码"> | <img src="docs/images/donate-alipay.jpg" width="260" alt="支付宝捐赠收款码"> |
+
 ## 反馈与贡献
 
 通过 [Issues](https://github.com/Pilipala9919/MarcoTV/issues) 提交品牌、完整型号、系统版本、应用版本和重现步骤。请遮盖序列号、MAC、家庭 Wi-Fi 名称及地址。品牌入口更正请附厂商说明或去除个人信息的实机路径。
