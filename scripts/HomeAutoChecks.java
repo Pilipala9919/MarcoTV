@@ -135,14 +135,38 @@ public final class HomeAutoChecks {
         HomeShellSetup restartShell=new HomeShellSetup(cmd->{
             restartCmds.add(cmd);
             if(cmd.equals("id -u"))return "2000";
-            if(cmd.startsWith("pidof "))return "4321";
-            if(cmd.startsWith("tr "))return "marcotv-task-bridge";
+            if(cmd.startsWith("ps -A "))return "USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n"
+                    +"root             1     0   12345   2345 0                   0 S init\n"
+                    +"shell         4321     1 1345678  45678 0                   0 S marcotv-task-bridge\n";
+            if(cmd.startsWith("tr ")&&cmd.contains("/proc/4321/"))return "marcotv-task-bridge";
             return "";
         },0);
         restartShell.authenticate();
         restartShell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk",10059);
         check("bridge_restart_kills_old_and_waits",restartCmds.contains("kill 4321 2>/dev/null")
-                &&restartCmds.stream().anyMatch(c->c.startsWith("sleep 0.3")));
+                &&restartCmds.stream().anyMatch(c->c.startsWith("sleep 0.3"))
+                &&restartCmds.stream().noneMatch(c->c.contains("/proc/1/"))
+                &&restartCmds.stream().noneMatch(c->c.startsWith("pidof ")));
+        List<String> legacyRestartCmds=new ArrayList<>();
+        HomeShellSetup legacyShell=new HomeShellSetup(cmd->{
+            legacyRestartCmds.add(cmd);
+            if(cmd.equals("id -u"))return "2000";
+            if(cmd.startsWith("ps -A "))return "bad pid '-A'";
+            if(cmd.equals("ps 2>/dev/null"))return "USER      PID   PPID  VSIZE  RSS   WCHAN              PC  NAME\n"
+                    +"root      1     0     1420   804   SyS_epoll_ 00000000 S /init\n"
+                    +"shell     17574 1     1523480 48204 SyS_epoll_ 00000000 S marcotv-task-bridge\n";
+            if(cmd.startsWith("tr ")&&cmd.contains("/proc/17574/"))return "marcotv-task-bridge";
+            return "";
+        },0);
+        legacyShell.authenticate();
+        legacyShell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk",10059);
+        check("bridge_restart_api23_ps_fallback",legacyRestartCmds.contains("ps 2>/dev/null")
+                &&legacyRestartCmds.contains("kill 17574 2>/dev/null")
+                &&legacyRestartCmds.stream().noneMatch(c->c.contains("/proc/1/"))
+                &&legacyRestartCmds.stream().noneMatch(c->c.startsWith("pidof ")));
+        check("bridge_ps_parses_busybox_pid_column",
+                Collections.singletonList("9001").equals(HomeShellSetup.parseBridgePids(
+                        "  PID USER       VSZ STAT COMMAND\n    1 root      1420 S    /init\n 9001 shell    48204 S    marcotv-task-br\n")));
         System.out.println("OK "+passed+" automatic HOME execution checks (simulated firmware, not device proof)");
     }
 }

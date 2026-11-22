@@ -3,7 +3,11 @@
 package com.pilipala.tvhome;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /** Fixed, capability-selected commands. Device names never become shell input. */
 final class HomeShellSetup {
@@ -61,13 +65,66 @@ final class HomeShellSetup {
                 || path.matches("/mnt/expand/[A-Za-z0-9_-]+/app/[A-Za-z0-9_./=+~-]+\\.apk"));
     }
 
+    static boolean hasPsHeader(String output) {
+        if (output == null) return false;
+        int checked = 0;
+        for (String raw : output.split("\\r?\\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            if (psPidColumn(line) >= 0) return true;
+            if (++checked >= 2) break;
+        }
+        return false;
+    }
+
+    private static int psPidColumn(String line) {
+        String[] cols = line.split("\\s+");
+        int pidIndex = -1;
+        boolean hasContext = false;
+        for (int i = 0; i < cols.length; i++) {
+            String c = cols[i];
+            if ("PID".equals(c)) pidIndex = i;
+            else if ("USER".equals(c) || "PPID".equals(c) || "NAME".equals(c) || "CMD".equals(c) || "COMMAND".equals(c)) {
+                hasContext = true;
+            }
+        }
+        return pidIndex >= 0 && hasContext ? pidIndex : -1;
+    }
+
+    static List<String> parseBridgePids(String output) {
+        Set<String> pids = new LinkedHashSet<>();
+        if (output == null) return new ArrayList<>();
+        int pidCol = -1;
+        for (String raw : output.split("\\r?\\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            if (pidCol < 0) {
+                int headerCol = psPidColumn(line);
+                if (headerCol >= 0) {
+                    pidCol = headerCol;
+                    continue;
+                }
+            }
+            String[] cols = line.split("\\s+");
+            int col = pidCol >= 0 ? pidCol : 1;
+            if (cols.length <= col || !cols[col].matches("[0-9]+")) continue;
+            String name = cols[cols.length - 1];
+            if ("marcotv-task-bridge".equals(name) || "marcotv-task-br".equals(name)
+                    || line.contains("com.pilipala.tvhome.TaskBridgeServer")) {
+                pids.add(cols[col]);
+            }
+        }
+        return new ArrayList<>(pids);
+    }
+
     void startTaskBridge(String apkPath, int appUid) throws Exception {
         if (!authenticated) throw new IOException("Authorization required");
         if (!validApkPath(apkPath) || appUid <= 0) throw new IllegalArgumentException("Bridge arguments");
+        String ps = shell.run("ps -A 2>/dev/null || ps 2>/dev/null");
+        if (!hasPsHeader(ps)) ps = shell.run("ps 2>/dev/null");
         boolean stoppedOld = false;
-        for (String token : shell.run("pidof marcotv-task-bridge 2>/dev/null").split("\\s+")) {
-            if (!token.matches("[0-9]+")) continue;
-            String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null");
+        for (String token : parseBridgePids(ps)) {
+            String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null").replace('\0', ' ');
             if (cmdline.contains("com.pilipala.tvhome.TaskBridgeServer") || cmdline.trim().equals("marcotv-task-bridge")) {
                 shell.run("kill " + token + " 2>/dev/null");
                 stoppedOld = true;

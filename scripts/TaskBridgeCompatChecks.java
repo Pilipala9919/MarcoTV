@@ -76,7 +76,88 @@ public final class TaskBridgeCompatChecks {
         }
     }
 
+    public static final class FakeActivityTaskManager {
+        public static Object getService() {
+            return "atm-service";
+        }
+    }
+
+    public static final class FakeActivityManager {
+        public static Object getService() {
+            return "am-service";
+        }
+    }
+
+    public static final class FakeActivityManagerNoGetService {
+        // Simulates Android 6.0-7.1 (API 23-25) where ActivityManager.getService() does not exist.
+    }
+
+    public static final class FakeActivityManagerNative {
+        public static Object getDefault() {
+            return "am-native-default";
+        }
+    }
+
+    public interface RemoveTaskOneArg {
+        boolean removeTask(int taskId);
+    }
+
+    public interface RemoveTaskTwoArg {
+        boolean removeTask(int taskId, int flags);
+    }
+
+    public interface GetTasksApi23 {
+        List<String> getTasks(int maxNum, int flags);
+    }
+
+    public interface GetTasksApi28 {
+        List<String> getTasks(int maxNum);
+    }
+
+    public interface GetTasksApi31 {
+        List<String> getTasks(int maxNum, boolean filterOnlyVisibleRecents, boolean keepIntentExtra, int displayId);
+    }
+
     public static void main(String[] args) throws Exception {
+        final String atm = FakeActivityTaskManager.class.getName();
+        final String am = FakeActivityManager.class.getName();
+        final String amNoGet = FakeActivityManagerNoGetService.class.getName();
+        final String amNative = FakeActivityManagerNative.class.getName();
+
+        check("service_api23_uses_activity_manager_native",
+                "am-native-default".equals(TaskBridgeServer.resolveService(23, true, atm, amNoGet, amNative))
+                        && "am-native-default".equals(TaskBridgeServer.resolveService(23, false, atm, amNoGet, amNative)));
+        check("service_api24_25_uses_activity_manager_native",
+                "am-native-default".equals(TaskBridgeServer.resolveService(24, true, atm, amNoGet, amNative))
+                        && "am-native-default".equals(TaskBridgeServer.resolveService(25, false, atm, amNoGet, amNative)));
+        check("service_api26_28_uses_activity_manager_get_service",
+                "am-service".equals(TaskBridgeServer.resolveService(26, true, atm, am, amNative))
+                        && "am-service".equals(TaskBridgeServer.resolveService(28, false, atm, am, amNative)));
+        check("service_api26_missing_get_service_falls_back_to_native",
+                "am-native-default".equals(TaskBridgeServer.resolveService(26, true, atm, amNoGet, amNative)));
+        check("service_api29_plus_distinguishes_atm_and_am",
+                "atm-service".equals(TaskBridgeServer.resolveService(29, true, atm, am, amNative))
+                        && "am-service".equals(TaskBridgeServer.resolveService(29, false, atm, am, amNative)));
+
+        RemoveTaskOneArg rm1 = id -> id == 42;
+        check("remove_task_one_arg", TaskBridgeServer.invokeRemoveTask(rm1, RemoveTaskOneArg.class, 42));
+        RemoveTaskTwoArg rm2 = (id, flags) -> id == 42 && flags == 0;
+        check("remove_task_two_arg_fallback", TaskBridgeServer.invokeRemoveTask(rm2, RemoveTaskTwoArg.class, 42));
+
+        GetTasksApi23 gt23 = (maxNum, flags) ->
+                (maxNum == 1 && flags == 0) ? Collections.singletonList("api23-ok") : Collections.emptyList();
+        check("get_tasks_api23_passes_zero_flags",
+                Collections.singletonList("api23-ok").equals(TaskBridgeServer.invokeGetTasks(gt23, GetTasksApi23.class)));
+        GetTasksApi28 gt28 = maxNum ->
+                maxNum == 1 ? Collections.singletonList("api28-ok") : Collections.emptyList();
+        check("get_tasks_api28_single_arg",
+                Collections.singletonList("api28-ok").equals(TaskBridgeServer.invokeGetTasks(gt28, GetTasksApi28.class)));
+        GetTasksApi31 gt31 = (maxNum, filter, keep, displayId) ->
+                (maxNum == 1 && !filter && !keep && displayId == -1)
+                        ? Collections.singletonList("api31-ok") : Collections.emptyList();
+        check("get_tasks_api31_passes_invalid_display",
+                Collections.singletonList("api31-ok").equals(TaskBridgeServer.invokeGetTasks(gt31, GetTasksApi31.class)));
+
         final String auth = "com.pilipala.tvhome.taskbridge";
         final Object markerExtras = new Object();
 

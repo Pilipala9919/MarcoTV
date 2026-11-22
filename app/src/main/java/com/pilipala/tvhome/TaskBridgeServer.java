@@ -54,11 +54,58 @@ public final class TaskBridgeServer {
             }
         }
     };
+    static Object resolveService(int sdkInt,boolean taskManager,
+            String taskManagerClass,String activityManagerClass,String activityManagerNativeClass)throws Exception{
+        if(taskManager&&sdkInt>=29){
+            return Class.forName(taskManagerClass).getDeclaredMethod("getService").invoke(null);
+        }
+        if(sdkInt>=26){
+            try{
+                return Class.forName(activityManagerClass).getDeclaredMethod("getService").invoke(null);
+            }catch(NoSuchMethodException fallback){
+                // Some firmware builds omit ActivityManager.getService(); fall back to ActivityManagerNative.
+            }
+        }
+        return Class.forName(activityManagerNativeClass).getDeclaredMethod("getDefault").invoke(null);
+    }
+    private static Object activityManager()throws Exception{
+        return resolveService(Build.VERSION.SDK_INT,false,
+                "android.app.ActivityTaskManager","android.app.ActivityManager","android.app.ActivityManagerNative");
+    }
+    private static Object taskManager()throws Exception{
+        return resolveService(Build.VERSION.SDK_INT,true,
+                "android.app.ActivityTaskManager","android.app.ActivityManager","android.app.ActivityManagerNative");
+    }
+    static boolean invokeRemoveTask(Object manager,Class<?> api,int id)throws Exception{
+        try{
+            return (Boolean)api.getMethod("removeTask",int.class).invoke(manager,id);
+        }catch(NoSuchMethodException fallback){
+            return (Boolean)api.getMethod("removeTask",int.class,int.class).invoke(manager,id,0);
+        }
+    }
+    static List<?> invokeGetTasks(Object manager,Class<?> api)throws Exception{
+        for(Method method:api.getMethods())if(method.getName().equals("getTasks")){
+            Class<?>[] types=method.getParameterTypes();
+            Object[] args=new Object[types.length];
+            boolean known=true;
+            for(int i=0;i<types.length;i++){
+                if(types[i]==int.class)args[i]=i==0?1:(types.length==2?0:-1);
+                else if(types[i]==boolean.class)args[i]=false;
+                else{
+                    known=false;
+                    break;
+                }
+            }
+            if(!known)continue;
+            Object result=method.invoke(manager,args);
+            if(result instanceof List)return (List<?>)result;
+        }
+        return Collections.emptyList();
+    }
     private TaskBridgeServer(int uid,int userId)throws Exception{
         appUid=uid;
         user=userId;
-        String service=Build.VERSION.SDK_INT>=29?"android.app.ActivityTaskManager":"android.app.ActivityManager";
-        manager=Class.forName(service).getDeclaredMethod("getService").invoke(null);
+        manager=taskManager();
         api=Class.forName(Build.VERSION.SDK_INT>=29?"android.app.IActivityTaskManager":"android.app.IActivityManager");
         Object binder=Class.forName("android.os.ServiceManager").getMethod("getService",String.class)
                 .invoke(null,"power");
@@ -74,7 +121,7 @@ public final class TaskBridgeServer {
     }
     private boolean canRemove(){
         try{
-            Object am=Class.forName("android.app.ActivityManager").getDeclaredMethod("getService").invoke(null);
+            Object am=activityManager();
             Class<?> cls=Class.forName("android.app.IActivityManager");
             String permission=Build.VERSION.SDK_INT>=29?"android.permission.MANAGE_ACTIVITY_TASKS":"android.permission.REMOVE_TASKS";
             return ((Integer)cls.getMethod("checkPermission",String.class,int.class,int.class).invoke(am,permission,android.os.Process.myPid(),
@@ -239,7 +286,7 @@ public final class TaskBridgeServer {
             int id=request.getInt("id");
             task(id);
             if(canRemove()){
-                boolean removed=(Boolean)api.getMethod("removeTask",int.class).invoke(manager,id);
+                boolean removed=invokeRemoveTask(manager,api,id);
                 if(!removed)throw new IOException("remove rejected");
             }
             else{
@@ -281,7 +328,7 @@ public final class TaskBridgeServer {
         Binder token=new Binder();
         String authority="com.pilipala.tvhome.taskbridge";
         try{
-            am=Class.forName("android.app.ActivityManager").getDeclaredMethod("getService").invoke(null);
+            am=activityManager();
             amApi=Class.forName("android.app.IActivityManager");
             Object holder=null;
             for(Method method:amApi.getMethods())if(method.getName().equals("getContentProviderExternal")){
@@ -314,24 +361,8 @@ public final class TaskBridgeServer {
         }
     }
     private String foregroundPackage()throws Exception{
-        for(Method method:api.getMethods())if(method.getName().equals("getTasks")){
-            Class<?>[] types=method.getParameterTypes();
-            Object[] args=new Object[types.length];
-            boolean known=true;
-            for(int i=0;i<types.length;i++){
-                if(types[i]==int.class)args[i]=i==0?1:-1;
-                else if(types[i]==boolean.class)args[i]=false;
-                else{
-                    known=false;
-                    break;
-                }
-            }
-            if(!known)continue;
-            Object result=method.invoke(manager,args);
-            if(result instanceof List&&!((List<?>)result).isEmpty())return packageName(((List<?>)result)
-                    .get(0));
-        }
-        return "";
+        List<?> running=invokeGetTasks(manager,api);
+        return running.isEmpty()?"":packageName(running.get(0));
     }
     private void watchWake(){
         Thread thread=new Thread(()->{

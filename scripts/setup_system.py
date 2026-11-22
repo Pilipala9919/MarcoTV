@@ -10,9 +10,14 @@ p.add_argument('--serial', required=True, help='Exact endpoint or USB serial fro
 p.add_argument('--select-home', action='store_true', help='Use after enabling the HOME entry in MarcoTV settings.')
 a = p.parse_args()
 base = [a.adb, '-s', a.serial]
-raw_user = subprocess.check_output(base + ['shell', 'am', 'get-current-user'], text=True, encoding='utf-8').strip()
+user_probe = subprocess.run(base + ['shell', 'am', 'get-current-user'], capture_output=True, text=True, encoding='utf-8', errors='replace')
+raw_user = user_probe.stdout.strip() if user_probe.returncode == 0 else ''
 user = raw_user if raw_user.isdigit() else '0'
-subprocess.run(base + ['shell', 'pm', 'grant', '--user', user, 'com.pilipala.tvhome', 'android.permission.WRITE_SECURE_SETTINGS'], check=True)
+grant = subprocess.run(base + ['shell', 'pm', 'grant', '--user', user, 'com.pilipala.tvhome', 'android.permission.WRITE_SECURE_SETTINGS'])
+if grant.returncode != 0 and user == '0':
+    subprocess.run(base + ['shell', 'pm', 'grant', 'com.pilipala.tvhome', 'android.permission.WRITE_SECURE_SETTINGS'], check=True)
+elif grant.returncode != 0:
+    raise SystemExit(grant.returncode)
 if a.select_home:
     res = subprocess.run(base + ['shell', 'cmd', 'package', 'set-home-activity', '--user', user, 'com.pilipala.tvhome/.HomeActivity'])
     if res.returncode != 0:
