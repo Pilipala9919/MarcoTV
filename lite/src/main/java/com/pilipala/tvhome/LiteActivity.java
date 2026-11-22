@@ -1388,35 +1388,37 @@ public final class LiteActivity extends Activity {
         void drawHeaderIcon(Canvas c,int idx,float cx,float cy,float focus){
             c.save();
             c.translate(cx,cy);
-            int stroke=blendColor(0xFFC8DCE6,0xFFFFFFFF,focus);
-            int accent=blendColor(0x668CD6F0,0xFF8CD6F0,focus);
+            int stroke=blendColor(0xFFD2D8EA,0xFFFFFFFF,focus);
+            int accent=blendColor(0x88C4A8FF,0xFFD5BEFF,focus);
             if(idx==0){
-                float s=1f+0.06f*focus;
+                // Official MarcoTV 3-layer slanted Purple Stacked Cards brand mark
+                float spread=2.2f*focus;
+                float s=1f+0.07f*focus;
                 c.scale(s,s);
-                c.rotate(45f*focus);
+                c.rotate(-14f+3f*focus);
                 p.setStyle(Paint.Style.FILL);
-                p.setColor(Color.argb((int)(28+70*focus),140,214,240));
-                c.drawCircle(0,0,15f,p);
+                p.setColor(blendColor(0xB49E7DF3,0xFF9E7DF3,focus));
+                rect.set(-5.8f+spread*0.8f,3.2f+spread,13.6f+spread*0.8f,11.8f+spread);
+                c.drawRoundRect(rect,3.2f,3.2f,p);
                 p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(2.6f);
-                p.setColor(stroke);
-                c.drawCircle(0,0,10.5f,p);
-                for(int k=0;k<8;k++){
-                    c.save();
-                    c.rotate(k*45f);
-                    p.setStyle(Paint.Style.FILL);
-                    p.setColor(stroke);
-                    rect.set(-2.3f,-16.5f,2.3f,-11.5f);
-                    c.drawRoundRect(rect,1.5f,1.5f,p);
-                    c.restore();
-                }
+                p.setStrokeWidth(1.2f);
+                p.setColor(0x88E5D2FF);
+                c.drawRoundRect(rect,3.2f,3.2f,p);
                 p.setStyle(Paint.Style.FILL);
-                p.setColor(accent);
-                c.drawCircle(0,0,4.2f,p);
+                p.setColor(blendColor(0xD0C7A9FF,0xEED9C4FF,focus));
+                rect.set(-10.4f+spread*0.25f,-2.2f+spread*0.3f,12.4f+spread*0.25f,7.0f+spread*0.3f);
+                c.drawRoundRect(rect,3.6f,3.6f,p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setColor(0xB8FFF8FF);
+                c.drawRoundRect(rect,3.6f,3.6f,p);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(blendColor(0xF2FCF7FE,Color.WHITE,focus));
+                rect.set(-14.8f-spread*0.6f,-11.0f-spread*0.85f,10.2f-spread*0.6f,1.0f-spread*0.85f);
+                c.drawRoundRect(rect,4.2f,4.2f,p);
             }else if(idx==1){
                 float spread=3.5f*focus;
                 p.setStyle(Paint.Style.FILL);
-                p.setColor(Color.argb((int)(40+55*focus),140,214,240));
+                p.setColor(Color.argb((int)(42+58*focus),182,148,246));
                 rect.set(-14f-spread,-9f-spread*0.5f,4f-spread,10f-spread*0.5f);
                 c.drawRoundRect(rect,4f,4f,p);
                 p.setStyle(Paint.Style.STROKE);
@@ -1424,7 +1426,7 @@ public final class LiteActivity extends Activity {
                 p.setColor(stroke);
                 c.drawRoundRect(rect,4f,4f,p);
                 p.setStyle(Paint.Style.FILL);
-                p.setColor(Color.argb((int)(55+75*focus),185,232,248));
+                p.setColor(Color.argb((int)(58+78*focus),218,196,255));
                 rect.set(-4f+spread,-4f+spread*0.5f,14f+spread,14f+spread*0.5f);
                 c.drawRoundRect(rect,4f,4f,p);
                 p.setStyle(Paint.Style.STROKE);
@@ -1512,10 +1514,10 @@ public final class LiteActivity extends Activity {
             for(int i=0;i<3;i++){
                 float f=headerFocus[i].value;
                 if(f>0.01f){
-                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(185*f),46,78,98));
+                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(185*f),64,54,104));
                     p.setStyle(Paint.Style.STROKE);
                     p.setStrokeWidth(2f);
-                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(160*f),168,226,242));
+                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(175*f),206,184,255));
                     p.setStyle(Paint.Style.FILL);
                 }
                 drawHeaderIcon(c,i,btnL[i]+34,108,f);
@@ -1840,22 +1842,22 @@ public final class LiteActivity extends Activity {
                     float ratio=host.volumePercent()/100f;
                     box(c,left+42,y+68,1825,y+74,3,0xFF566B7D);
                     float x=left+42+(1783-left)*ratio;
-                    box(c,left+42,y+68,x,y+74,3,0xFF8CD6F0);
-                    p.setColor(0xFF8CD6F0);
+                    box(c,left+42,y+68,x,y+74,3,0xFFC4A8FF);
+                    p.setColor(0xFFC4A8FF);
                     c.drawCircle(x,y+71,8,p);
                 }else if(page==2&&i<LiteSettings.KEYS.length){
                     float ratio=(readParam(appearance(),i)-LiteSettings.MIN[i])/(float)(LiteSettings.MAX[i]-LiteSettings.MIN[i]);
                     box(c,left+42,y+68,1825,y+74,3,0xFF566B7D);
                     float x=left+42+(1783-left)*ratio;
-                    box(c,left+42,y+68,x,y+74,3,0xFFAEDDE3);
-                    p.setColor(0xFFAEDDE3);
+                    box(c,left+42,y+68,x,y+74,3,0xFFCBB2FF);
+                    p.setColor(0xFFCBB2FF);
                     c.drawCircle(x,y+71,9,p);
                 }else if(page==7&&i<4&&managed!=null){
                     float ratio=customSliderRatio(managed,i);
                     box(c,left+42,y+68,1825,y+74,3,0xFF566B7D);
                     float x=left+42+(1783-left)*ratio;
-                    box(c,left+42,y+68,x,y+74,3,0xFF8CD6F0);
-                    p.setColor(0xFF8CD6F0);
+                    box(c,left+42,y+68,x,y+74,3,0xFFC4A8FF);
+                    p.setColor(0xFFC4A8FF);
                     c.drawCircle(x,y+71,9,p);
                 }
             }

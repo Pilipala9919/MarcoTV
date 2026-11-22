@@ -4,14 +4,15 @@ package com.pilipala.tvhome;
 
 /** Small, API-independent schema shared by editor, backup validation and tests. */
 final class LiteSettings {
-    static final String VERSION="0.2.0";
+    static final String VERSION="0.3.0";
     static final int CORE_COUNT=11;
     static final float CARD_GAP=30f;
     static final float SHELF_START_X=112f;
     static final int[] SLEEP_CHOICES={15,30,60,120,0};
     static final String[] WALLPAPER_NAMES={"极夜山脊","雾蓝海岸","本地图片","暮光峡谷","深海极夜","暖金沙丘"};
-    static final String[] COVER_NAMES={"午夜蓝","森林绿","暖琥珀","雾紫","冰海蓝"};
+    static final String[] COVER_NAMES={"丁香紫","午夜蓝","森林绿","暖琥珀","雾紫","冰海蓝"};
     static final int[][] COVER_COLORS={
+            {0xFF7D56D1,0xFF4D3292,0xFF281952},
             {0xFF284B78,0xFF162C4A,0xFF0E1B30},
             {0xFF255C4F,0xFF173D34,0xFF0E2520},
             {0xFF7D5027,0xFF523217,0xFF331D0C},

@@ -1,6 +1,6 @@
 {
-  "version": "0.2.0",
-  "version_code": 4,
+  "version": "0.3.0",
+  "version_code": 5,
   "package": "com.pilipala.tvhome.lite",
   "compile_api": 14,
   "min_api": 14,
@@ -9,10 +9,10 @@
     "MotionSpring.java",
     "PreviewPreferences.java"
   ],
-  "bytes": 329354,
-  "sha256": "313a905760b8ba0c008f8702822841a337a9c7819c57991dfee1b5575c5a2d2a",
-  "restricted_bytes": 329354,
-  "restricted_sha256": "8e9f56e6281d139cd6c06805aff73b0f2ad65ec82e999997521d520bdc4ab292",
+  "bytes": 362122,
+  "sha256": "ef9dcd7b039ce9b087daf337b1b568a60a72cec9d06cacbdd2c267166ba925ff",
+  "restricted_bytes": 362122,
+  "restricted_sha256": "ffd996e90038dcb305ab37ee11f8516ecc55a2910c04eca5bb6a542c7dfec3b6",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "physical_android4_tv_verified": false,
   "physical_android5_box_verified": false,
@@ -21,20 +21,22 @@
     "android": "9",
     "installed_via": "adb install -r",
     "verified_ui_flows": [
-      "home_desktop_3_animated_header_icons_and_glass_cards",
-      "header_focus_capsule_and_icon_animation",
-      "all_apps_manager_with_version_package_and_uninstall_badges",
-      "single_app_management_menu_pin_hide_uninstall_rename_move_size",
-      "per_card_custom_size_live_preview"
+      "official_purple_stacked_cards_header_brand_mark_and_lilac_accents",
+      "favorites_row_and_smooth_up_down_switching",
+      "pickup_and_move_card_sorting_mode",
+      "custom_card_cover_6_gradient_swatches_with_lilac_and_local_image",
+      "5_category_filterable_searchable_all_apps_manager_with_uninstall",
+      "inline_media_volume_slider_auto_sleep_and_1_click_screensaver",
+      "per_card_custom_size_live_preview_and_17_magic_desktop_controls"
     ]
   },
   "author": "Pilipala",
   "edition": "Lite",
   "status": "experimental",
   "date": "2026-11-22",
-  "full_edition_latest": "0.20.0",
+  "full_edition_latest": "0.21.0",
   "local_checks": {
-    "layout_checks": 10,
+    "layout_checks": 11,
     "apk_checks": {
       "separate_package": true,
       "api14_manifest": true,
@@ -52,8 +54,9 @@
       "valid_zip_extract_versions": true
     }
   },
-  "local_check_count": 24,
+  "local_check_count": 25,
   "api14_instrumentation_compile_only_passed": true,
+  "api14_instrumentation_check_count": 55,
   "api14_runtime_baseline_version": "0.1.2",
   "api14_runtime_baseline_checks": 52,
   "all_executed_checks_passed": true,
@@ -63,7 +66,7 @@
   "not_verified": [
     "physical Android 4.x television",
     "Xiaomi Box 3c (Android 5.1) U-disk PackageInstaller runtime",
-    "Android 4.0.2 emulator runtime rerun for new 0.2.0 checks (compiled against API 14 stubs only; baseline runtime was 0.1.2)",
+    "Android 4.0.2 emulator runtime rerun for new 0.3.0 checks (55 checks compiled against API 14 stubs only; baseline runtime was 0.1.2)",
     "OEM Home button interception and default HOME selection",
     "physical remote key mapping and long press on Android 4.x/5.x",
     "power off/wake and OEM screensaver",

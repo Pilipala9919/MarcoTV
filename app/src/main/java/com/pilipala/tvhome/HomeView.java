@@ -704,31 +704,39 @@ final class HomeView extends View {
     private void settingsIcon(Canvas canvas,float x,float y,int color,float focus){
         float f=clamp01(focus);
         float alpha=Color.alpha(color)/255f;
+        float spread=2.3f*f;
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
-        float zoom=1f+0.06f*f;
+        float zoom=1f+0.07f*f;
         canvas.scale(zoom,zoom);
-        canvas.rotate(45f*f);
+        canvas.rotate(-14f+3f*f);
         paint.setShader(null);
-        if(f>0.01f){
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(alphaColor(0x448CD6F0,alpha*f));
-            canvas.drawCircle(0,0,9.5f,paint);
-        }
-        paint.setColor(color);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3.2f);
-        canvas.drawCircle(0,0,9.5f,paint);
-        paint.setStrokeWidth(3.6f);
-        for(int i=0;i<8;i++){
-            double rad=i*Math.PI/4.0;
-            float cos=(float)Math.cos(rad),sin=(float)Math.sin(rad);
-            canvas.drawLine(cos*11.6f,sin*11.6f,cos*15.4f,sin*15.4f,paint);
-        }
+        // Official MarcoTV 3-layer Purple Stacked Cards brand mark
+        // Rear card
         paint.setStyle(Paint.Style.FILL);
-        canvas.drawCircle(0,0,3.6f+0.6f*f,paint);
+        paint.setColor(alphaColor(blendColor(0xAA9E7DF3,0xFF9E7DF3,f),alpha));
+        rect.set(-6.5f+spread*0.8f,3.6f+spread,14.8f+spread*0.8f,13.0f+spread);
+        canvas.drawRoundRect(rect,3.6f,3.6f,paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.2f);
+        paint.setColor(alphaColor(0x99E5D2FF,alpha));
+        canvas.drawRoundRect(rect,3.6f,3.6f,paint);
+        // Middle translucent lilac card
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alphaColor(blendColor(0xC8C7A9FF,0xE8D4BAFF,f),alpha));
+        rect.set(-11.4f+spread*0.25f,-2.4f+spread*0.3f,13.6f+spread*0.25f,7.8f+spread*0.3f);
+        canvas.drawRoundRect(rect,4.0f,4.0f,paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.3f);
+        paint.setColor(alphaColor(0xCCFFF8FF,alpha));
+        canvas.drawRoundRect(rect,4.0f,4.0f,paint);
+        // Front ivory card
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alphaColor(blendColor(0xF0FCF7FE,0xFFFFFFFF,f),alpha));
+        rect.set(-16.2f-spread*0.6f,-12.0f-spread*0.85f,11.4f-spread*0.6f,1.2f-spread*0.85f);
+        canvas.drawRoundRect(rect,4.6f,4.6f,paint);
         canvas.restore();
     }
     private void magicIcon(Canvas canvas,float x,float y,int color,float focus){
@@ -758,7 +766,7 @@ final class HomeView extends View {
         // Front glass card with crisp stroke and sharp 4-point sparkle
         rect.set(-9+spread,-6+spread,18+spread,14+spread);
         magicPaint.setStyle(Paint.Style.FILL);
-        magicPaint.setColor(alphaColor(0xFF8CD6F0,alpha*(0.18f+0.14f*f)));
+        magicPaint.setColor(alphaColor(0xFFC4A8FF,alpha*(0.18f+0.18f*f)));
         canvas.drawRoundRect(rect,4.5f,4.5f,magicPaint);
         magicPaint.setStyle(Paint.Style.STROKE);
         magicPaint.setStrokeWidth(2.6f);
@@ -824,13 +832,13 @@ final class HomeView extends View {
             float cx=2.5f,cy=0.5f;
             if(w1>0.01f){
                 float r1=3.2f+2.4f*w1;
-                paint.setColor(alphaColor(0xFF9DE0FA,alpha*w1*0.92f));
+                paint.setColor(alphaColor(0xFFD2BCFF,alpha*w1*0.92f));
                 rect.set(cx-r1,cy-r1,cx+r1,cy+r1);
                 canvas.drawArc(rect,195,60,false,paint);
             }
             if(w2>0.01f){
                 float r2=6.8f+3.4f*w2;
-                paint.setColor(alphaColor(0xFF9DE0FA,alpha*w2*0.78f));
+                paint.setColor(alphaColor(0xFFD2BCFF,alpha*w2*0.78f));
                 rect.set(cx-r2,cy-r2,cx+r2,cy+r2);
                 canvas.drawArc(rect,195,60,false,paint);
             }
@@ -840,7 +848,7 @@ final class HomeView extends View {
         canvas.translate(phoneX,phoneY);
         if(f>0.01f){
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(alphaColor(0x368CD6F0,alpha*f));
+            paint.setColor(alphaColor(0x38B694F6,alpha*f));
             rect.set(5,-6,20,15);
             canvas.drawRoundRect(rect,3.8f,3.8f,paint);
         }
@@ -861,7 +869,7 @@ final class HomeView extends View {
         float f=clamp01(focus);
         float alpha=Color.alpha(color)/255f;
         float spacing=10f+1.8f*f;
-        int accent=blendColor(color,alphaColor(0xFF8CD6F0,alpha),f);
+        int accent=blendColor(color,alphaColor(0xFFC4A8FF,alpha),f);
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
         paint.setShader(null);

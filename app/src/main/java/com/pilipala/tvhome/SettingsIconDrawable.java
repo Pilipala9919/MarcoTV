@@ -25,22 +25,22 @@ final class SettingsIconDrawable extends Drawable {
     private static int topColor(int kind) {
         switch (kind) {
             case GENERAL: return 0xFF2894FF;
-            case APPS: return 0xFF7472F5;
+            case APPS: return 0xFF8B6BF5;
             case HOME: return 0xFF39BCD6;
             case NETWORK: return 0xFF34C759;
             case SYSTEM: return 0xFF8892A2;
-            default: return 0xFF343C4B;
+            default: return 0xFFE5D2FF;
         }
     }
 
     private static int bottomColor(int kind) {
         switch (kind) {
             case GENERAL: return 0xFF0A66DB;
-            case APPS: return 0xFF4D4AD2;
+            case APPS: return 0xFF6042C8;
             case HOME: return 0xFF1D8EAA;
             case NETWORK: return 0xFF219E43;
             case SYSTEM: return 0xFF5D6676;
-            default: return 0xFF202530;
+            default: return 0xFF7D56D1;
         }
     }
 
@@ -88,10 +88,39 @@ final class SettingsIconDrawable extends Drawable {
                 drawSystemIcon(canvas, u);
                 break;
             default:
-                drawGearIcon(canvas, u);
+                drawBrandMark(canvas, u);
                 break;
         }
         canvas.restore();
+    }
+
+    /** Official MarcoTV Purple Stacked Cards brand mark (3 slanted layered cards). */
+    private void drawBrandMark(Canvas c, float u) {
+        c.save();
+        c.rotate(-14f);
+        // Layer 3 (rear)
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xD49B7AF2);
+        rect.set(-4.0f * u, 2.6f * u, 9.8f * u, 8.8f * u);
+        c.drawRoundRect(rect, 2.4f * u, 2.4f * u, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(0.75f * u);
+        paint.setColor(0x66FFF8FF);
+        c.drawRoundRect(rect, 2.4f * u, 2.4f * u, paint);
+        // Layer 2 (middle)
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xE0C6A8FF);
+        rect.set(-7.2f * u, -1.6f * u, 9.2f * u, 5.4f * u);
+        c.drawRoundRect(rect, 2.6f * u, 2.6f * u, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setColor(0x88FFF8FF);
+        c.drawRoundRect(rect, 2.6f * u, 2.6f * u, paint);
+        // Layer 1 (front ivory card)
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFFFCF7FE);
+        rect.set(-10.2f * u, -7.8f * u, 7.6f * u, 1.0f * u);
+        c.drawRoundRect(rect, 3.0f * u, 3.0f * u, paint);
+        c.restore();
     }
 
     private void drawGearIcon(Canvas c, float u) {

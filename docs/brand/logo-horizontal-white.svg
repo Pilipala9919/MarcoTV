@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1340"
+   height="480"
+   viewBox="0 0 1340 480"
+   role="img"
+   aria-label="MarcoTV brand asset"
+   version="1.1"
+   id="svg32"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs27">
+    <linearGradient
+       id="bg"
+       x1="0"
+       y1="0"
+       x2="0.85"
+       y2="1">
+      <stop
+         stop-color="#FFF9FF"
+         offset="0"
+         id="stop1" />
+      <stop
+         stop-color="#E6D5FF"
+         offset=".25"
+         id="stop2" />
+      <stop
+         stop-color="#C0A1FA"
+         offset=".62"
+         id="stop3" />
+      <stop
+         stop-color="#7856C8"
+         offset="1"
+         id="stop4" />
+    </linearGradient>
+    <radialGradient
+       id="bgLight"
+       cx=".32"
+       cy=".06"
+       r="1.06">
+      <stop
+         offset="0"
+         stop-color="#FFFFFF"
+         stop-opacity=".76"
+         id="stop5" />
+      <stop
+         offset=".48"
+         stop-color="#D9BEFF"
+         stop-opacity=".08"
+         id="stop6" />
+      <stop
+         offset="1"
+         stop-color="#7045C2"
+         stop-opacity=".15"
+         id="stop7" />
+    </radialGradient>
+    <linearGradient
+       id="rear"
+       x1=".12"
+       y1=".9"
+       x2=".95"
+       y2=".05">
+      <stop
+         offset="0"
+         stop-color="#BFA2FF"
+         id="stop8" />
+      <stop
+         offset=".50"
+         stop-color="#9E7DF3"
+         id="stop9" />
+      <stop
+         offset="1"
+         stop-color="#D4B6FF"
+         id="stop10" />
+    </linearGradient>
+    <linearGradient
+       id="middle"
+       x1="0"
+       y1=".15"
+       x2="1"
+       y2=".9">
+      <stop
+         offset="0"
+         stop-color="#E7D2FF"
+         stop-opacity=".91"
+         id="stop11" />
+      <stop
+         offset=".50"
+         stop-color="#C7A9FF"
+         stop-opacity=".80"
+         id="stop12" />
+      <stop
+         offset="1"
+         stop-color="#AB8AFA"
+         stop-opacity=".90"
+         id="stop13" />
+    </linearGradient>
+    <linearGradient
+       id="front"
+       x1="0"
+       y1="0"
+       x2="1"
+       y2="1">
+      <stop
+         offset="0"
+         stop-color="#FFFFFF"
+         id="stop14" />
+      <stop
+         offset=".38"
+         stop-color="#FFF8F6"
+         id="stop15" />
+      <stop
+         offset=".70"
+         stop-color="#FAF2FC"
+         id="stop16" />
+      <stop
+         offset="1"
+         stop-color="#EDE5FB"
+         id="stop17" />
+    </linearGradient>
+    <linearGradient
+       id="frontUnframed"
+       x1="0"
+       y1=".0"
+       x2="1"
+       y2="1">
+      <stop
+         offset="0"
+         stop-color="#F5F0FF"
+         id="stop18" />
+      <stop
+         offset=".35"
+         stop-color="#D4BEFC"
+         id="stop19" />
+      <stop
+         offset="1"
+         stop-color="#B798F6"
+         id="stop20" />
+    </linearGradient>
+    <linearGradient
+       id="darkBg"
+       x1="0"
+       y1="0"
+       x2="1"
+       y2="1">
+      <stop
+         offset="0"
+         stop-color="#19142E"
+         id="stop21" />
+      <stop
+         offset=".5"
+         stop-color="#28203E"
+         id="stop22" />
+      <stop
+         offset="1"
+         stop-color="#17152A"
+         id="stop23" />
+    </linearGradient>
+    <linearGradient
+       id="lightBg"
+       x1="0"
+       y1="0"
+       x2="1"
+       y2="1">
+      <stop
+         offset="0"
+         stop-color="#FFFFFF"
+         id="stop24" />
+      <stop
+         offset="1"
+         stop-color="#F4EDFF"
+         id="stop25" />
+    </linearGradient>
+    <filter
+       id="shadow"
+       x="-0.06135149"
+       y="-0.074525478"
+       width="1.122703"
+       height="1.149051">
+      <feGaussianBlur
+         stdDeviation="25"
+         id="feGaussianBlur25" />
+    </filter>
+    <filter
+       id="cardShadow"
+       x="-25%"
+       y="-30%"
+       width="160%"
+       height="180%">
+      <feGaussianBlur
+         in="SourceAlpha"
+         stdDeviation="19"
+         result="blur"
+         id="feGaussianBlur26" />
+      <feOffset
+         in="blur"
+         dx="0"
+         dy="19"
+         result="offsetBlur"
+         id="feOffset26" />
+      <feComponentTransfer
+         in="offsetBlur"
+         result="low"
+         id="feComponentTransfer26">
+        <feFuncA
+           type="linear"
+           slope="0.22"
+           id="feFuncA26" />
+      </feComponentTransfer>
+      <feMerge
+         id="feMerge27">
+        <feMergeNode
+           in="low"
+           id="feMergeNode26" />
+        <feMergeNode
+           in="SourceGraphic"
+           id="feMergeNode27" />
+      </feMerge>
+    </filter>
+    <clipPath
+       id="squircle">
+      <rect
+         x="35"
+         y="35"
+         width="954"
+         height="954"
+         rx="234"
+         id="rect27" />
+    </clipPath>
+  </defs>
+  <g
+     transform="translate(44 42) scale(.385)"
+     id="g32">
+    <g
+       id="App_icon_background">
+      <rect
+         x="35"
+         y="35"
+         width="954"
+         height="954"
+         rx="234"
+         fill="url(#bg)"
+         id="rect28" />
+      <rect
+         x="35"
+         y="35"
+         width="954"
+         height="954"
+         rx="234"
+         fill="url(#bgLight)"
+         id="rect29" />
+    </g>
+    <g
+       clip-path="url(#squircle)"
+       id="Stacked_card_symbol">
+      <g
+         transform="translate(0 12)"
+         fill="#4B2A99"
+         opacity=".14"
+         filter="url(#shadow)"
+         id="g31">
+        <path
+           d="M 480,715 C 484,667 508,642 566,625 L 1019,504 C 1085,488 1120,514 1109,580 L 1083,758 C 1076,797 1052,823 1006,838 L 556,955 C 478,974 423,944 435,875 Z"
+           id="path29" />
+        <path
+           d="M 276,653 C 288,614 311,591 356,576 L 953,417 C 1020,399 1058,426 1051,488 L 1035,647 C 1030,683 1008,708 960,720 L 365,881 C 288,899 245,872 255,809 Z"
+           id="path30" />
+        <path
+           d="M 176,382 C 188,340 224,311 284,294 L 767,163 C 858,139 899,173 891,260 L 868,422 C 864,471 840,502 779,519 L 237,665 C 168,686 126,663 134,600 L 151,450 C 155,415 163,396 176,382 Z"
+           id="path31" />
+      </g>
+      <path
+         id="Layer_03_back"
+         d="M 480,715 C 484,667 508,642 566,625 L 1019,504 C 1085,488 1120,514 1109,580 L 1083,758 C 1076,797 1052,823 1006,838 L 556,955 C 478,974 423,944 435,875 Z"
+         fill="url(#rear)"
+         opacity="1"
+         stroke="#E2CFFF"
+         stroke-opacity=".43"
+         stroke-width="3"
+         stroke-linejoin="round" />
+      <path
+         id="Layer_02_middle"
+         d="M 276,653 C 288,614 311,591 356,576 L 953,417 C 1020,399 1058,426 1051,488 L 1035,647 C 1030,683 1008,708 960,720 L 365,881 C 288,899 245,872 255,809 Z"
+         fill="url(#middle)"
+         opacity="1"
+         stroke="#FFF8FF"
+         stroke-opacity=".43"
+         stroke-width="3"
+         stroke-linejoin="round" />
+      <path
+         id="Layer_01_front"
+         d="M 176,382 C 188,340 224,311 284,294 L 767,163 C 858,139 899,173 891,260 L 868,422 C 864,471 840,502 779,519 L 237,665 C 168,686 126,663 134,600 L 151,450 C 155,415 163,396 176,382 Z"
+         fill="url(#front)"
+         opacity="1"
+         stroke="#FFF8FE"
+         stroke-opacity=".43"
+         stroke-width="3"
+         stroke-linejoin="round" />
+    </g>
+    <rect
+       x="37"
+       y="37"
+       width="950"
+       height="950"
+       rx="233"
+       fill="none"
+       stroke="#FFFFFF"
+       stroke-opacity=".46"
+       stroke-width="4"
+       id="rect31" />
+  </g>
+  <path
+     d="m 490.30566,286 h 18.64161 v -43.25098 c 0,-6.89062 -0.49219,-20.36425 -0.67676,-31.5 3.26074,12.30469 6.95215,25.16309 9.10547,31.5 L 532.81836,286 h 15.81152 l 15.19629,-43.25098 c 2.15332,-6.52148 6.0293,-19.87207 9.10547,-32.23828 -0.18457,11.56641 -0.67676,25.34766 -0.67676,32.23828 V 286 h 18.8877 v -91.66992 h -28.91602 l -14.64258,42.08203 c -1.8457,5.84473 -4.67578,18.08789 -6.76757,27.99316 -2.15332,-9.96679 -4.9834,-22.20996 -6.82911,-27.99316 l -14.88867,-42.08203 h -28.79297 z m 131.15137,1.35352 c 10.15137,0 16.7959,-4.49122 20.11817,-10.88965 h 0.61523 V 286 h 17.47266 v -46.32715 c 0,-16.67285 -14.39649,-23.31738 -29.16211,-23.31738 -15.38086,0 -26.45508,6.8291 -29.96192,18.76465 l 16.91895,2.83008 c 1.47656,-4.42969 5.84472,-7.93653 12.98144,-7.93653 6.89063,0 10.7666,3.32227 10.7666,9.16699 v 0.30762 c 0,4.49121 -4.86035,4.9834 -16.67285,6.15234 -13.53515,1.292 -25.96289,5.72168 -25.96289,21.10254 0,13.59668 9.78223,20.61036 22.88672,20.61036 z m 5.22949,-12.98145 c -6.09082,0 -10.39746,-2.76855 -10.39746,-8.12109 0,-5.53711 4.55274,-8.18262 11.38184,-9.167 4.06055,-0.55371 11.38183,-1.53808 13.6582,-3.13769 v 7.44433 c 0,7.25977 -6.0293,12.98145 -14.64258,12.98145 z M 670.41309,286 h 18.45703 v -39.12891 c 0,-8.55175 6.21386,-14.39648 14.7041,-14.39648 2.70703,0 6.33691,0.43066 7.99805,0.92285 v -16.48828 c -1.66114,-0.36914 -4.06055,-0.61523 -5.96778,-0.61523 -7.75195,0 -14.08887,4.42968 -16.61133,12.91992 h -0.73828 V 217.2168 h -17.84179 z m 73.99609,1.35352 c 16.48828,0 28.11621,-8.9209 30.70019,-23.37891 l -17.16503,-3.1377 c -1.47657,7.44434 -6.21387,11.99707 -13.35059,11.99707 -9.84375,0 -15.01172,-8.6748 -15.01172,-20.97949 0,-12.42773 5.16797,-20.97949 15.01172,-20.97949 7.13672,0 11.68945,4.42969 13.22754,11.56641 l 17.16504,-3.19922 c -2.58399,-14.15039 -14.27344,-22.88672 -30.57715,-22.88672 -20.7334,0 -33.65332,14.27344 -33.65332,35.56055 0,21.16406 12.91992,35.4375 33.65332,35.4375 z m 69.13574,0 c 20.67188,0 33.65332,-14.27344 33.65332,-35.4375 0,-21.28711 -12.98144,-35.56055 -33.65332,-35.56055 -20.7334,0 -33.65332,14.27344 -33.65332,35.56055 0,21.16406 12.91992,35.4375 33.65332,35.4375 z m 0,-14.51954 c -9.84375,0 -14.82715,-8.98242 -14.82715,-20.97949 0,-12.18164 4.9834,-20.97949 14.82715,-20.97949 9.84375,0 14.88867,8.85937 14.88867,20.97949 0,11.99707 -5.04492,20.97949 -14.88867,20.97949 z m 28.40723,-62.93847 h 28.05469 V 286 h 18.82617 v -76.10449 h 27.99316 V 194.33008 H 841.95215 Z M 951.57031,286 h 24.54785 l 31.37694,-91.66992 h -20.73338 l -14.15039,44.23535 c -2.76856,9.22852 -5.59863,19.81055 -8.67481,32.2998 -3.13769,-12.36621 -6.09082,-23.07128 -8.98242,-32.2998 l -14.64258,-44.23535 h -20.85644 z"
+     id="Wordmark"
+     style="font-weight:660;font-size:126px;font-family:Inter, 'Clear Sans', Arial, sans-serif;letter-spacing:-5;fill:#f8f5ff"
+     aria-label="MarcoTV" />
+</svg>

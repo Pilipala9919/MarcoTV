@@ -34,7 +34,7 @@ final class SettingsScreen extends LinearLayout {
     private static final int REST_SUB = 0xFF8A96A8;
     private static final int SIDEBAR_SELECTED_BG = 0xFF212835;
     private static final int SIDEBAR_SELECTED_STROKE = 0x3A667892;
-    private static final int SIDEBAR_ACCENT = 0xFF0A84FF;
+    private static final int SIDEBAR_ACCENT = 0xFF9E7DF3;
 
     private final MainActivity host;
     private TvDialog dialog;
