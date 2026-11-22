@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "edition": "standard",
-  "versionCode": 43,
-  "versionName": "0.21.0",
+  "versionCode": 44,
+  "versionName": "0.21.1",
   "minSdk": 23,
   "size": 1559427,
-  "sha256": "59a88093e3e55deab5137e8d817d37600f7a46dbf7a4e670c5222b0bfbf02337",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.0/MarcoTV-0.21.0.apk",
+  "sha256": "1d7dd5acf909558f671391b855e255c282d634667b8947d586a2b9f877050df9",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.1/MarcoTV-0.21.1.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.21.0 · Pilipala\n\n- 全端品牌视觉语言统一（MarcoTV 紫韵叠卡体系）：全面换装官方多密度高清应用图标（mdpi–xxxhdpi PNG + Android 8+ 自适应分层图标）与电视启动器横幅（xhdpi / xxxhdpi）；桌面左上角品牌标与设置总览徽标升级为官方紫韵叠卡图标并保留临界阻尼弹簧动效；顶栏四图标玻璃焦点高光、设置侧栏强调色、手机扫码互联网页、产品展示页与安装向导同步统一至薰衣草紫视觉体系。\n- 应用管理与一键卸载全面升级：设置「我的应用」新增独立「应用管理与卸载」面板，支持「全部 / 可卸载 / 桌面显示 / 已隐藏」四档筛选与用户可卸载应用优先排序，清晰区分用户应用、系统更新与预装系统应用；全部应用抽屉长按新增完整管理菜单（收藏、隐藏/恢复、应用详情、系统确认卸载）及底部直达入口；桌面卡片长按菜单新增直达「卸载应用」，修复 包名/Activity 格式包名解析与系统更新应用识别。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证、网页安装向导 72 项路由校验与 7 个真机测试编译守卫已通过，并在小米 MiTV-ASTP0（Android 9）实机完成 0.21.0 正式签名包覆盖安装与核心界面复核（全量 250 项插桩基线沿用同机型 0.17.0 验收）。\n\n受限系统兼容 APK（MarcoTV-0.21.0-Restricted.apk）仍为实验选项，尚未完成目标固件实测，不加入普通版自动更新。老电视独立分支 Marco TV Lite 同步更新至 0.3.0（详见 lite-v0.3.0 发布页，统一官方品牌视觉并下放收藏行、拾起移动排序、自定义卡片封面、渐变壁纸、音量滑块、自动休眠屏保、5 分类应用管理与 17 项 Magic Desktop 控制）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.0）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
+  "notes": "Marco TV 0.21.1 · Pilipala\n\n- 完整版 APK 打包解析兼容补丁：修复 scripts/build.py 复用 aapt2 原始 ZipInfo 导致 AndroidManifest.xml、resources.arsc 及资源条目 PKZIP extract_version=0 的问题，统一重建标准 ZIP 头（10/20）与 4 字节对齐；在清单中为 wifi / location / gps / network / landscape 显式声明 android:required=\"false\" 并改用 @string/app_name；显式启用 --min-sdk-version 23 与 v1/v2/v3 全方案签名，提升 TCL / 雷鸟等严格安装器的解析兼容性。\n- 完整保留 0.21.0 的全端 MarcoTV 紫韵叠卡品牌视觉统一与集中式「应用管理与卸载」/ 全部应用抽屉长按卸载 / 桌面卡片直达卸载体验。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含双包 ZIP 提取版本、零必需硬件特性与 v1/v2/v3 签名校验）、网页安装向导 72 项路由校验与 7 个真机测试编译守卫已通过，并在小米 MiTV-ASTP0（Android 9）实机完成 0.21.1 正式签名包覆盖安装与启动复核（全量 250 项插桩基线沿用同机型 0.17.0 验收）。本次打包修复尚待 TCL 等非小米真机实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.21.1-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.3.0（详见 lite-v0.3.0 发布页）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.1）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
 }

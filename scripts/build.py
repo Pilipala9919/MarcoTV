@@ -109,8 +109,18 @@ def build(restricted=False, release=False):
         '--release', '--min-api', '23', '--lib', ANDROID, '--output', BUILD / 'dex', classes_jar)
     unsigned = BUILD / 'unsigned.apk'
     with zipfile.ZipFile(BUILD / 'resources.apk') as source, zipfile.ZipFile(unsigned, 'w', zipfile.ZIP_DEFLATED) as target:
-        for info in source.infolist(): target.writestr(info, source.read(info.filename))
-        for dex in (BUILD / 'dex').glob('*.dex'): target.write(dex, dex.name)
+        for info in source.infolist():
+            entry = zipfile.ZipInfo(info.filename, (2026, 1, 1, 0, 0, 0))
+            entry.compress_type = info.compress_type
+            entry.extract_version = 10 if info.compress_type == zipfile.ZIP_STORED else 20
+            entry.create_version = entry.extract_version
+            target.writestr(entry, source.read(info.filename))
+        for dex in sorted((BUILD / 'dex').glob('*.dex')):
+            dex_entry = zipfile.ZipInfo(dex.name, (2026, 1, 1, 0, 0, 0))
+            dex_entry.compress_type = zipfile.ZIP_DEFLATED
+            dex_entry.extract_version = 20
+            dex_entry.create_version = 20
+            target.writestr(dex_entry, dex.read_bytes())
     run(executable(TOOLS,'zipalign'), '-f', '4', unsigned, BUILD / 'aligned.apk')
     keys = ROOT / 'private'
     keys.mkdir(exist_ok=True)
@@ -128,9 +138,10 @@ def build(restricted=False, release=False):
             '-alias', alias, '-storepass:env', 'MARCOTV_STORE_PASSWORD', '-keypass:env', 'MARCOTV_STORE_PASSWORD', '-keyalg', 'RSA',
             '-keysize', '2048', '-validity', '10000', '-dname', 'CN=Pilipala, OU=Marco TV')
     apk = DIST / f'MarcoTV-{VERSION}{"-Restricted" if restricted else ""}.apk'
-    run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'sign', '--ks', keystore,
-        '--ks-key-alias', alias, '--ks-pass', 'env:MARCOTV_STORE_PASSWORD', '--out', apk, BUILD / 'aligned.apk')
-    run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'verify', '--verbose', apk)
+    run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'sign',
+        '--min-sdk-version', '23', '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true', '--v3-signing-enabled', 'true',
+        '--ks', keystore, '--ks-key-alias', alias, '--ks-pass', 'env:MARCOTV_STORE_PASSWORD', '--out', apk, BUILD / 'aligned.apk')
+    run(executable(JDK/'bin','java'), '-jar', TOOLS / 'lib/apksigner.jar', 'verify', '--min-sdk-version', '23', '--verbose', apk)
     cert = signer_sha256(apk)
     if (release or os.environ.get('MARCOTV_RELEASE') == '1') and cert != OFFICIAL_SIGNER_SHA256:
         raise RuntimeError(f'Release APK signer {cert} does not match official release signer {OFFICIAL_SIGNER_SHA256}')

@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.21.1 · 2026-11-22
+
+- **修复完整版 APK 打包解析兼容性隐患（提升 TCL / 雷鸟等严格安装器解析兼容性）**：
+  - 修复 `scripts/build.py` 直接复用 `aapt2` 原始 `ZipInfo` 导致 `AndroidManifest.xml`、`resources.arsc` 及资源条目 PKZIP `extract_version=0` 的问题，统一重建规范 ZIP 头（STORED=`10` / DEFLATED=`20`、确定性排序与时间戳）。
+  - 在 `AndroidManifest.xml` 中将 `android.hardware.wifi`、`location`、`location.gps`、`location.network`、`screen.landscape` 全部显式标为 `android:required="false"`，并将应用名称改用 `@string/app_name`，消除 `aapt2` 自动注入的隐式必需硬件特性。
+  - 在 `apksigner` 签名与校验阶段显式指定 `--min-sdk-version 23` 与 v1/v2/v3 全方案签名，并在 `scripts/test_restricted.py` 新增离线自动回归校验（同时检查标准版与受限兼容版的 ZIP 提取版本、多密度 PNG 图标/横幅、零必需硬件特性及 v1/v2/v3 签名）。
+  - 补充 `docs/常见问题.md` 与网页安装向导中的「安装解析包错误」排查说明（区分 Android <6.0 换装 Lite、受限兼容版、纯英文文件名及电视卫士/ADB 路线）。
+
 ## 0.21.0 · 2026-11-22
 
 - **全面统一 MarcoTV 紫调三层叠卡（Purple Stacked Cards）品牌视觉系统**：

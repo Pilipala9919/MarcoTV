@@ -25,7 +25,7 @@ for(const sys of ['android','unknown','other'])for(const dev of ['windows','andr
 }
 for(const sys of ['unknown','other'])assert(!c.homeRoute(sys).download);
 const home=c.homeRoute('android');assert(home.docs&&!home.download&&home.steps.length===4);
-assert(home.limit.includes('0.21.0')&&home.limit.includes('不自动授权'));
+assert(home.limit.includes('0.21.1')&&home.limit.includes('不自动授权'));
 element('system').value='android';c.render();
 assert.equal(element('routeTitle').textContent,home.title);
 assert.equal(element('steps').children.length,4);
@@ -35,7 +35,7 @@ const link=element('download').children[0];
 const stableVersion=JSON.parse(fs.readFileSync('docs/updates/stable.json','utf8')).versionName;
 assert.equal(link.href,'https://marcotv.wlj9919.top/MarcoTV-'+stableVersion+'.apk');
 const html=fs.readFileSync('docs/install/index.html','utf8');
-for(const key of ['source','verification','launcher','signature','connect']){
+for(const key of ['source','verification','launcher','parse','signature','connect']){
  assert(c.installationIssue(key).length>20);
  assert(html.includes('value="'+key+'"'));
 }

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Pilipala
 # SPDX-License-Identifier: GPL-3.0-only
 """Check the built restricted APK, unchanged sources and edition-specific update policy."""
-import subprocess, hashlib, json
+import subprocess, hashlib, json, zipfile
 from pathlib import Path
 from build import ROOT, TOOLS, JDK, VERSION, executable
 from make_update_feed import make
@@ -31,6 +31,22 @@ def cert(text):return next(x for x in text.splitlines() if x.startswith('Signer 
 assert cert(restricted_cert)==cert(standard_cert),'Signing identities differ'
 normal_xml=output(executable(TOOLS,'aapt2'),'dump','xmltree',standard,'--file','AndroidManifest.xml')
 assert 'android.intent.category.HOME' in normal_xml,'Standard APK lost its HOME declaration'
+for target_apk in (standard, apk):
+    with zipfile.ZipFile(target_apk) as z:
+        assert z.testzip() is None, f'ZIP CRC failed: {target_apk.name}'
+        assert all(i.extract_version in (10, 20) for i in z.infolist()), f'Invalid ZIP extract_version in {target_apk.name}'
+        names = set(z.namelist())
+        for density in ('mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi'):
+            assert f'res/drawable-{density}-v4/app_icon.png' in names or f'res/drawable-{density}/app_icon.png' in names, f'Missing {density} PNG icon'
+        for density in ('xhdpi','xxxhdpi'):
+            assert f'res/drawable-{density}-v4/app_banner.png' in names or f'res/drawable-{density}/app_banner.png' in names, f'Missing {density} PNG banner'
+        assert 'res/drawable/app_icon.xml' not in names and 'res/drawable/app_banner.xml' not in names
+    badging=output(executable(TOOLS,'aapt2'),'dump','badging',target_apk)
+    req_features=[line.strip() for line in badging.splitlines() if line.strip().startswith('uses-feature:')]
+    assert not req_features, f'Unexpected required hardware features in {target_apk.name}: {req_features}'
+    sig=output(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','verify','--min-sdk-version','23','--verbose',target_apk)
+    for scheme in ('v1 scheme (JAR signing): true','v2 scheme (APK Signature Scheme v2): true','v3 scheme (APK Signature Scheme v3): true'):
+        assert scheme in sig, f'Missing {scheme} in {target_apk.name}'
 for directory,expected in [('build/restricted/classes','true'),('build/classes','false')]:
     constants=output(executable(JDK/'bin','javap'),'-constants','-classpath',ROOT/directory,'com.pilipala.tvhome.BuildEdition')
     assert 'RESTRICTED = '+expected in constants,'Wrong compiled edition switch'

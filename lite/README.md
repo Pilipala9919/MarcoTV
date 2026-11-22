@@ -58,7 +58,7 @@
 
 ## 版本怎么选
 
-| 项目 | Marco TV 完整版 0.21.0 | Marco TV Lite 0.3.0 |
+| 项目 | Marco TV 完整版 0.21.1 | Marco TV Lite 0.3.0 |
 | --- | --- | --- |
 | 最低系统声明 | Android 6.0 / API 23 | Android 4.0 / API 14，实验支持 |
 | 应用包名 | com.pilipala.tvhome | com.pilipala.tvhome.lite |
