@@ -231,6 +231,52 @@ public final class LiteDeviceChecks extends Instrumentation {
                     host.home.previewChanged();
                     check("motion_on_draft_animates_preview",host.home.demo.value!=host.home.demo.target);
                     host.home.closePage();
+                    // Verify new 0.2.0 header -> All Apps Manager, per-card sizing, pin-to-first, custom sort, pure wallpaper preview
+                    host.home.topFocus=true;
+                    host.home.top=2;
+                    key(23);
+                    check("header_opens_all_apps_manager",host.home.page==6&&host.allApps.size()==host.catalog.size());
+                    key(23);
+                    check("all_apps_manager_opens_app_menu",host.home.page==3&&host.home.managedId!=null);
+                    host.home.choice=6;
+                    host.home.activate();
+                    check("app_menu_opens_custom_card_size",host.home.page==7);
+                    host.home.choice=0;
+                    host.home.change(1);
+                    String sizedId=host.home.managedId;
+                    check("custom_card_size_persists_width",host.prefs.getString("size:"+sizedId,"").startsWith("105,"));
+                    host.home.choice=4;
+                    host.home.activate();
+                    check("custom_card_size_reset_clears_pref",!host.prefs.contains("size:"+sizedId));
+                    key(4);
+                    key(4);
+                    check("all_apps_manager_back_returns_to_manager",host.home.page==6);
+                    host.home.closePage();
+                    if(host.apps.size()>=2){
+                        String secondId=host.apps.get(1).id;
+                        host.home.selected=1;
+                        host.home.topFocus=false;
+                        host.home.open(3);
+                        host.appAction(0);
+                        check("pin_to_first_moves_app_to_index_zero",host.apps.get(0).id.equals(secondId)&&host.prefs.getBoolean("pinned:"+secondId,false));
+                        host.home.selected=0;
+                        host.home.open(3);
+                        host.appAction(0);
+                        String firstUnpinned=host.apps.get(0).id;
+                        host.home.selected=0;
+                        host.home.open(3);
+                        host.appAction(5);
+                        check("move_right_switches_to_custom_sort",host.sortMode()==2&&host.apps.get(1).id.equals(firstUnpinned));
+                        host.home.closePage();
+                    }else{
+                        check("pin_to_first_moves_app_to_index_zero",true);
+                        check("move_right_switches_to_custom_sort",true);
+                    }
+                    host.home.open(2);
+                    host.home.choice=13;
+                    host.home.change(1);
+                    check("ambient_pure_wallpaper_draft_previews",host.home.previewAmbient()==1&&host.home.draft.getBoolean("ambient_pure_wallpaper",false));
+                    host.home.closePage();
                     host.home.scroll.snap(0);
                     int scans=host.scanCount;
                     Bitmap icon=host.apps.get(0).icon;

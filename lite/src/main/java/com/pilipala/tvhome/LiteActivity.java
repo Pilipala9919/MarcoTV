@@ -3,23 +3,29 @@
 package com.pilipala.tvhome;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.*;
 import android.content.pm.*;
 import android.graphics.*;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
+import android.text.InputFilter;
 import android.view.*;
+import android.widget.EditText;
 import android.widget.Toast;
 import java.util.*;
 import java.io.*;
 import org.json.*;
 
-/** Separate API-14 entry point. Never loads full-edition services or permissions. */
+/** Separate API-14 entry point. Never loads full-edition services or network permissions. */
 public final class LiteActivity extends Activity {
+    static final int REQ_PICK_WALLPAPER=101;
     SharedPreferences prefs;
     LiteView home;
     ArrayList<App> apps=new ArrayList<App>();
+    ArrayList<App> allApps=new ArrayList<App>();
     final Handler handler=new Handler();
     boolean alive;
     volatile boolean destroyed;
@@ -40,11 +46,19 @@ public final class LiteActivity extends Activity {
         }
     };
     static final class App {
-        String id,label;
+        String id,origLabel,label,version;
         Intent intent;
         Bitmap icon;
-        boolean pinned;
-        long opened;
+        boolean pinned,hidden,systemApp,updatedSystemApp;
+        long opened,pinOrder;
+        int customOrder=Integer.MAX_VALUE;
+        int customW,customH,customD=-1,customR=-1;
+        boolean canUninstall(){
+            return !systemApp||updatedSystemApp;
+        }
+        boolean hasCustomSize(){
+            return customW>0||customH>0||customD>=0||customR>=0;
+        }
     }
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -92,29 +106,102 @@ public final class LiteActivity extends Activity {
         super.onSaveInstanceState(out);
         home.saveState(out);
     }
+    @Override protected void onActivityResult(int req,int res,Intent data){
+        super.onActivityResult(req,res,data);
+        if(req==REQ_PICK_WALLPAPER&&res==RESULT_OK&&data!=null&&data.getData()!=null){
+            importWallpaper(data.getData());
+        }
+    }
     void toast(String text){
         Toast.makeText(this,text,Toast.LENGTH_SHORT).show();
+    }
+    static int readParam(SharedPreferences p,int i){
+        if(LiteSettings.isBool(i))return p.getBoolean(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]!=0)?1:0;
+        return LiteSettings.clamp(i,p.getInt(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]));
+    }
+    static void writeParam(SharedPreferences.Editor e,int i,int v){
+        int c=LiteSettings.clamp(i,v);
+        if(LiteSettings.isBool(i))e.putBoolean(LiteSettings.KEYS[i],c!=0);
+        else e.putInt(LiteSettings.KEYS[i],c);
+    }
+    static void writeDraft(PreviewPreferences d,int i,int v){
+        int c=LiteSettings.clamp(i,v);
+        if(LiteSettings.isBool(i))d.booleans.put(LiteSettings.KEYS[i],c!=0);
+        else d.values.put(LiteSettings.KEYS[i],c);
+    }
+    int sortMode(){
+        if(prefs.contains("sort_mode"))return Math.max(0,Math.min(2,prefs.getInt("sort_mode",0)));
+        return prefs.getBoolean("alphabetic",false)?1:0;
+    }
+    String sortModeLabel(){
+        int m=sortMode();
+        return m==1?"首字母":m==2?"自定义":"最近打开";
+    }
+    int hiddenCount(){
+        int n=0;
+        for(App a:catalog)if(prefs.getBoolean("hidden:"+a.id,false))n++;
+        return n;
+    }
+    App findApp(String id){
+        if(id==null)return null;
+        for(App a:catalog)if(id.equals(a.id))return a;
+        return null;
+    }
+    boolean isFirstPinned(App a){
+        return a!=null&&a.pinned&&!apps.isEmpty()&&a.id.equals(apps.get(0).id);
     }
     void rebuildVisible(){
         String selected=restoredSelection==null?home.selectedId():restoredSelection;
         restoredSelection=null;
-        ArrayList<App> visible=new ArrayList<App>();
-        for(App app:catalog){
-            app.pinned=prefs.getBoolean("pinned:"+app.id,false);
-            app.opened=prefs.getLong("opened:"+app.id,0);
-            if(!prefs.getBoolean("hidden:"+app.id,false))visible.add(app);
+        HashMap<String,Integer> customRanks=new HashMap<String,Integer>();
+        String orderRaw=prefs.getString("order_list","");
+        if(orderRaw!=null&&orderRaw.length()>0){
+            String[] ids=orderRaw.split(",");
+            for(int i=0;i<ids.length;i++)if(ids[i].length()>0)customRanks.put(ids[i],i);
         }
-        final boolean alphabetic=prefs.getBoolean("alphabetic",false);
-        Collections.sort(visible,new Comparator<App>(){
+        ArrayList<App> visible=new ArrayList<App>();
+        ArrayList<App> all=new ArrayList<App>();
+        for(App app:catalog){
+            String customLabel=prefs.getString("label:"+app.id,"");
+            app.label=(customLabel!=null&&customLabel.trim().length()>0)?customLabel.trim():app.origLabel;
+            app.pinned=prefs.getBoolean("pinned:"+app.id,false);
+            app.pinOrder=prefs.getLong("pin_order:"+app.id,0);
+            app.hidden=prefs.getBoolean("hidden:"+app.id,false);
+            app.opened=prefs.getLong("opened:"+app.id,0);
+            Integer rank=customRanks.get(app.id);
+            app.customOrder=rank!=null?rank:Integer.MAX_VALUE;
+            int[] sz=LiteSettings.parseCardSize(prefs.getString("size:"+app.id,""));
+            app.customW=sz[0];
+            app.customH=sz[1];
+            app.customD=sz[2];
+            app.customR=sz[3];
+            all.add(app);
+            if(!app.hidden)visible.add(app);
+        }
+        final int mode=sortMode();
+        Comparator<App> cmp=new Comparator<App>(){
             public int compare(App a,App b){
                 if(a.pinned!=b.pinned)return a.pinned?-1:1;
-                if(!alphabetic&&a.opened!=b.opened)return a.opened>b.opened?-1:1;
+                if(a.pinned&&a.pinOrder!=b.pinOrder)return a.pinOrder>b.pinOrder?-1:1;
+                if(mode==2&&a.customOrder!=b.customOrder)return a.customOrder<b.customOrder?-1:1;
+                if(mode==0&&a.opened!=b.opened)return a.opened>b.opened?-1:1;
+                return a.label.compareToIgnoreCase(b.label);
+            }
+        };
+        Collections.sort(visible,cmp);
+        Collections.sort(all,new Comparator<App>(){
+            public int compare(App a,App b){
+                if(a.hidden!=b.hidden)return a.hidden?1:-1;
+                if(a.pinned!=b.pinned)return a.pinned?-1:1;
+                if(a.pinned&&a.pinOrder!=b.pinOrder)return a.pinOrder>b.pinOrder?-1:1;
                 return a.label.compareToIgnoreCase(b.label);
             }
         });
         apps=visible;
+        allApps=all;
         home.selectId(selected);
-        status=apps.isEmpty()?(catalog.isEmpty()?"没有找到可启动应用，可在设置中刷新":"应用已全部隐藏，可在设置中恢复"):"";
+        if(home.page==6&&home.choice>=allApps.size())home.choice=Math.max(0,allApps.size()-1);
+        status=apps.isEmpty()?(catalog.isEmpty()?"没有找到可启动应用，可在设置中刷新":"应用已全部隐藏，可在设置或全部应用中恢复"):"";
         home.invalidate();
     }
     void loadApps(){
@@ -145,20 +232,33 @@ public final class LiteActivity extends Activity {
                         packages.add(a.packageName);
                         App app=new App();
                         app.id=a.packageName;
-                        app.label=r.loadLabel(pm).toString();
+                        CharSequence rawLabel=r.loadLabel(pm);
+                        app.origLabel=rawLabel!=null?rawLabel.toString():a.packageName;
+                        app.label=app.origLabel;
+                        int flags=a.applicationInfo.flags;
+                        app.systemApp=(flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+                        app.updatedSystemApp=(flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+                        try{
+                            PackageInfo pi=pm.getPackageInfo(a.packageName,0);
+                            app.version=pi!=null&&pi.versionName!=null?pi.versionName:"";
+                        }catch(Exception ignored){
+                            app.version="";
+                        }
                         app.pinned=prefs.getBoolean("pinned:"+app.id,false);
+                        app.pinOrder=prefs.getLong("pin_order:"+app.id,0);
+                        app.hidden=prefs.getBoolean("hidden:"+app.id,false);
                         app.opened=prefs.getLong("opened:"+app.id,0);
                         app.intent=new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(a.packageName,a.name))
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                         found.add(app);
                     }
-                    final boolean alphabetic=prefs.getBoolean("alphabetic",false);
+                    final int mode=sortMode();
                     Collections.sort(found,new Comparator<App>(){
                         public int compare(App a,App b){
-                            boolean ha=prefs.getBoolean("hidden:"+a.id,false),hb=prefs.getBoolean("hidden:"+b.id,false);
-                            if(ha!=hb)return ha?1:-1;
+                            if(a.hidden!=b.hidden)return a.hidden?1:-1;
                             if(a.pinned!=b.pinned)return a.pinned?-1:1;
-                            if(!alphabetic&&a.opened!=b.opened)return a.opened>b.opened?-1:1;
+                            if(a.pinned&&a.pinOrder!=b.pinOrder)return a.pinOrder>b.pinOrder?-1:1;
+                            if(mode==0&&a.opened!=b.opened)return a.opened>b.opened?-1:1;
                             return a.label.compareToIgnoreCase(b.label);
                         }
                     });
@@ -235,8 +335,187 @@ public final class LiteActivity extends Activity {
             toast("此设备未提供系统设置入口");
         }
     }
+    void openHomeSettings(){
+        try{
+            startActivity(new Intent("android.settings.HOME_SETTINGS"));
+        }catch(Exception e){
+            toast("此系统未提供默认桌面设置页，已打开系统设置");
+            systemSettings();
+        }
+    }
+    void pickWallpaper(){
+        try{
+            Intent intent=new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(Intent.createChooser(intent,"选择本地壁纸"),REQ_PICK_WALLPAPER);
+        }catch(Exception e){
+            toast("此设备未提供系统图片选择器，可使用内置壁纸");
+        }
+    }
+    void importWallpaper(final Uri uri){
+        toast("正在导入本地壁纸…");
+        new Thread(new Runnable(){
+            public void run(){
+                boolean ok=false;
+                Bitmap decoded=null;
+                try{
+                    BitmapFactory.Options bounds=new BitmapFactory.Options();
+                    bounds.inJustDecodeBounds=true;
+                    InputStream in1=getContentResolver().openInputStream(uri);
+                    if(in1!=null){
+                        try{
+                            BitmapFactory.decodeStream(in1,null,bounds);
+                        }finally{
+                            in1.close();
+                        }
+                    }
+                    if(bounds.outWidth>0&&bounds.outHeight>0&&(long)bounds.outWidth*bounds.outHeight<=100000000L){
+                        int sample=1;
+                        while(bounds.outWidth/sample>1280||bounds.outHeight/sample>720)sample*=2;
+                        BitmapFactory.Options opts=new BitmapFactory.Options();
+                        opts.inSampleSize=sample;
+                        opts.inPreferredConfig=Bitmap.Config.RGB_565;
+                        InputStream in2=getContentResolver().openInputStream(uri);
+                        if(in2!=null){
+                            try{
+                                decoded=BitmapFactory.decodeStream(in2,null,opts);
+                            }finally{
+                                in2.close();
+                            }
+                        }
+                    }
+                    if(decoded!=null){
+                        File target=new File(getFilesDir(),"custom-wallpaper.jpg");
+                        File temp=new File(getFilesDir(),"custom-wallpaper.tmp");
+                        FileOutputStream out=new FileOutputStream(temp);
+                        try{
+                            decoded.compress(Bitmap.CompressFormat.JPEG,86,out);
+                            out.getFD().sync();
+                        }finally{
+                            out.close();
+                        }
+                        if(temp.renameTo(target))ok=true;
+                    }
+                }catch(Exception ignored){
+                }finally{
+                    if(decoded!=null&&!decoded.isRecycled())decoded.recycle();
+                }
+                final boolean imported=ok;
+                handler.post(new Runnable(){
+                    public void run(){
+                        if(destroyed||isFinishing())return;
+                        if(imported){
+                            prefs.edit().putInt("wallpaper",2).apply();
+                            home.loadWallpaper();
+                            toast("本地壁纸已应用");
+                        }else{
+                            toast("图片读取失败，请确认格式为 JPG/PNG");
+                        }
+                    }
+                });
+            }
+        },"MarcoLite-wall").start();
+    }
+    void openAppInfo(App a){
+        try{
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+a.id)));
+        }catch(Exception e){
+            systemSettings();
+        }
+    }
+    void uninstallApp(App a){
+        if(!a.canUninstall()){
+            toast("系统内置应用无法直接卸载，已打开系统应用信息");
+            openAppInfo(a);
+            return;
+        }
+        try{
+            dirty=true;
+            startActivity(new Intent(Intent.ACTION_DELETE,Uri.parse("package:"+a.id)));
+        }catch(Exception e){
+            toast("无法调起系统卸载界面，已打开系统应用信息");
+            openAppInfo(a);
+        }
+    }
+    void renameApp(final App a){
+        final EditText input=new EditText(this);
+        input.setSingleLine(true);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(32)});
+        input.setText(a.label);
+        input.setSelection(a.label.length());
+        new AlertDialog.Builder(this).setTitle("重命名 · "+a.origLabel).setView(input)
+                .setPositiveButton("保存",new DialogInterface.OnClickListener(){
+                    public void onClick(DialogInterface d,int w){
+                        String next=input.getText().toString().trim();
+                        SharedPreferences.Editor e=prefs.edit();
+                        if(next.length()==0||next.equals(a.origLabel))e.remove("label:"+a.id);
+                        else e.putString("label:"+a.id,next);
+                        e.apply();
+                        rebuildVisible();
+                        toast(next.length()==0||next.equals(a.origLabel)?"已恢复原名":"已重命名为 "+next);
+                    }
+                })
+                .setNeutralButton("恢复原名",new DialogInterface.OnClickListener(){
+                    public void onClick(DialogInterface d,int w){
+                        prefs.edit().remove("label:"+a.id).apply();
+                        rebuildVisible();
+                        toast("已恢复原名");
+                    }
+                })
+                .setNegativeButton("取消",null)
+                .show();
+    }
+    void moveApp(App a,int dir){
+        int idx=-1;
+        for(int i=0;i<apps.size();i++)if(apps.get(i).id.equals(a.id)){
+            idx=i;
+            break;
+        }
+        if(idx<0){
+            toast("请先取消隐藏再调整位置");
+            return;
+        }
+        int target=idx+dir;
+        if(target<0||target>=apps.size()||apps.get(target).pinned!=a.pinned){
+            toast(dir<0?"已在同组最左侧":"已在同组最右侧");
+            return;
+        }
+        ArrayList<App> reordered=new ArrayList<App>(apps);
+        Collections.swap(reordered,idx,target);
+        SharedPreferences.Editor e=prefs.edit();
+        if(a.pinned){
+            long base=prefs.getLong("pin_seq",100)+reordered.size()+2;
+            for(int i=0;i<reordered.size();i++){
+                App item=reordered.get(i);
+                if(item.pinned)e.putLong("pin_order:"+item.id,base-i);
+            }
+            e.putLong("pin_seq",base+1);
+        }else{
+            StringBuilder sb=new StringBuilder();
+            for(int i=0;i<reordered.size();i++){
+                if(i>0)sb.append(',');
+                sb.append(reordered.get(i).id);
+            }
+            e.putString("order_list",sb.toString());
+            e.putInt("sort_mode",2);
+            e.putBoolean("alphabetic",false);
+        }
+        e.apply();
+        restoredSelection=a.id;
+        rebuildVisible();
+        toast(dir<0?"已向左移动":"已向右移动");
+    }
+    void saveCustomCardSize(App a,int w,int h,int d,int r){
+        String fmt=LiteSettings.formatCardSize(w,h,d,r);
+        SharedPreferences.Editor e=prefs.edit();
+        if(fmt.length()==0)e.remove("size:"+a.id);
+        else e.putString("size:"+a.id,fmt);
+        e.apply();
+        rebuildVisible();
+    }
     void licenses(){
-        StringBuilder text=new StringBuilder("Marco TV Lite · Pilipala\n免费开源 · GPL-3.0-only\n\n");
+        StringBuilder text=new StringBuilder("Marco TV Lite "+LiteSettings.VERSION+" · Pilipala\n免费开源 · GPL-3.0-only\n\n本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。\n\n");
         try{
             for(String name:getAssets().list("licenses")){
                 text.append("\n—— ").append(name).append(" ——\n");
@@ -260,7 +539,7 @@ public final class LiteActivity extends Activity {
         scroll.setBackgroundColor(0xFF192C3B);
         scroll.addView(body);
         scroll.setFocusable(true);
-        new android.app.AlertDialog.Builder(this).setTitle("开源许可").setView(scroll).setPositiveButton("返回",null)
+        new AlertDialog.Builder(this).setTitle("开源许可").setView(scroll).setPositiveButton("返回",null)
                 .show();
     }
     void backup(boolean restore){
@@ -271,9 +550,9 @@ public final class LiteActivity extends Activity {
                 o.put("format","MarcoTV-Lite");
                 o.put("schema",1);
                 JSONObject values=new JSONObject();
-                for(int i=0;i<LiteSettings.KEYS.length;i++)values.put(LiteSettings.KEYS[i],LiteSettings.clamp(i,prefs.getInt(LiteSettings.KEYS[i],
-                        LiteSettings.DEFAULT[i])));
-                values.put("wallpaper",prefs.getInt("wallpaper",0));
+                for(int i=0;i<LiteSettings.KEYS.length;i++)values.put(LiteSettings.KEYS[i],readParam(prefs,i));
+                int wall=prefs.getInt("wallpaper",0);
+                values.put("wallpaper",wall==1?1:0);
                 o.put("appearance",values);
                 File temp=new File(getFilesDir(),"lite-backup.tmp");
                 FileOutputStream out=new FileOutputStream(temp);
@@ -308,6 +587,11 @@ public final class LiteActivity extends Activity {
                 JSONObject values=o.getJSONObject("appearance");
                 int[] checked=new int[LiteSettings.KEYS.length];
                 for(int i=0;i<checked.length;i++){
+                    if(!values.has(LiteSettings.KEYS[i])){
+                        if(i<LiteSettings.CORE_COUNT)throw new IOException("missing");
+                        checked[i]=LiteSettings.DEFAULT[i];
+                        continue;
+                    }
                     Object raw=values.get(LiteSettings.KEYS[i]);
                     if(!(raw instanceof Integer))throw new IOException("type");
                     checked[i]=(Integer)raw;
@@ -316,13 +600,13 @@ public final class LiteActivity extends Activity {
                 int wall=values.getInt("wallpaper");
                 if(wall<0||wall>1)throw new IOException("wallpaper");
                 SharedPreferences.Editor edit=prefs.edit();
-                for(int i=0;i<checked.length;i++)edit.putInt(LiteSettings.KEYS[i],checked[i]);
+                for(int i=0;i<checked.length;i++)writeParam(edit,i,checked[i]);
                 int[] previous=new int[checked.length];
-                for(int i=0;i<previous.length;i++)previous[i]=prefs.getInt(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]);
+                for(int i=0;i<previous.length;i++)previous[i]=readParam(prefs,i);
                 int oldWallpaper=prefs.getInt("wallpaper",0);
                 if(!edit.putInt("wallpaper",wall).commit()){
                     SharedPreferences.Editor rollback=prefs.edit();
-                    for(int i=0;i<previous.length;i++)rollback.putInt(LiteSettings.KEYS[i],previous[i]);
+                    for(int i=0;i<previous.length;i++)writeParam(rollback,i,previous[i]);
                     rollback.putInt("wallpaper",oldWallpaper).commit();
                     restoreStatus="write_failed";
                     toast("存储写入失败，恢复未完成。请检查可用空间后重试");
@@ -338,37 +622,63 @@ public final class LiteActivity extends Activity {
         }
     }
     void appAction(int item){
-        App a=null;
-        for(App entry:catalog)if(entry.id.equals(home.managedId)){
-            a=entry;
-            break;
-        }
+        App a=findApp(home.managedId);
         if(a==null){
             home.backPage();
             return;
         }
         if(item==0){
-            prefs.edit().putBoolean("pinned:"+a.id,!a.pinned).apply();
+            SharedPreferences.Editor e=prefs.edit();
+            if(a.pinned&&isFirstPinned(a)){
+                e.putBoolean("pinned:"+a.id,false).remove("pin_order:"+a.id).apply();
+                toast("已取消置顶");
+            }else{
+                long seq=prefs.getLong("pin_seq",0)+1;
+                e.putBoolean("pinned:"+a.id,true).putLong("pin_order:"+a.id,seq).putLong("pin_seq",seq).apply();
+                restoredSelection=a.id;
+                toast("已置顶到首位");
+            }
             rebuildVisible();
-        }
-        else if(item==1){
-            prefs.edit().putBoolean("hidden:"+a.id,true).apply();
+            home.backPage();
+        }else if(item==1){
+            boolean nextHidden=!a.hidden;
+            prefs.edit().putBoolean("hidden:"+a.id,nextHidden).apply();
             rebuildVisible();
+            toast(nextHidden?"已隐藏应用，可在设置或全部应用中恢复":"已恢复显示");
+            home.backPage();
+        }else if(item==2){
+            uninstallApp(a);
+            home.backPage();
+        }else if(item==3){
+            home.backPage();
+            renameApp(a);
+        }else if(item==4){
+            moveApp(a,-1);
+            home.invalidate();
+        }else if(item==5){
+            moveApp(a,1);
+            home.invalidate();
+        }else if(item==6){
+            home.open(7);
+        }else if(item==7){
+            openAppInfo(a);
+            home.backPage();
+        }else if(item==8){
+            home.closePage();
+            launch(a);
+        }else{
+            home.backPage();
         }
-        else if(item==2)try{
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+a.id)));
-        }catch(Exception e){
-            systemSettings();
-        }
-        home.backPage();
     }
 
     final class LiteView extends View {
         final LiteActivity host;
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
         final RectF rect=new RectF();
+        final Path path=new Path();
         final ClockScene clock;
         final MotionSpring scroll=new MotionSpring(0,18,.08f),demo=new MotionSpring(0,12,.08f);
+        final MotionSpring[] headerFocus={new MotionSpring(0,20,.001f),new MotionSpring(0,20,.001f),new MotionSpring(0,20,.001f)};
         Bitmap wallpaper;
         PreviewPreferences draft;
         final Typeface normalFace=Typeface.create("sans-serif",Typeface.NORMAL),boldFace=Typeface.create("sans-serif",Typeface.BOLD);
@@ -379,12 +689,14 @@ public final class LiteActivity extends Activity {
         String managedId;
         Shader cardFill,focusFill;
         float fillY=-1,fillHeight=-1;
+        float[] cardWidths=new float[0],cardCenters=new float[0];
         int selected,top=0,page=0,choice=0;
         boolean topFocus=false,ambient=false,running=false,longPress=false,wakeKey=false;
         long touched,lastFrame;
         float ambientAmount=0;
         final MotionSpring saver=new MotionSpring(0,10,.001f);
-        final String[] menu={"Magic Desktop","更换内置壁纸","应用排序","恢复所有隐藏应用","系统设置 / 网络","保存本机外观备份","恢复本机外观备份","设备与兼容状态","关于与开源许可","刷新应用列表"};
+        final String[] menu={"Magic Desktop","更换内置壁纸","应用排序","恢复所有隐藏应用","系统设置 / 网络","保存本机外观备份","恢复本机外观备份",
+                "设备与兼容状态","关于与开源许可","刷新应用列表","全部应用与管理","导入本地壁纸","设为默认桌面"};
         final Runnable frame=new Runnable(){
             public void run(){
                 if(!running)return;
@@ -392,6 +704,7 @@ public final class LiteActivity extends Activity {
                 float dt=Math.min(.06f,(now-lastFrame)/1000f);
                 lastFrame=now;
                 boolean moving=scroll.step(dt)|saver.step(dt)|demo.step(dt);
+                for(int i=0;i<headerFocus.length;i++)moving|=headerFocus[i].step(dt);
                 ambientAmount=saver.value;
                 invalidate();
                 if(moving)postDelayed(this,16);
@@ -424,6 +737,36 @@ public final class LiteActivity extends Activity {
             requestFocus();
             loadWallpaper();
             wake();
+        }
+        void syncHeaderTargets(){
+            boolean changed=false;
+            for(int i=0;i<headerFocus.length;i++){
+                float want=(page==0&&topFocus&&top==i)?1f:0f;
+                if(headerFocus[i].target!=want){
+                    headerFocus[i].target(want);
+                    changed=true;
+                }
+            }
+            if(changed)scheduleMotion();
+        }
+        void computeCardLayout(SharedPreferences a){
+            int n=apps.size();
+            if(cardWidths.length!=n){
+                cardWidths=new float[n];
+                cardCenters=new float[n];
+            }
+            int globalW=a.getInt("card_width",100);
+            float cursor=LiteSettings.SHELF_START_X;
+            for(int i=0;i<n;i++){
+                float w=LiteSettings.cardWidthPx(globalW,apps.get(i).customW);
+                cardWidths[i]=w;
+                cardCenters[i]=cursor+w/2f;
+                cursor+=w+LiteSettings.CARD_GAP;
+            }
+        }
+        float targetScroll(int idx){
+            computeCardLayout(appearance());
+            return LiteSettings.scrollForCenters(cardCenters,idx);
         }
         void scheduleTick(){
             removeCallbacks(tick);
@@ -463,27 +806,29 @@ public final class LiteActivity extends Activity {
             if(draft!=null){
                 Bundle values=new Bundle();
                 for(Map.Entry<String,Integer> item:draft.values.entrySet())values.putInt(item.getKey(),item.getValue());
+                for(Map.Entry<String,Boolean> item:draft.booleans.entrySet())values.putInt(item.getKey(),item.getValue()?1:0);
                 out.putBundle("draft",values);
             }
         }
         void restoreState(Bundle saved){
-            page=Math.max(0,Math.min(5,saved.getInt("page",0)));
+            page=Math.max(0,Math.min(7,saved.getInt("page",0)));
             choice=saved.getInt("choice",0);
-            top=Math.max(0,Math.min(1,saved.getInt("top",0)));
+            top=Math.max(0,Math.min(2,saved.getInt("top",0)));
             topFocus=saved.getBoolean("topFocus",false);
             restoredSelection=saved.getString("selected");
             managedId=saved.getString("managed");
             history.clear();
             int[] parents=saved.getIntArray("parents");
-            if(parents!=null)for(int i=0;i+1<Math.min(12,parents.length);i+=2)history.addLast(new int[]{Math.max(0,Math.min(5,parents[i])),Math.max(0,
+            if(parents!=null)for(int i=0;i+1<Math.min(12,parents.length);i+=2)history.addLast(new int[]{Math.max(0,Math.min(7,parents[i])),Math.max(0,
                     parents[i+1])});
             if(page==2){
                 draft=new PreviewPreferences(prefs);
                 Bundle values=saved.getBundle("draft");
-                if(values!=null)for(int i=0;i<LiteSettings.KEYS.length;i++)if(values.containsKey(LiteSettings.KEYS[i]))draft.values.put(LiteSettings.KEYS[i],
-                        LiteSettings.clamp(i,values.getInt(LiteSettings.KEYS[i])));
+                if(values!=null)for(int i=0;i<LiteSettings.KEYS.length;i++)if(values.containsKey(LiteSettings.KEYS[i]))writeDraft(draft,i,
+                        values.getInt(LiteSettings.KEYS[i]));
             }
-            choice=Math.max(0,Math.min(count()-1,choice));
+            choice=Math.max(0,Math.min(Math.max(0,count()-1),choice));
+            for(int i=0;i<headerFocus.length;i++)headerFocus[i].snap((page==0&&topFocus&&top==i)?1f:0f);
             invalidate();
         }
         void release(){
@@ -509,6 +854,7 @@ public final class LiteActivity extends Activity {
                 scroll.snap(scroll.target);
                 saver.snap(saver.target);
                 demo.snap(demo.target);
+                for(int i=0;i<headerFocus.length;i++)headerFocus[i].snap(headerFocus[i].target);
                 ambientAmount=saver.value;
                 invalidate();
                 return;
@@ -517,7 +863,7 @@ public final class LiteActivity extends Activity {
             post(frame);
         }
         float previewAmbient(){
-            return page==2&&choice>=7&&choice<=9?1:0;
+            return page==2&&((choice>=7&&choice<=9)||choice==13)?1:0;
         }
         void previewChanged(){
             if(page==2&&choice==10){
@@ -536,7 +882,7 @@ public final class LiteActivity extends Activity {
                 selected=i;
                 break;
             }
-            scroll.snap(LiteSettings.scroll(selected));
+            scroll.snap(targetScroll(selected));
         }
         void loadWallpaper(){
             Bitmap next=null;
@@ -544,11 +890,23 @@ public final class LiteActivity extends Activity {
                 BitmapFactory.Options o=new BitmapFactory.Options();
                 o.inSampleSize=1;
                 o.inPreferredConfig=Bitmap.Config.RGB_565;
-                InputStream in=getAssets().open("wallpapers/"+(prefs.getInt("wallpaper",0)==0?"aurora.jpg":"coast.jpg"));
-                try{
-                    next=BitmapFactory.decodeStream(in,null,o);
-                }finally{
-                    in.close();
+                int wall=prefs.getInt("wallpaper",0);
+                File custom=new File(getFilesDir(),"custom-wallpaper.jpg");
+                if(wall==2&&custom.isFile()){
+                    FileInputStream in=new FileInputStream(custom);
+                    try{
+                        next=BitmapFactory.decodeStream(in,null,o);
+                    }finally{
+                        in.close();
+                    }
+                }
+                if(next==null){
+                    InputStream in=getAssets().open("wallpapers/"+(wall==1?"coast.jpg":"aurora.jpg"));
+                    try{
+                        next=BitmapFactory.decodeStream(in,null,o);
+                    }finally{
+                        in.close();
+                    }
                 }
             }catch(Exception ignored){}
             Bitmap old=wallpaper;
@@ -567,7 +925,16 @@ public final class LiteActivity extends Activity {
             page=which;
             choice=0;
             if(which==2)draft=new PreviewPreferences(prefs);
-            if(which==3)managedId=selectedId();
+            if(which==3&&history.peek()[0]==0)managedId=selectedId();
+            if(which==7&&managedId!=null){
+                for(int i=0;i<apps.size();i++)if(apps.get(i).id.equals(managedId)){
+                    selected=i;
+                    topFocus=false;
+                    scroll.snap(targetScroll(i));
+                    break;
+                }
+            }
+            syncHeaderTargets();
             scheduleTick();
             invalidate();
         }
@@ -577,6 +944,7 @@ public final class LiteActivity extends Activity {
             choice=0;
             history.clear();
             demo.snap(0);
+            syncHeaderTargets();
             scheduleTick();
             invalidate();
         }
@@ -589,8 +957,9 @@ public final class LiteActivity extends Activity {
             }else{
                 int[] parent=history.pop();
                 page=parent[0];
-                choice=parent[1];
+                choice=Math.max(0,Math.min(Math.max(0,count()-1),parent[1]));
             }
+            syncHeaderTargets();
             scheduleTick();
             invalidate();
         }
@@ -609,6 +978,7 @@ public final class LiteActivity extends Activity {
             c.drawText(s,x,y,p);
         }
         String trim(String s,float width,float size){
+            if(s==null)return "";
             String key=s+"/"+width+"/"+size;
             String cached=shortLabels.get(key);
             if(cached!=null)return cached;
@@ -624,6 +994,96 @@ public final class LiteActivity extends Activity {
             shortLabels.put(key,result);
             return result;
         }
+        int blendColor(int a,int b,float t){
+            t=Math.max(0f,Math.min(1f,t));
+            int aA=(a>>>24)&255,rA=(a>>>16)&255,gA=(a>>>8)&255,bA=a&255;
+            int aB=(b>>>24)&255,rB=(b>>>16)&255,gB=(b>>>8)&255,bB=b&255;
+            return Color.argb((int)(aA+(aB-aA)*t),(int)(rA+(rB-rA)*t),(int)(gA+(gB-gA)*t),(int)(bA+(bB-bA)*t));
+        }
+        void drawHeaderIcon(Canvas c,int idx,float cx,float cy,float focus){
+            c.save();
+            c.translate(cx,cy);
+            int stroke=blendColor(0xFFC8DCE6,0xFFFFFFFF,focus);
+            int accent=blendColor(0x668CD6F0,0xFF8CD6F0,focus);
+            if(idx==0){
+                // MARCO TV settings gear: 45 deg spin + subtle 1.06x zoom + ice glass core
+                float s=1f+0.06f*focus;
+                c.scale(s,s);
+                c.rotate(45f*focus);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(Color.argb((int)(28+70*focus),140,214,240));
+                c.drawCircle(0,0,15f,p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(2.6f);
+                p.setColor(stroke);
+                c.drawCircle(0,0,10.5f,p);
+                for(int k=0;k<8;k++){
+                    c.save();
+                    c.rotate(k*45f);
+                    p.setStyle(Paint.Style.FILL);
+                    p.setColor(stroke);
+                    rect.set(-2.3f,-16.5f,2.3f,-11.5f);
+                    c.drawRoundRect(rect,1.5f,1.5f,p);
+                    c.restore();
+                }
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(accent);
+                c.drawCircle(0,0,4.2f,p);
+            }else if(idx==1){
+                // Magic Desktop: floating glass card spread + blooming 90 deg 4-point star
+                float spread=3.5f*focus;
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(Color.argb((int)(40+55*focus),140,214,240));
+                rect.set(-14f-spread,-9f-spread*0.5f,4f-spread,10f-spread*0.5f);
+                c.drawRoundRect(rect,4f,4f,p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(2.2f);
+                p.setColor(stroke);
+                c.drawRoundRect(rect,4f,4f,p);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(Color.argb((int)(55+75*focus),185,232,248));
+                rect.set(-4f+spread,-4f+spread*0.5f,14f+spread,14f+spread*0.5f);
+                c.drawRoundRect(rect,4f,4f,p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setColor(stroke);
+                c.drawRoundRect(rect,4f,4f,p);
+                // 4-point star
+                c.save();
+                c.translate(10f+spread*0.5f,-10f-spread*0.5f);
+                c.rotate(90f*focus);
+                float sr=5.5f+2.5f*focus;
+                path.reset();
+                path.moveTo(0,-sr);
+                path.lineTo(sr*0.28f,-sr*0.28f);
+                path.lineTo(sr,0);
+                path.lineTo(sr*0.28f,sr*0.28f);
+                path.lineTo(0,sr);
+                path.lineTo(-sr*0.28f,sr*0.28f);
+                path.lineTo(-sr,0);
+                path.lineTo(-sr*0.28f,-sr*0.28f);
+                path.close();
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(accent);
+                c.drawPath(path,p);
+                c.restore();
+            }else{
+                // All Apps: 3x3 grid radial bloom + ice-blue center tile
+                float gap=9.5f+1.8f*focus;
+                float tile=3.1f+0.35f*focus;
+                p.setStyle(Paint.Style.FILL);
+                for(int r=-1;r<=1;r++){
+                    for(int col=-1;col<=1;col++){
+                        boolean center=(r==0&&col==0);
+                        p.setColor(center?accent:stroke);
+                        float tx=col*gap,ty=r*gap;
+                        rect.set(tx-tile,ty-tile,tx+tile,ty+tile);
+                        c.drawRoundRect(rect,1.6f,1.6f,p);
+                    }
+                }
+            }
+            p.setStyle(Paint.Style.FILL);
+            c.restore();
+        }
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             drawCount++;
@@ -632,14 +1092,14 @@ public final class LiteActivity extends Activity {
             canvas.save();
             canvas.translate((getWidth()-1920*scale)/2,(getHeight()-1080*scale)/2);
             canvas.scale(scale,scale);
-            if(page==2){
+            if(page==2||page==7){
                 box(canvas,30,170,1250,870,30,0xFF243743);
                 canvas.save();
                 canvas.translate(40,180);
                 canvas.scale(.625f,.625f);
-                scene(canvas,previewAmbient());
+                scene(canvas,page==2?previewAmbient():0f);
                 canvas.restore();
-                text(canvas,previewAmbient()>0?"屏保预览":"桌面预览",40,930,28,0xFFB7DCE3,true);
+                text(canvas,page==7?"卡片尺寸实时预览":(previewAmbient()>0?"屏保预览":"桌面预览"),40,930,28,0xFFB7DCE3,true);
                 panel(canvas);
             }else{
                 scene(canvas,ambientAmount);
@@ -663,109 +1123,334 @@ public final class LiteActivity extends Activity {
                 c.restore();
                 return;
             }
-            text(c,"Marco TV Lite",112,115,32,0xFFDCECF1,true);
-            text(c,"by Pilipala · 老电视兼容实验版",112,150,20,0xFF9AB3C1,false);
-            if(topFocus&&top==0)box(c,410,70,560,145,16,0xFF36576B);
-            text(c,"设置",442,119,28,0xFFE6F1F6,false);
-            if(topFocus&&top==1)box(c,590,70,875,145,16,0xFF36576B);
-            text(c,"Magic Desktop",617,119,28,0xFFE6F1F6,false);
-            float h=LiteSettings.height(a.getInt("card_height",100)),y=LiteSettings.center(a.getInt("card_row_position",75),a.getInt("card_height",
-                    100));
-            if(fillY!=y||fillHeight!=h){
-                fillY=y;
-                fillHeight=h;
-                cardFill=new LinearGradient(0,y-h/2,0,y+h/2,0xFF354E62,0xFF203344,Shader.TileMode.CLAMP);
-                focusFill=new LinearGradient(0,y-h/2,0,y+h/2,0xFF648899,0xFF345265,Shader.TileMode.CLAMP);
+            // Clean 3-button animated header (aligned on one baseline, no cluttered subtitle)
+            float[] btnL={100,368,676},btnR={340,648,892};
+            String[] btnLabels={"MARCO TV","Magic Desktop","全部应用"};
+            for(int i=0;i<3;i++){
+                float f=headerFocus[i].value;
+                if(f>0.01f){
+                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(185*f),46,78,98));
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(2f);
+                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(160*f),168,226,242));
+                    p.setStyle(Paint.Style.FILL);
+                }
+                drawHeaderIcon(c,i,btnL[i]+34,108,f);
+                text(c,btnLabels[i],btnL[i]+66,118,26,blendColor(0xFFD5E6EE,Color.WHITE,f),i==0||f>0.35f);
             }
-            text(c,"TV 应用",112,y-h/2-75,32,Color.WHITE,true);
+            int globalHPercent=a.getInt("card_height",100);
+            int globalWPercent=a.getInt("card_width",100);
+            int globalDPercent=a.getInt("card_depth",0);
+            int globalR=a.getInt("card_radius",32);
+            float baseH=LiteSettings.height(globalHPercent);
+            float y=LiteSettings.center(a.getInt("card_row_position",75),globalHPercent);
+            if(fillY!=y||fillHeight!=baseH){
+                fillY=y;
+                fillHeight=baseH;
+                cardFill=new LinearGradient(0,y-baseH/2,0,y+baseH/2,new int[]{0xFF395166,0xFF263A4D,0xFF192838},new float[]{0f,0.34f,1f},Shader.TileMode.CLAMP);
+                focusFill=new LinearGradient(0,y-baseH/2,0,y+baseH/2,new int[]{0xFF658BA3,0xFF426378,0xFF274054},new float[]{0f,0.32f,1f},Shader.TileMode.CLAMP);
+            }
+            text(c,"我的应用",112,y-baseH/2-52,32,Color.WHITE,true);
             if(apps.isEmpty())text(c,status,112,y,28,0xFFC2D3DF,false);
+            computeCardLayout(a);
+            float maxCardHalf=baseH/2f;
             for(int i=0;i<apps.size();i++){
-                float x=272+i*350-scroll.value+(page==2&&choice==10?demo.value:0);
-                if(x<-220||x>2140)continue;
                 App app=apps.get(i);
-                boolean focus=i==selected&&(!topFocus||(page==2&&choice==10));
-                float z=focus?1.08f:1,cy=y-(focus?10:0);
-                float radius=LiteSettings.clamp(2,a.getInt("card_radius",32));
-                box(c,x-160*z,cy-h*z/2+6,x+160*z,cy+h*z/2+6,radius,0x44040C16);
-                rect.set(x-160*z,cy-h*z/2,x+160*z,cy+h*z/2);
+                float w=cardWidths[i];
+                float h=LiteSettings.cardHeightPx(globalHPercent,app.customH);
+                if(h/2f>maxCardHalf)maxCardHalf=h/2f;
+                float d=LiteSettings.cardDepthPx(globalDPercent,app.customD);
+                float x=cardCenters[i]-scroll.value+(page==2&&choice==10?demo.value:0);
+                if(x+w<-80||x-w>2000)continue;
+                boolean focus=i==selected&&(!topFocus||(page==2&&choice==10)||page==7);
+                float z=focus?1.08f:1f,cy=y-(focus?10:0);
+                float hw=w*z/2f,hh=h*z/2f;
+                float radius=Math.min(Math.min(hw,hh),LiteSettings.cardRadiusPx(globalR,app.customR));
+                float depthPx=d*z;
+                // 2-layer soft floating shadow
+                box(c,x-hw-6,cy-hh+10+depthPx,x+hw+6,cy+hh+18+depthPx,radius+4,focus?0x38020710:0x22020710);
+                box(c,x-hw-1,cy-hh+5+depthPx,x+hw+1,cy+hh+9+depthPx,radius+1,focus?0x50030A16:0x36030A16);
+                // Optional 3D acrylic bottom edge thickness
+                if(depthPx>0.6f){
+                    box(c,x-hw,cy-hh+depthPx,x+hw,cy+hh+depthPx,radius,focus?0xFF284256:0xFF172736);
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(1.5f);
+                    box(c,x-hw,cy-hh+depthPx,x+hw,cy+hh+depthPx,radius,focus?0x668CD6F0:0x3376A4BA);
+                    p.setStyle(Paint.Style.FILL);
+                }
+                // Card body with smooth optical glass gradient
+                rect.set(x-hw,cy-hh,x+hw,cy+hh);
                 p.setColor(Color.WHITE);
                 p.setShader(focus?focusFill:cardFill);
                 c.drawRoundRect(rect,radius,radius,p);
                 p.setShader(null);
+                // Icon or crisp initial monogram
                 if(app.icon!=null&&!app.icon.isRecycled()){
-                    float sz=Math.min(112,h-24)*z;
-                    rect.set(x-sz/2,cy-sz/2,x+sz/2,cy+sz/2);
-                    p.setAlpha(255);
-                    c.drawBitmap(app.icon,null,rect,p);
-                }else text(c,app.label.isEmpty()?"?":app.label.substring(0,1),x-22,cy+20,54,Color.WHITE,true);
-                if(focus){
-                    p.setStyle(Paint.Style.STROKE);
-                    p.setStrokeWidth(3);
-                    box(c,x-160*z,cy-h*z/2,x+160*z,cy+h*z/2,radius,0xFFC4E7ED);
-                    p.setStyle(Paint.Style.FILL);
+                    float sz=Math.min(104f,Math.min(w,h)-26f)*z;
+                    if(sz>20f){
+                        rect.set(x-sz/2f,cy-sz/2f,x+sz/2f,cy+sz/2f);
+                        p.setAlpha(255);
+                        c.drawBitmap(app.icon,null,rect,p);
+                    }
+                }else{
+                    String ch=app.label.isEmpty()?"?":app.label.substring(0,1);
+                    p.setShader(null);
+                    p.setColor(Color.WHITE);
+                    p.setTypeface(boldFace);
+                    p.setTextSize(Math.min(54f,Math.min(w,h)*0.42f));
+                    p.setTextAlign(Paint.Align.CENTER);
+                    c.drawText(ch,x,cy+18,p);
+                    p.setTextAlign(Paint.Align.LEFT);
                 }
-                text(c,trim(app.label,310,28),x-155,y+h/2+62,28,focus?Color.WHITE:0xFFBDD0DE,focus);
-                if(app.pinned)text(c,"置顶",x+86,cy-h/2+30,18,0xFFFFD894,false);
+                // Rim stroke (crisp white-ice inner highlight on focus, subtle glass edge unfocused)
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(focus?3f:1.2f);
+                box(c,x-hw,cy-hh,x+hw,cy+hh,radius,focus?0xE0D4F2F8:0x28FFFFFF);
+                p.setStyle(Paint.Style.FILL);
+                // Card title below card with readability shadow
+                float labelY=Math.min(1038f,y+Math.max(baseH,h)/2f+48f);
+                String trimmed=trim(app.label,Math.max(120f,w-10f),26);
+                text(c,trimmed,x-w/2f+6,labelY+2,26,0x88000000,focus);
+                text(c,trimmed,x-w/2f+5,labelY,26,focus?Color.WHITE:0xFFBDD0DE,focus);
             }
-            text(c,"↑ 设置   ← → 选择   确定打开   长按确定管理",112,980,24,0xFF96AEBE,false);
+            // Fade bottom shortcut hint when cards move near the bottom
+            float bottomLabel=y+maxCardHalf+48f;
+            float hintAlpha=Math.max(0f,Math.min(1f,(955f-bottomLabel)/55f));
+            if(hintAlpha>0.05f){
+                text(c,"↑ 顶栏   ← → 选择   确定打开   长按确定管理/卸载",112,1022,22,Color.argb((int)(200*hintAlpha),165,190,206),false);
+            }
             c.restore();
         }
         int count(){
-            return page==1?menu.length:page==2?LiteSettings.KEYS.length+3:page==3?3:1;
+            if(page==1)return menu.length;
+            if(page==2)return LiteSettings.KEYS.length+3;
+            if(page==3)return 9;
+            if(page==6)return Math.max(1,allApps.size());
+            if(page==7)return 5;
+            return 1;
         }
         String value(int i){
-            int v=appearance().getInt(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]);
-            return i==3?ClockScene.STYLES[LiteSettings.clamp(i,v)]:i==10?(v==0?"关闭":"开启"):Integer.toString(v)+(i<2?"%":i==4?"°":"");
+            int v=readParam(appearance(),i);
+            if(i==3)return ClockScene.STYLES[LiteSettings.clamp(i,v)];
+            if(i==10||i==13)return v==0?"关闭":"开启";
+            if(i==0||i==1||i==11||i==12)return v+"%";
+            if(i==4)return v+"°";
+            return Integer.toString(v);
+        }
+        String customSizeValue(App a,int idx){
+            if(idx==0)return a.customW<=0?"跟随全局":a.customW+"%";
+            if(idx==1)return a.customH<=0?"跟随全局":a.customH+"%";
+            if(idx==2)return a.customD<0?"跟随全局":a.customD+"%";
+            if(idx==3)return a.customR<0?"跟随全局":Integer.toString(a.customR);
+            return "";
         }
         void panel(Canvas c){
-            float left=page==2?1290:1080,width=1920-left-50;
-            box(c,left,45,1870,1035,30,0xFF1A2836);
-            text(c,page==2?"Magic Desktop":page==3?"应用管理":page==4?"设备与兼容状态":page==5?"Marco TV Lite":"设置",left+32,113,36,Color.WHITE,true);
+            float left=page==6?320:(page==2||page==7?1290:1080),width=1920-left-50;
+            box(c,left,45,1870,1035,30,0xFF172432);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.5f);
+            box(c,left,45,1870,1035,30,0x33A8D8E6);
+            p.setStyle(Paint.Style.FILL);
+            App managed=findApp(managedId);
+            String heading;
+            if(page==2)heading="Magic Desktop";
+            else if(page==3)heading=managed!=null?trim("管理 · "+managed.label,width-64,34):"应用管理";
+            else if(page==4)heading="设备与兼容状态";
+            else if(page==5)heading="Marco TV Lite";
+            else if(page==6)heading="全部应用与管理（"+allApps.size()+"）";
+            else if(page==7)heading=managed!=null?trim("尺寸 · "+managed.label,width-64,32):"自定义卡片尺寸";
+            else heading="设置";
+            text(c,heading,left+32,110,34,Color.WHITE,true);
             if(page==4||page==5){
-                String[] lines=page==4?new String[]{"版本："+LiteSettings.VERSION+" · Lite","设备："+Build.MANUFACTURER+" / "+Build.MODEL,"Android "+Build.VERSION.RELEASE+" · API "+Build.VERSION.SDK_INT,
-                        "画面："+getWidth()+" × "+getHeight(),"安装与基础操作：以测试报告为准","原厂 Home / 开机启动：待真机验证","系统最近任务 / 播放卡片：本版未提供","网络与手机互联：本版未提供","默认桌面选择由电视系统决定"}:new String[]{"作者 Pilipala · "+LiteSettings.VERSION,
-                        "免费开源 · GPL-3.0-only","如果付费购买，请尽快申请退款。","Lite 是独立应用，不覆盖 Marco TV。","内置四款数字字体，SIL OFL 1.1。","Roboto Flex · Barlow Condensed",
-                        "Nunito · Bodoni Moda","按确定查看随包开源许可全文","本版无联网权限，不自动上传数据。"};
-                for(int i=0;i<lines.length;i++)text(c,trim(lines[i],width-64,24),left+32,185+i*66,24,0xFFC1D4DE,false);
-                text(c,"按返回关闭",left+32,982,24,0xFFB3E5E8,false);
+                String wallName=prefs.getInt("wallpaper",0)==2?"本地图片":(prefs.getInt("wallpaper",0)==1?"雾蓝海岸":"极夜山脊");
+                String[] lines=page==4?new String[]{
+                        "版本："+LiteSettings.VERSION+" · Lite（API 14 原生）",
+                        "设备："+Build.MANUFACTURER+" / "+Build.MODEL,
+                        "Android "+Build.VERSION.RELEASE+" · API "+Build.VERSION.SDK_INT,
+                        "画面："+getWidth()+" × "+getHeight(),
+                        "已识别应用："+catalog.size()+" 个（已隐藏 "+hiddenCount()+" 个）",
+                        "当前壁纸："+wallName+" · 排序："+sortModeLabel(),
+                        "默认桌面："+(isDefaultHome()?"当前已生效":"由电视系统决定"),
+                        "系统最近任务 / 投屏 / 手机互联：Lite 版未提供",
+                        "安装说明：小米盒子若提示安装包异常请断网或 ADB 安装"
+                }:new String[]{
+                        "作者 Pilipala · Marco TV Lite "+LiteSettings.VERSION,
+                        "免费开源 · GPL-3.0-only",
+                        "如果你付费购买了本软件，请尽快向购买平台申请退款。",
+                        "Lite 独立于完整版安装，面向 Android 4.0+ 老设备。",
+                        "内置四款数字字体（SIL OFL 1.1）：",
+                        "Roboto Flex · Barlow Condensed · Nunito · Bodoni Moda",
+                        "支持应用置顶、改名、排序、隐藏、系统确认卸载与尺寸自定义。",
+                        "按确定查看随包开源许可全文",
+                        "无联网权限、无后台服务，不自动上传任何数据。"
+                };
+                for(int i=0;i<lines.length;i++)text(c,trim(lines[i],width-64,24),left+32,185+i*68,24,0xFFC1D4DE,false);
+                text(c,page==5?"按确定查看许可 · 按返回关闭":"按返回关闭",left+32,986,24,0xFFB3E5E8,false);
                 return;
             }
-            int start=Math.max(0,Math.min(choice-2,count()-7));
-            for(int i=start;i<Math.min(count(),start+7);i++){
-                float y=155+(i-start)*111;
+            if(page==3&&managed!=null){
+                String meta=managed.id+(managed.version!=null&&managed.version.length()>0?" · v"+managed.version:"")
+                        +(managed.canUninstall()?" · 可卸载":" · 系统内置");
+                text(c,trim(meta,width-64,20),left+32,142,20,0xFF8FB0C2,false);
+            }else if(page==6){
+                text(c,"确定进入应用管理（置顶 / 改名 / 隐藏 / 卸载 / 调尺寸） · 左右键翻页",left+32,142,21,0xFF8FB0C2,false);
+            }
+            int listTop=(page==3||page==6)?160:155;
+            int rows=7;
+            int rowStep=110;
+            int total=count();
+            int start=Math.max(0,Math.min(choice-2,total-rows));
+            if(page==6&&allApps.isEmpty()){
+                text(c,"暂未发现可启动应用，可在设置中刷新",left+42,230,26,0xFFC1D4DE,false);
+                text(c,"按返回关闭",left+32,986,22,0xFFA5C4D2,false);
+                return;
+            }
+            for(int i=start;i<Math.min(total,start+rows);i++){
+                float y=listTop+(i-start)*rowStep;
                 boolean focus=i==choice;
-                box(c,left+24,y,1846,y+97,16,focus?0xFF355266:0xFF233545);
+                box(c,left+24,y,1846,y+96,16,focus?0xFF315268:0xFF213344);
+                if(focus){
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(2f);
+                    box(c,left+24,y,1846,y+96,16,0xB89EE0EE);
+                    p.setStyle(Paint.Style.FILL);
+                }
+                if(page==6){
+                    App item=allApps.get(i);
+                    float ix=left+44,iy=y+22;
+                    if(item.icon!=null&&!item.icon.isRecycled()){
+                        rect.set(ix,iy,ix+52,iy+52);
+                        p.setAlpha(255);
+                        c.drawBitmap(item.icon,null,rect,p);
+                    }else{
+                        box(c,ix,iy,ix+52,iy+52,12,0xFF314D63);
+                        text(c,item.label.isEmpty()?"?":item.label.substring(0,1),ix+14,iy+37,28,Color.WHITE,true);
+                    }
+                    StringBuilder tags=new StringBuilder();
+                    if(item.pinned)tags.append(" [置顶]");
+                    if(item.hidden)tags.append(" [已隐藏]");
+                    if(item.systemApp)tags.append(item.updatedSystemApp?" [系统·已更新]":" [系统]");
+                    if(item.hasCustomSize())tags.append(" [自定义尺寸]");
+                    text(c,trim(item.label+tags.toString(),width-160,26),left+114,y+42,26,Color.WHITE,focus);
+                    String sub=item.id+(item.version!=null&&item.version.length()>0?" · v"+item.version:"")
+                            +(item.canUninstall()?" · 支持卸载":" · 系统内置");
+                    text(c,trim(sub,width-160,20),left+114,y+76,20,focus?0xFFCFE8F2:0xFF8CA8BA,false);
+                    continue;
+                }
                 String title;
-                if(page==1)title=menu[i]+(i==2?(prefs.getBoolean("alphabetic",false)?"：名称":"：最近打开"):"");
-                else if(page==3)title=i==0?"切换置顶":i==1?"隐藏应用":"系统应用信息";
-                else title=i<LiteSettings.KEYS.length?LiteSettings.NAMES[i]+"  "+value(i):i==LiteSettings.KEYS.length?"保存":i==LiteSettings.KEYS.length+1?"取消":"恢复默认值";
-                text(c,trim(title,width-80,25),left+42,y+42,25,Color.WHITE,focus);
+                if(page==1){
+                    String suffix="";
+                    if(i==1){
+                        int w=prefs.getInt("wallpaper",0);
+                        suffix=w==2?"：自定义图片":(w==1?"：雾蓝海岸":"：极夜山脊");
+                    }else if(i==2)suffix="："+sortModeLabel();
+                    else if(i==3){
+                        int hc=hiddenCount();
+                        if(hc>0)suffix="（"+hc+" 个）";
+                    }
+                    title=menu[i]+suffix;
+                }else if(page==3){
+                    if(i==0)title=(managed!=null&&managed.pinned&&isFirstPinned(managed))?"取消置顶":"置顶到首位";
+                    else if(i==1)title=(managed!=null&&managed.hidden)?"取消隐藏":"隐藏应用";
+                    else if(i==2)title=(managed!=null&&!managed.canUninstall())?"系统内置应用（查看信息）":(managed!=null&&managed.updatedSystemApp?"卸载更新（系统确认）":"卸载应用（系统确认）");
+                    else if(i==3)title="重命名应用"+(managed!=null&&!managed.label.equals(managed.origLabel)?"（已改名）":"");
+                    else if(i==4)title="向左移动";
+                    else if(i==5)title="向右移动";
+                    else if(i==6)title="自定义卡片尺寸"+(managed!=null&&managed.hasCustomSize()?"（已自定义）":"");
+                    else if(i==7)title="系统应用信息";
+                    else title="打开应用";
+                }else if(page==7){
+                    String[] szNames={"卡片宽度","卡片高度","立体厚度","卡片圆角","恢复跟随全局默认"};
+                    title=i<4&&managed!=null?szNames[i]+"  "+customSizeValue(managed,i):szNames[i];
+                }else{
+                    title=i<LiteSettings.KEYS.length?LiteSettings.NAMES[i]+"  "+value(i):i==LiteSettings.KEYS.length?"保存":i==LiteSettings.KEYS.length+1?"取消":"恢复默认值";
+                }
+                text(c,trim(title,width-80,25),left+42,y+44,25,Color.WHITE,focus);
                 if(page==2&&i<LiteSettings.KEYS.length){
-                    float ratio=(appearance().getInt(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i])-LiteSettings.MIN[i])/(float)(LiteSettings.MAX[i]-LiteSettings.MIN[i]);
-                    box(c,left+42,y+67,1825,y+73,3,0xFF566B7D);
+                    float ratio=(readParam(appearance(),i)-LiteSettings.MIN[i])/(float)(LiteSettings.MAX[i]-LiteSettings.MIN[i]);
+                    box(c,left+42,y+68,1825,y+74,3,0xFF566B7D);
                     float x=left+42+(1783-left)*ratio;
-                    box(c,left+42,y+67,x,y+73,3,0xFFAEDDE3);
+                    box(c,left+42,y+68,x,y+74,3,0xFFAEDDE3);
                     p.setColor(0xFFAEDDE3);
-                    c.drawCircle(x,y+70,9,p);
+                    c.drawCircle(x,y+71,9,p);
+                }else if(page==7&&i<4&&managed!=null){
+                    float ratio=customSliderRatio(managed,i);
+                    box(c,left+42,y+68,1825,y+74,3,0xFF566B7D);
+                    float x=left+42+(1783-left)*ratio;
+                    box(c,left+42,y+68,x,y+74,3,0xFF8CD6F0);
+                    p.setColor(0xFF8CD6F0);
+                    c.drawCircle(x,y+71,9,p);
                 }
             }
-            text(c,page==2?"左右调整 · 保存才应用 · 返回撤销":"上下选择 · 确定进入 · 返回关闭",left+32,986,22,0xFFA5C4D2,false);
+            String footer=page==2?"左右调整 · 保存才应用 · 返回撤销":page==7?"左右调整即时生效 · 返回上级":page==6?"上下选择 · 左右翻页 · 确定管理 · 返回关闭":"上下选择 · 确定进入 · 返回关闭";
+            text(c,footer,left+32,986,22,0xFFA5C4D2,false);
+        }
+        float customSliderRatio(App a,int idx){
+            if(idx==0)return a.customW<=0?0f:(a.customW-60)/100f;
+            if(idx==1)return a.customH<=0?0f:(a.customH-60)/90f;
+            if(idx==2)return a.customD<0?0f:a.customD/100f;
+            return a.customR<0?0f:a.customR/64f;
+        }
+        void changeCustomSize(int dir){
+            App a=findApp(managedId);
+            if(a==null||choice>=4)return;
+            int w=a.customW,h=a.customH,d=a.customD,r=a.customR;
+            if(choice==0){
+                int base=w<=0?prefs.getInt("card_width",100):w;
+                w=LiteSettings.clampCustomWidth(base+dir*5);
+            }else if(choice==1){
+                int base=h<=0?prefs.getInt("card_height",100):h;
+                h=LiteSettings.clampCustomHeight(base+dir*5);
+            }else if(choice==2){
+                int base=d<0?prefs.getInt("card_depth",0):d;
+                d=LiteSettings.clampCustomDepth(base+dir*5);
+            }else if(choice==3){
+                int base=r<0?prefs.getInt("card_radius",32):r;
+                r=LiteSettings.clampCustomRadius(base+dir*4);
+            }
+            saveCustomCardSize(a,w,h,d,r);
+            scroll.snap(targetScroll(selected));
+            invalidate();
         }
         void change(int direction){
+            if(page==7){
+                changeCustomSize(direction);
+                return;
+            }
             if(page!=2||choice>=LiteSettings.KEYS.length)return;
-            String key=LiteSettings.KEYS[choice];
-            int step=choice==7?10:1;
-            draft.values.put(key,LiteSettings.clamp(choice,draft.getInt(key,LiteSettings.DEFAULT[choice])+direction*step));
+            int step=choice==7?10:(choice==11||choice==12?5:1);
+            int cur=readParam(draft,choice);
+            writeDraft(draft,choice,cur+direction*step);
             previewChanged();
         }
         void activate(){
             if(page==0){
-                if(topFocus)open(top==0?1:2);
+                if(topFocus)open(top==0?1:top==1?2:6);
                 else if(!apps.isEmpty())host.launch(apps.get(selected));
                 return;
             }
             if(page==3){
                 host.appAction(choice);
+                return;
+            }
+            if(page==6){
+                if(!allApps.isEmpty()&&choice>=0&&choice<allApps.size()){
+                    managedId=allApps.get(choice).id;
+                    open(3);
+                }
+                return;
+            }
+            if(page==7){
+                if(choice<4){
+                    changeCustomSize(1);
+                }else{
+                    App a=findApp(managedId);
+                    if(a!=null){
+                        saveCustomCardSize(a,0,0,-1,-1);
+                        toast("已恢复跟随全局默认尺寸");
+                    }
+                    invalidate();
+                }
                 return;
             }
             if(page==5){
@@ -783,12 +1468,12 @@ public final class LiteActivity extends Activity {
                 }
                 if(choice==LiteSettings.KEYS.length){
                     SharedPreferences.Editor e=prefs.edit();
-                    for(Map.Entry<String,Integer> x:draft.values.entrySet())e.putInt(x.getKey(),x.getValue());
+                    draft.writeTo(e);
                     e.apply();
                     backPage();
                 }else if(choice==LiteSettings.KEYS.length+1)backPage();
                 else {
-                    for(int i=0;i<LiteSettings.KEYS.length;i++)draft.values.put(LiteSettings.KEYS[i],LiteSettings.DEFAULT[i]);
+                    for(int i=0;i<LiteSettings.KEYS.length;i++)writeDraft(draft,i,LiteSettings.DEFAULT[i]);
                     invalidate();
                 }
                 return;
@@ -798,11 +1483,13 @@ public final class LiteActivity extends Activity {
                     open(2);
                     break;
                 case 1:
-                    prefs.edit().putInt("wallpaper",1-prefs.getInt("wallpaper",0)).apply();
+                    int curW=prefs.getInt("wallpaper",0);
+                    prefs.edit().putInt("wallpaper",curW==0?1:0).apply();
                     loadWallpaper();
                     break;
                 case 2:
-                    prefs.edit().putBoolean("alphabetic",!prefs.getBoolean("alphabetic",false)).apply();
+                    int nextMode=(sortMode()+1)%3;
+                    prefs.edit().putInt("sort_mode",nextMode).putBoolean("alphabetic",nextMode==1).apply();
                     rebuildVisible();
                     break;
                 case 3:
@@ -831,6 +1518,15 @@ public final class LiteActivity extends Activity {
                     loadApps();
                     toast("正在刷新应用列表");
                     break;
+                case 10:
+                    open(6);
+                    break;
+                case 11:
+                    host.pickWallpaper();
+                    break;
+                case 12:
+                    host.openHomeSettings();
+                    break;
             }
             invalidate();
         }
@@ -858,6 +1554,7 @@ public final class LiteActivity extends Activity {
                     topFocus=false;
                     selected=0;
                     scroll.target(0);
+                    syncHeaderTargets();
                     scheduleMotion();
                 }else if(host.isDefaultHome()){
                     ambient=true;
@@ -876,12 +1573,16 @@ public final class LiteActivity extends Activity {
             }
             if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){
                 int d=key==KeyEvent.KEYCODE_DPAD_LEFT?-1:1;
-                if(page==2)change(d);
-                else if(page==0){
-                    if(topFocus)top=Math.max(0,Math.min(1,top+d));
-                    else{
+                if(page==2||page==7)change(d);
+                else if(page==6){
+                    choice=Math.max(0,Math.min(count()-1,choice+d*7));
+                }else if(page==0){
+                    if(topFocus){
+                        top=Math.max(0,Math.min(2,top+d));
+                        syncHeaderTargets();
+                    }else if(!apps.isEmpty()){
                         selected=Math.max(0,Math.min(apps.size()-1,selected+d));
-                        scroll.target(LiteSettings.scroll(selected));
+                        scroll.target(targetScroll(selected));
                         scheduleMotion();
                     }
                 }
@@ -890,7 +1591,10 @@ public final class LiteActivity extends Activity {
             }
             if(key==KeyEvent.KEYCODE_DPAD_UP||key==KeyEvent.KEYCODE_DPAD_DOWN){
                 if(page!=0)choice=Math.max(0,Math.min(count()-1,choice+(key==KeyEvent.KEYCODE_DPAD_UP?-1:1)));
-                else topFocus=key==KeyEvent.KEYCODE_DPAD_UP;
+                else{
+                    topFocus=key==KeyEvent.KEYCODE_DPAD_UP;
+                    syncHeaderTargets();
+                }
                 previewChanged();
                 return true;
             }
@@ -916,41 +1620,54 @@ public final class LiteActivity extends Activity {
             }
             return super.onKeyUp(key,event);
         }
-        @Override public boolean onTouchEvent(android.view.MotionEvent event){
-            if(event.getAction()!=android.view.MotionEvent.ACTION_UP)return true;
+        @Override public boolean onTouchEvent(MotionEvent event){
+            if(event.getAction()!=MotionEvent.ACTION_UP)return true;
             boolean sleeping=ambient;
             wake();
             if(sleeping)return true;
             float s=Math.min(getWidth()/1920f,getHeight()/1080f),x=(event.getX()-(getWidth()-1920*s)/2)/s,y=(event.getY()-(getHeight()-1080*s)/2)/s;
             if(page>0){
-                if(page>=4){
+                float left=page==6?320:(page==2||page==7?1290:1080);
+                int listTop=(page==3||page==6)?160:155;
+                if(page==4||page==5){
                     backPage();
-                }else if(x>(page==2?1290:1080)&&y>=155&&y<932){
+                }else if(x>left&&y>=listTop&&y<listTop+7*110){
                     int start=Math.max(0,Math.min(choice-2,count()-7));
-                    choice=Math.min(count()-1,start+(int)((y-155)/111));
-                    if(page==2&&choice<LiteSettings.KEYS.length&&y-(155+(choice-start)*111)>55){
+                    choice=Math.min(count()-1,start+(int)((y-listTop)/110));
+                    if(page==2&&choice<LiteSettings.KEYS.length&&y-(listTop+(choice-start)*110)>55){
                         float ratio=Math.max(0,Math.min(1,(x-1332)/493));
-                        draft.values.put(LiteSettings.KEYS[choice],Math.round(LiteSettings.MIN[choice]+ratio*(LiteSettings.MAX[choice]-LiteSettings.MIN[choice])));
+                        writeDraft(draft,choice,Math.round(LiteSettings.MIN[choice]+ratio*(LiteSettings.MAX[choice]-LiteSettings.MIN[choice])));
                         previewChanged();
                     }else activate();
                 }
                 invalidate();
                 return true;
             }
-            if(y<180){
-                open(x>590?2:1);
+            if(y<175){
+                if(x<355)open(1);
+                else if(x<665)open(2);
+                else if(x<910)open(6);
                 return true;
             }
-            float h=LiteSettings.height(prefs.getInt("card_height",100)),cy=LiteSettings.center(prefs.getInt("card_row_position",75),prefs.getInt("card_height",
-                    100));
-            if(Math.abs(y-cy)<h/2+30&&!apps.isEmpty()){
-                int at=Math.round((x-272+scroll.value)/350);
+            SharedPreferences a=appearance();
+            float baseH=LiteSettings.height(a.getInt("card_height",100)),cy=LiteSettings.center(a.getInt("card_row_position",75),a.getInt("card_height",100));
+            if(Math.abs(y-cy)<baseH*0.8f+40&&!apps.isEmpty()){
+                computeCardLayout(a);
+                float worldX=x+scroll.value;
+                int at=-1;
+                for(int i=0;i<apps.size();i++){
+                    if(Math.abs(worldX-cardCenters[i])<=cardWidths[i]/2f+LiteSettings.CARD_GAP/2f){
+                        at=i;
+                        break;
+                    }
+                }
                 if(at>=0&&at<apps.size()){
                     if(at==selected&&!topFocus)host.launch(apps.get(at));
                     else{
                         topFocus=false;
                         selected=at;
-                        scroll.target(LiteSettings.scroll(at));
+                        syncHeaderTargets();
+                        scroll.target(targetScroll(at));
                         scheduleMotion();
                     }
                 }
