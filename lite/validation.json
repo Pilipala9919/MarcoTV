@@ -34,7 +34,7 @@
   "edition": "Lite",
   "status": "experimental",
   "date": "2026-11-22",
-  "full_edition_latest": "0.21.1",
+  "full_edition_latest": "0.21.2",
   "local_checks": {
     "layout_checks": 11,
     "apk_checks": {

@@ -4,7 +4,7 @@
 
 **Pilipala 开发的免费开源 Android 电视桌面。**
 
-作者：**Pilipala** · 当前版本：**0.21.1** · 协议：[GPL-3.0-only](LICENSE)
+作者：**Pilipala** · 当前版本：**0.21.2** · 协议：[GPL-3.0-only](LICENSE)
 
 横向卡片、连续焦点动画、四款时间字体与日期、风景壁纸、时钟屏保，以及适合遥控器的自定义设置。
 
@@ -16,20 +16,24 @@
 
 3 张 0.14.4 实机截图、4 张 0.14.2 实机截图、11 张 0.14.1 实机截图、9 张 0.14.0 实机截图与标明版本的历史截图，按日常桌面、外观与操作、系统与媒体、维护与隐私分类。支持搜索、切换截图和放大查看。桌面及播放使用示例内容，私人应用、网络与记录已遮挡。
 
-0.21.1 修复了完整版 APK 打包时的 PKZIP 头版本规范化（消除 `aapt2` 原始 `extract_version=0`）并补齐定位/Wi-Fi/横屏隐式硬件特性的 `required="false"` 与显式 v1/v2/v3 签名，提升 TCL / 雷鸟等电视安装器解析兼容性；同时延续 0.21.0 全端 **MarcoTV 紫调三层叠卡（Purple Stacked Cards）** 品牌视觉统一、完整版集中式 **「应用管理与卸载」** 及 **Marco TV Lite 0.3.0** 老电视兼容特性下放。实机验证与覆盖范围见[验证记录](docs/验证范围.md)，新版设置路径见[使用说明](docs/使用说明.md)。
+0.21.2 修复了 Android 6.0–7.1（API 23–25）最近任务辅助服务启动崩溃（三处 `ActivityManager.getService()` 兼容回退至 `ActivityManagerNative.getDefault()`）及老固件 `pidof` / `ps -A` / `am get-current-user` / `pm list packages -U` / `pm path --user` 兼容问题；同时延续 0.21.1 规范 PKZIP 头与隐式硬件特性修复、0.21.0 全端 **MarcoTV 紫调三层叠卡（Purple Stacked Cards）** 品牌视觉统一、完整版集中式 **「应用管理与卸载」** 及 **Marco TV Lite 0.3.0** 老电视兼容特性下放。实机验证与覆盖范围见[验证记录](docs/验证范围.md)，新版设置路径见[使用说明](docs/使用说明.md)。
 
 ## 下载与说明
 
-- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/v0.21.1)**：面向安装报错含 `not signature by tcl` 或拦截第三方桌面 `HOME` 的设备，提供 `MarcoTV-0.21.1-Restricted.apk`，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
+- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/v0.21.2)**：面向安装报错含 `not signature by tcl` 或拦截第三方桌面 `HOME` 的设备，提供 `MarcoTV-0.21.2-Restricted.apk`，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
 
 - **[没有 U 盘？打开安装向导](https://marcotv.wlj9919.top/install/)**：Windows 电脑 / 安卓手机助手、电视浏览器、厂商接收入口，按条件选择路线。
-- [安装助手使用说明](installer/README.md)：**1.0.1** 内置经摘要校验的正式安装包（安装后可在桌面「系统与关于 → 软件更新」在线升级至 **0.21.1**），支持 `/8`–`/30` 私有网段查找与普通网络 ADB；无线配对码暂不支持。
+- [安装助手使用说明](installer/README.md)：**1.0.1** 内置经摘要校验的正式安装包（安装后可在桌面「系统与关于 → 软件更新」在线升级至 **0.21.2**），支持 `/8`–`/30` 私有网段查找与普通网络 ADB；无线配对码暂不支持。
 
 - [下载安装包（Releases）](https://github.com/Pilipala9919/MarcoTV/releases/latest)
 - [详细安装说明](docs/安装说明.md)：识别电视 → 开发者模式 → 未知来源 → ADB → 安装和授权 → 默认桌面 → 验收与撤销。
 - [详细使用说明](docs/使用说明.md)：遥控器、分类操作栏、卡片、壁纸、时钟、屏保、无线投屏、实时预览、设置排序。
 - [各品牌电视设置入口](docs/各品牌电视设置入口.md)：按系统与固件区分入口，标明资料与实测范围。
 - [常见问题](docs/常见问题.md) · [隐私说明](docs/隐私说明.md) · [构建说明](docs/构建说明.md)
+
+## 0.21.2 更新要点
+
+- **Android 6.0–7.1（API 23–25）任务辅助服务与老固件启动脚本兼容修复**：修复 `TaskBridgeServer` 在构造函数、`canRemove()` 与 `publish()` 直接调用 API 26 才引入的 `ActivityManager.getService()` 导致的崩溃，统一回退 `ActivityManagerNative.getDefault()`；移除 `HomeShellSetup` 与 `scripts/start_task_bridge.py` 对 `pidof` 的依赖并改为表头感知的 `ps -A` / `ps` 回退，补齐 `am get-current-user`、`pm list packages -U`（`dumpsys package` 多用户 UID）与 `pm path` 老固件兼容以及双次存活确认。
 
 ## 0.21.1 更新要点
 
@@ -123,7 +127,7 @@
 
 ## 快速开始
 
-1. 在 Releases 免费下载 `MarcoTV-0.21.1.apk`（或最新版本）。
+1. 在 Releases 免费下载 `MarcoTV-0.21.2.apk`（或最新版本）。
 2. 按安装说明确认系统，通过安装向导选择助手、电视浏览器、文件接收、U 盘或 ADB 安装。
 3. 从原桌面的应用列表打开 **Marco TV**，先验证遥控器和应用启动。
 4. 打开首页 **Magic Desktop**，调整壁纸、时钟和卡片；系统功能仍在左上设置齿轮中。

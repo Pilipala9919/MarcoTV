@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "edition": "standard",
-  "versionCode": 44,
-  "versionName": "0.21.1",
+  "versionCode": 45,
+  "versionName": "0.21.2",
   "minSdk": 23,
   "size": 1559427,
-  "sha256": "1d7dd5acf909558f671391b855e255c282d634667b8947d586a2b9f877050df9",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.1/MarcoTV-0.21.1.apk",
+  "sha256": "de8b801554413cfbbeb1a5ebd5b6ba686541ac0ab2176d0e10ce86593f200395",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.2/MarcoTV-0.21.2.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.21.1 · Pilipala\n\n- 完整版 APK 打包解析兼容补丁：修复 scripts/build.py 复用 aapt2 原始 ZipInfo 导致 AndroidManifest.xml、resources.arsc 及资源条目 PKZIP extract_version=0 的问题，统一重建标准 ZIP 头（10/20）与 4 字节对齐；在清单中为 wifi / location / gps / network / landscape 显式声明 android:required=\"false\" 并改用 @string/app_name；显式启用 --min-sdk-version 23 与 v1/v2/v3 全方案签名，提升 TCL / 雷鸟等严格安装器的解析兼容性。\n- 完整保留 0.21.0 的全端 MarcoTV 紫韵叠卡品牌视觉统一与集中式「应用管理与卸载」/ 全部应用抽屉长按卸载 / 桌面卡片直达卸载体验。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含双包 ZIP 提取版本、零必需硬件特性与 v1/v2/v3 签名校验）、网页安装向导 72 项路由校验与 7 个真机测试编译守卫已通过，并在小米 MiTV-ASTP0（Android 9）实机完成 0.21.1 正式签名包覆盖安装与启动复核（全量 250 项插桩基线沿用同机型 0.17.0 验收）。本次打包修复尚待 TCL 等非小米真机实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.21.1-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.3.0（详见 lite-v0.3.0 发布页）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.1）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
+  "notes": "Marco TV 0.21.2 · Pilipala\n\n- Android 6.0–7.1（API 23–25）最近任务辅助服务兼容修复（Issue #7）：修复 TaskBridgeServer 在构造函数、canRemove() 与 publish() 三处直接调用 API 26 才引入的 ActivityManager.getService() 导致的启动崩溃，按 API 29+ / 26+ / 23–25 分层并回退 ActivityManagerNative.getDefault()；同步修正 2 参 getTasks(int, int) 标志位并补齐 2 参 removeTask 回退。\n- 老固件本机一键启动与 PC 启动脚本兼容修复：HomeShellSetup 与 scripts/start_task_bridge.py 移除对异常 pidof 的依赖，改为表头感知的 ps -A / ps 自动回退（兼容 toolbox / toybox / BusyBox）；补齐 am get-current-user、pm list packages -U（dumpsys package 多用户 UID）与 pm path 回退，并要求连续两次存活确认以防启动即崩溃产生假成功。\n- 完整保留 0.21.1 的规范 PKZIP 头 / 零隐式必需硬件特性 / v1+v2+v3 签名修复，以及 0.21.0 的全端 MarcoTV 紫韵叠卡品牌视觉统一与集中式「应用管理与卸载」体验。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含新增 18 项 API 23–35+ 任务桥反射与跨版本启动脚本检查）、网页安装向导 72 项路由校验与真机测试 APK 编译守卫已通过；小米 MiTV-ASTP0（Android 9）实机基线沿用 0.21.1（全量 250 项插桩基线沿用 0.17.0），本次 Android 6.0–7.1 任务桥修复尚待小米 MiTV4 等老系统真机实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.21.2-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.3.0（详见 lite-v0.3.0 发布页）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.2）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
 }

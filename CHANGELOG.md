@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.21.2 · 2026-11-22
+
+- **修复 Android 6.0–7.1（API 23–25）任务辅助服务启动崩溃与老固件 shell 兼容问题（[#7](https://github.com/Pilipala9919/MarcoTV/issues/7)）**：
+  - 修复 `TaskBridgeServer` 在构造函数、`canRemove()` 与 `publish()` 三处直接反射调用 `ActivityManager.getService()`（API 26 / Android 8.0 才引入）导致 Android 6.0–7.1 必抛 `NoSuchMethodException: getService []` 的问题：按 API 分层（API 29+ 任务管理走 `ActivityTaskManager.getService()`、API 26+ 优先 `ActivityManager.getService()`、API 23–25 及缺失回退 `ActivityManagerNative.getDefault()`），同步为 2 参 `getTasks(int, int)` 传入 `flags = 0` 并补齐 2 参 `removeTask(int, int)` 回退。
+  - 修复 `HomeShellSetup.startTaskBridge()` 与 `scripts/start_task_bridge.py` 在小米 MiTV4 等 Android 6 固件上因 `pidof` 忽略名称返回全部 PID、`ps -A` 报错（`toolbox ps`）、`am get-current-user` 不存在、`pm list packages -U` 不支持（API 28 才引入）及 `pm path --user 0` 返回空导致的启动失败或误判：改用带表头列解析的 `ps -A` → `ps` 自动回退（兼容 toolbox / toybox / BusyBox），补齐 `pm list users`、`dumpsys package` 多用户 UID 与 `pm path` 回退，并在 PC 启动脚本中要求连续两次存活确认以避免启动即崩溃的假成功。
+  - 同步加固 `scripts/setup_system.py` 在 Android 6 上的 `am get-current-user` 与 `pm grant` 容错，并扩展 `TaskBridgeCompatChecks`、`test_task_bridge.py` 与 `HomeAutoChecks` 的 API 23–35+ 跨版本回归校验。
+
 ## 0.21.1 · 2026-11-22
 
 - **修复完整版 APK 打包解析兼容性隐患（提升 TCL / 雷鸟等严格安装器解析兼容性）**：

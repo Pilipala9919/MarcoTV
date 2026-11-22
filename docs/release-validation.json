@@ -1,11 +1,11 @@
 {
-  "version": "0.21.1",
-  "version_code": 44,
+  "version": "0.21.2",
+  "version_code": 45,
   "date": "2026-11-22",
   "author": "Pilipala",
   "release_channel": "stable",
-  "apk_sha256": "1d7dd5acf909558f671391b855e255c282d634667b8947d586a2b9f877050df9",
-  "restricted_apk_sha256": "a933dd29fd427795a251990c61ecf1306ee091a1e49df15432dd758fe52c7337",
+  "apk_sha256": "de8b801554413cfbbeb1a5ebd5b6ba686541ac0ab2176d0e10ce86593f200395",
+  "restricted_apk_sha256": "410d7ec65af21101ea333b722927cfab49b4d27820b38a1a3370d66748d4c672",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
   "hardware_baseline": {
@@ -14,6 +14,7 @@
     "device_model": "Xiaomi MiTV-ASTP0",
     "android": "9",
     "apk_sha256": "1d7dd5acf909558f671391b855e255c282d634667b8947d586a2b9f877050df9",
+    "task_bridge_api23_compat_fix": "0.21.2 host-verified via 18 cross-API reflection checks (API 23-35+ ActivityManagerNative.getDefault fallback across constructor/canRemove/publish, 2-arg getTasks flags=0, 2-arg removeTask fallback), start_task_bridge.py cross-Android shell probe simulation, and HomeShellSetup ps -A/ps fallback checks; physical Android 6.0-7.1 TV retest pending",
     "packaging_compatibility_fix": "normalized PKZIP extract_version (10/20) across all APK entries, declared required=false for implied wifi/location/landscape features, switched label to @string/app_name, explicit v1/v2/v3 signing with min-sdk-version 23, and verified overwrite install on MiTV-ASTP0",
     "brand_unification_and_app_management": "verified official Purple Stacked Cards multi-density icons, API 26 adaptive icon, TV banners, animated 3-layer header & settings brand emblem, lilac/lavender focus accents, centralized App Management & Uninstall panel with 4-way filters, All Apps drawer long-press full menu, and direct desktop card uninstall on MiTV-ASTP0",
     "header_icons_and_per_card_customization": "verified 4-icon spring focus animations without 'by Pilipala' subtitle, widened downward card-row threshold, cached Gaussian blur shadows, per-card custom width/height/3D depth/radius with full-height 3D live preview on TV inputs & app cards, and phone QR cover upload flow on MiTV-ASTP0",
@@ -55,6 +56,7 @@
     "device_instrumentation_compile_only_apks": 7
   },
   "not_verified": [
+    "Android 6.0-7.1 (API 23-25) physical TV TaskBridge runtime and host/local launcher scripts (e.g. Xiaomi MiTV4 Android 6.0.1)",
     "Android 10-14 physical TV TaskBridge Binder handshake and Adopted Storage runtime",
     "other brands (TCL, Hisense, Skyworth, Sony, Huawei) and other SoC 4K 10-bit HEVC live wallpaper hardware decoders",
     "stable frame rate across devices",
