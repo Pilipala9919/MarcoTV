@@ -8,13 +8,31 @@ final class LiteSettings {
     static final int CORE_COUNT=11;
     static final float CARD_GAP=30f;
     static final float SHELF_START_X=112f;
-    static final String[] KEYS={"card_row_position","card_height","card_radius","clock_style","clock_tilt","clock_size","wallpaper_dim","idle_seconds",
-            "ambient_clock_size","ambient_dim","motion","card_width","card_depth","ambient_pure_wallpaper"};
-    static final String[] NAMES={"卡片行上下位置","卡片高度","卡片圆角","时钟字体","圆体倾斜幅度","桌面时间大小","壁纸压暗","屏保等待（秒，0 关闭）",
-            "屏保时间大小","屏保背景压暗","卡片动效","卡片宽度","卡片立体厚度","闲置纯净壁纸"};
-    static final int[] MIN={0,70,0,0,0,36,0,0,100,0,0,70,0,0};
-    static final int[] MAX={100,130,64,3,14,160,90,600,280,100,1,140,100,1};
-    static final int[] DEFAULT={75,100,32,0,10,96,10,60,176,72,1,100,0,0};
+    static final int[] SLEEP_CHOICES={15,30,60,120,0};
+    static final String[] WALLPAPER_NAMES={"极夜山脊","雾蓝海岸","本地图片","暮光峡谷","深海极夜","暖金沙丘"};
+    static final String[] COVER_NAMES={"午夜蓝","森林绿","暖琥珀","雾紫","冰海蓝"};
+    static final int[][] COVER_COLORS={
+            {0xFF284B78,0xFF162C4A,0xFF0E1B30},
+            {0xFF255C4F,0xFF173D34,0xFF0E2520},
+            {0xFF7D5027,0xFF523217,0xFF331D0C},
+            {0xFF533B78,0xFF362452,0xFF201533},
+            {0xFF246A82,0xFF164759,0xFF0D2B38}
+    };
+    static final String[] KEYS={
+            "card_row_position","card_height","card_radius","clock_style","clock_tilt","clock_size",
+            "wallpaper_dim","idle_seconds","ambient_clock_size","ambient_dim","motion",
+            "card_width","card_depth","ambient_pure_wallpaper",
+            "card_scale","label_opacity","ambient_clock_brightness"
+    };
+    static final String[] NAMES={
+            "卡片行上下位置","卡片高度","卡片圆角","时钟字体","圆体倾斜幅度","桌面时间大小",
+            "壁纸压暗","屏保等待（秒，0 关闭）","屏保时间大小","屏保背景压暗","卡片动效",
+            "卡片宽度","卡片立体厚度","闲置纯净壁纸",
+            "选中放大幅度","未选中名称亮度","屏保时钟亮度"
+    };
+    static final int[] MIN={0,70,0,0,0,36,0,0,100,0,0,70,0,0,0,0,30};
+    static final int[] MAX={100,130,64,3,14,160,90,600,280,100,1,140,100,1,30,100,100};
+    static final int[] DEFAULT={75,100,32,0,10,96,10,60,176,72,1,100,0,0,12,75,100};
 
     static boolean isBool(int i){
         return i==13;
@@ -30,6 +48,9 @@ final class LiteSettings {
     }
     static float depth(int percent){
         return 16f*clamp(12,percent)/100f;
+    }
+    static float focusScale(int percent){
+        return 1f+clamp(14,percent)/100f;
     }
     /** Widened downward shelf range aligned with Marco TV 0.20.0 while keeping title & label safe. */
     static float center(int position,int height){
@@ -91,5 +112,33 @@ final class LiteSettings {
     }
     static float cardRadiusPx(int globalRadius,int customR){
         return customR>=0?clampCustomRadius(customR):clamp(2,globalRadius);
+    }
+    static int nextWallpaper(int current){
+        if(current==0)return 1;
+        if(current==1)return 3;
+        if(current==3)return 4;
+        if(current==4)return 5;
+        return 0;
+    }
+    static String wallpaperName(int id){
+        return id>=0&&id<WALLPAPER_NAMES.length?WALLPAPER_NAMES[id]:WALLPAPER_NAMES[0];
+    }
+    static String sleepLabel(int minutes){
+        return minutes<=0?"不限制":minutes+" 分钟";
+    }
+    static int coverColorIndex(String cover){
+        if(cover==null||!cover.startsWith("color:"))return -1;
+        try{
+            int idx=Integer.parseInt(cover.substring(6));
+            return idx>=0&&idx<COVER_COLORS.length?idx:-1;
+        }catch(NumberFormatException ignored){
+            return -1;
+        }
+    }
+    static String coverFileName(String cover){
+        if(cover==null||!cover.startsWith("image:"))return null;
+        String name=cover.substring(6);
+        if(name.length()==0||name.indexOf('/')>=0||name.indexOf('\\')>=0||name.indexOf("..")>=0)return null;
+        return name;
     }
 }

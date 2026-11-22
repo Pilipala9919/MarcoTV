@@ -108,7 +108,7 @@ final class AllAppsDrawer {
             item.setPadding(dp(6),dp(8),dp(6),dp(6));
             item.setFocusable(true);
             item.setClickable(true);
-            item.setContentDescription(e.label+"，确定打开，长按添加到桌面");
+            item.setContentDescription(e.label+"，确定打开，长按管理或卸载");
             GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xFF304657,0xFF202D3C});
             bg.setCornerRadius(dp(14));
             item.setBackground(bg);
@@ -142,17 +142,14 @@ final class AllAppsDrawer {
                 host.launch(tile);
             });
             item.setOnLongClickListener(v->{
-                try{
-                    host.library.choose(host.getPackageManager().getApplicationInfo(e.id,0));
-                }catch(Exception ignored){
-                    host.toast("应用已发生变化，请重新打开列表");
-                }
+                host.navigator.managePackage(e.id,e.label,e.intent);
                 return true;
             });
         }
         TvDialog dialog=new TvDialog.Builder(host).setPageId("all_apps").centered().setTitle("全部应用 · "+entries.size())
-                .setMessage(entries.isEmpty()?"没有找到可启动应用。可到添加应用查找其他入口。":"方向键选择 · 确定打开 · 长按添加到桌面。包含已隐藏的应用，仅显示可启动入口。")
-                .setView(grid).setNeutralButton("查找其他入口",(d,w)->host.library.show()).setNegativeButton("返回",null)
+                .setMessage(entries.isEmpty()?"没有找到可启动应用。可到添加应用查找其他入口。":"方向键选择 · 确定打开 · 长按管理/卸载或添加到桌面。包含已隐藏的应用，仅显示可启动入口。")
+                .setView(grid).setPositiveButton("应用管理与卸载",(d,w)->host.navigator.appManager())
+                .setNeutralButton("查找其他入口",(d,w)->host.library.show()).setNegativeButton("返回",null)
                 .create();
         dialog.onLeave(()->{
             if(!host.dialogs.hasPage("all_apps"))recycle(entries);

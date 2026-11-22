@@ -673,6 +673,8 @@ final class SettingsScreen extends LinearLayout {
                 return "查找入口";
             case "all_apps":
                 return "全部已安装";
+            case "app_manager":
+                return "筛选与卸载";
             case "tv_sort":
                 return sortLabel();
             case "pinned_cards":
@@ -786,6 +788,9 @@ final class SettingsScreen extends LinearLayout {
                 break;
             case "all_apps":
                 host.drawer.show();
+                break;
+            case "app_manager":
+                host.navigator.appManager();
                 break;
             case "tv_sort":
                 host.navigator.sorting();

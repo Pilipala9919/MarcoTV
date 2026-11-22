@@ -42,6 +42,13 @@ public final class LiteSettingsChecks {
                 &&LiteSettings.scrollForCenters(uniform,1)==0f
                 &&LiteSettings.scrollForCenters(uniform,2)==350f
                 &&LiteSettings.scrollForCenters(mixed,2)==420f);
+        check("cover_and_wallpaper_helpers_reject_traversal",
+                LiteSettings.nextWallpaper(0)==1&&LiteSettings.nextWallpaper(1)==3&&LiteSettings.nextWallpaper(5)==0
+                &&LiteSettings.sleepLabel(0).equals("不限制")&&LiteSettings.sleepLabel(30).equals("30 分钟")
+                &&LiteSettings.coverColorIndex("color:2")==2&&LiteSettings.coverColorIndex("color:99")==-1
+                &&"cover-a.jpg".equals(LiteSettings.coverFileName("image:cover-a.jpg"))
+                &&LiteSettings.coverFileName("image:../secret.jpg")==null
+                &&LiteSettings.focusScale(12)==1.12f);
         System.out.println("OK "+passed+" Lite settings checks");
     }
 }

@@ -129,7 +129,7 @@ public final class SettingsMigrationChecks {
         check("taxonomy_categories_sections_and_items_are_unique_and_complete",taxonomyValid&&SettingsTaxonomy.totalItems()==itemKeys.size()&&inlineToggles>=6);
         boolean coreCovered=true;
         for(String required:new String[]{"magic_desktop","wallpaper","ambient_enabled","ambient_pure_wallpaper","ambient_sleep","ambient_preview",
-                "add_app","all_apps","tv_sort","pinned_cards","favorite_cards","hidden_cards","now_playing","playback_source",
+                "add_app","all_apps","app_manager","tv_sort","pinned_cards","favorite_cards","hidden_cards","now_playing","playback_source",
                 "default_home","home_compat","home_gestures","restore_home","boot_home","recent_wake","recent_enabled","recent_open","recent_style",
                 "wifi","cast","phone","sound","updates","health_status","backup","diagnostics","adb_restore","guide","device_info","about"}){
             coreCovered&=SettingsTaxonomy.findItem(required)!=null;

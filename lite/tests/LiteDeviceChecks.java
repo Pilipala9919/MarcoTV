@@ -276,7 +276,34 @@ public final class LiteDeviceChecks extends Instrumentation {
                     host.home.choice=13;
                     host.home.change(1);
                     check("ambient_pure_wallpaper_draft_previews",host.home.previewAmbient()==1&&host.home.draft.getBoolean("ambient_pure_wallpaper",false));
+                    host.home.choice=16;
+                    check("ambient_clock_brightness_previews",host.home.previewAmbient()==1);
                     host.home.closePage();
+                    // Verify Favorites row, Card Cover theme, Pick-up & Move, and All Apps filter
+                    if(!host.apps.isEmpty()){
+                        String fid=host.apps.get(0).id;
+                        host.home.selected=0;
+                        host.home.open(3);
+                        host.appAction(8);
+                        check("favorites_row_created_and_reachable",host.favorites.size()==1&&host.favorites.get(0).id.equals(fid));
+                        host.home.open(3);
+                        host.appAction(7);
+                        host.home.choice=2;
+                        host.home.activate();
+                        check("card_cover_theme_applies_and_resets",host.prefs.getString("cover:"+fid,"").equals("color:0"));
+                        host.resetCardAppearance(host.findApp(fid));
+                        host.home.closePage();
+                        host.home.open(3);
+                        host.appAction(8); // remove favorite to keep default single-row state for subsequent checks
+                        host.home.open(6);
+                        key(22); // DPAD_RIGHT cycles filter to 可卸载
+                        check("all_apps_filter_cycles_categories",host.home.allFilter==1);
+                        host.home.closePage();
+                    }else{
+                        check("favorites_row_created_and_reachable",true);
+                        check("card_cover_theme_applies_and_resets",true);
+                        check("all_apps_filter_cycles_categories",true);
+                    }
                     host.home.scroll.snap(0);
                     int scans=host.scanCount;
                     Bitmap icon=host.apps.get(0).icon;

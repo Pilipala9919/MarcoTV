@@ -3,9 +3,14 @@
 package com.pilipala.tvhome;
 
 import android.animation.ArgbEvaluator;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -15,8 +20,11 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
 
 /** Builds and navigates every settings panel; the activity only hosts dialogs. */
 final class SettingsNavigator {
@@ -230,9 +238,12 @@ final class SettingsNavigator {
         boolean atFirst = row.selected == 0;
         boolean favorite = host.cards.contains("favorites", tile.id);
         String pinLabel = pinned && atFirst ? "取消置顶" : "置顶到首位";
-        String[] options={pinLabel,"移动卡片","重命名","自定义长宽高","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观",tile.kind==1?"打开输入源":"应用信息"};
+        String[] options = tile.kind == 1
+                ? new String[]{pinLabel,"移动卡片","重命名","自定义长宽高","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","恢复默认外观","打开输入源"}
+                : new String[]{pinLabel,"移动卡片","重命名","自定义长宽高","更换封面",favorite?"取消收藏":"加入收藏","单独卡片设置","卸载应用","恢复默认外观","应用信息"};
         host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("tile",tile.id)).setTitle(tile.label)
                 .setItems(options,(d,w)->{
+            if(tile.kind==1&&w>=7)w++;
             switch(w){
                 case 0:
                     host.exitMenus();
@@ -269,20 +280,33 @@ final class SettingsNavigator {
                     cardSettings(tile);
                     break;
                 case 7:
+                    uninstall(tile);
+                    break;
+                case 8:
                     host.cards.reset(tile.id);
                     host.loadApplications();
                     break;
-                case 8:
+                case 9:
                     if(tile.kind==1)host.launch(tile);
                     else{
-                    String version="";
-                    try{
-                        version=host.getPackageManager().getPackageInfo(tile.id.split("/")[0],0).versionName;
-                    }catch(Exception ignored){}
-                    host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("app_info",tile.id))
-                            .setTitle(tile.label)
-                            .setMessage("版本 "+version+"\n"+tile.id).setPositiveButton("打开应用",(x,y)->host.launch(tile))
-                            .setNegativeButton("返回",null).create());
+                        String pkg=packageNameOf(tile.id);
+                        String version="";
+                        boolean system=false,updated=false;
+                        try{
+                            PackageManager pm=host.getPackageManager();
+                            PackageInfo pi=pm.getPackageInfo(pkg,0);
+                            if(pi!=null&&pi.versionName!=null)version=pi.versionName;
+                            ApplicationInfo ai=pm.getApplicationInfo(pkg,0);
+                            system=(ai.flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+                            updated=(ai.flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+                        }catch(Exception ignored){}
+                        String kindText=system?(updated?"系统预装（已更新，可卸载更新）":"系统预装应用"):"用户安装应用（可卸载）";
+                        host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("app_info",tile.id))
+                                .setTitle(tile.label)
+                                .setMessage("版本："+(version.isEmpty()?"未知":version)+"\n包名："+pkg+"\n类型："+kindText)
+                                .setPositiveButton("打开应用",(x,y)->host.launch(tile))
+                                .setNeutralButton("系统应用信息",(x,y)->openSystemAppInfo(pkg))
+                                .setNegativeButton("返回",null).create());
                     }
                     break;
             }
@@ -470,29 +494,195 @@ final class SettingsNavigator {
             sorting();
         }).setNegativeButton("返回",null).create());
     }
-    private void uninstall(Tile tile) {
-        boolean system=false;
-        try {
-            system=(host.getPackageManager().getApplicationInfo(tile.id,0).flags&ApplicationInfo.FLAG_SYSTEM)!=0;
-        }catch(Exception ignored){}
-        if(system) {
-            host.showDialog(new TvDialog.Builder(host).setTitle("系统应用")
-                    .setMessage("此应用由电视系统预装，不能当作普通应用卸载。可以隐藏卡片，或查看系统应用信息。")
-                    .setPositiveButton("查看系统应用信息",(d,w)->{
-                try{
-                    host.startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+tile.id)));
+    static String packageNameOf(String id){
+        if(id==null)return "";
+        int slash=id.indexOf('/');
+        return slash>0?id.substring(0,slash):id;
+    }
+    void openSystemAppInfo(String pkg){
+        try{
+            host.startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+pkg)));
+        }catch(RuntimeException error){
+            host.toast("电视未提供应用信息页面");
+        }
+    }
+    private static final class ManagedApp {
+        String pkg,label,version;
+        Intent intent;
+        boolean system,updatedSystem,pinned,hidden;
+        boolean canUninstall(){
+            return !system||updatedSystem;
+        }
+    }
+    private int appManagerGeneration;
+    void appManager(){
+        appManager(0);
+    }
+    void appManager(final int filter){
+        final String[] filterNames={"全部应用","可卸载应用","已隐藏应用","系统应用"};
+        final int mode=Math.max(0,Math.min(filterNames.length-1,filter));
+        final int req=++appManagerGeneration;
+        final int epoch=host.menuEpoch;
+        host.showDialog(new TvDialog.Builder(host).setPageId("app_manager").setTitle("应用管理 · "+filterNames[mode])
+                .setMessage("正在读取已安装应用…").setNegativeButton("返回",null).create());
+        host.loader.execute(()->{
+            ArrayList<ManagedApp> list=new ArrayList<>();
+            HashSet<String> seen=new HashSet<>();
+            PackageManager pm=host.getPackageManager();
+            try{
+                for(String category:new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER,Intent.CATEGORY_LAUNCHER}){
+                    for(ResolveInfo info:pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category),0)){
+                        ActivityInfo a=info.activityInfo;
+                        if(a==null||!AppEntries.launchable(host,a)||a.packageName.equals(host.getPackageName())||!seen.add(a.packageName))continue;
+                        ManagedApp m=new ManagedApp();
+                        m.pkg=a.packageName;
+                        m.label=host.cards.name(m.pkg,String.valueOf(info.loadLabel(pm)));
+                        m.intent=new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(a.packageName,a.name))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                        int flags=a.applicationInfo.flags;
+                        m.system=(flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+                        m.updatedSystem=(flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+                        m.pinned=host.cards.contains("pinned",m.pkg);
+                        m.hidden=host.cards.contains("hidden",m.pkg);
+                        try{
+                            PackageInfo pi=pm.getPackageInfo(m.pkg,0);
+                            m.version=pi!=null&&pi.versionName!=null?pi.versionName:"";
+                        }catch(Exception ignored){
+                            m.version="";
+                        }
+                        if(mode==1&&!m.canUninstall())continue;
+                        if(mode==2&&!m.hidden)continue;
+                        if(mode==3&&!m.system)continue;
+                        list.add(m);
+                    }
                 }
-                catch(RuntimeException error){
-                    host.toast("电视未提供应用信息页面");
+                Collator order=Collator.getInstance(Locale.CHINA);
+                Collections.sort(list,(a,b)->{
+                    int tierA=a.system?(a.updatedSystem?1:2):0;
+                    int tierB=b.system?(b.updatedSystem?1:2):0;
+                    if(tierA!=tierB)return Integer.compare(tierA,tierB);
+                    if(a.hidden!=b.hidden)return a.hidden?1:-1;
+                    return order.compare(a.label,b.label);
+                });
+            }catch(RuntimeException ignored){}
+            host.handler.post(()->{
+                if(req!=appManagerGeneration||host.isDestroyed()||epoch!=host.menuEpoch||!host.isPage("app_manager"))return;
+                String[] labels=new String[list.size()];
+                for(int i=0;i<list.size();i++){
+                    ManagedApp m=list.get(i);
+                    StringBuilder sb=new StringBuilder(m.label);
+                    if(m.pinned)sb.append(" [置顶]");
+                    if(m.hidden)sb.append(" [已隐藏]");
+                    if(m.system)sb.append(m.updatedSystem?" [系统·已更新]":" [系统]");
+                    if(!m.version.isEmpty())sb.append(" · v").append(m.version);
+                    sb.append(!m.system?" · 可卸载":(m.updatedSystem?" · 可卸载更新":" · 系统内置"));
+                    labels[i]=sb.toString();
                 }
-            }).setNegativeButton("返回",null).create());
+                int nextFilter=(mode+1)%filterNames.length;
+                TvDialog.Builder b=new TvDialog.Builder(host).setPageId("app_manager")
+                        .setTitle("应用管理 · "+filterNames[mode]+"（"+list.size()+"）")
+                        .setMessage(list.isEmpty()?"当前筛选下没有应用，可切换筛选条件查看。":"选择应用进行打开、置顶、隐藏、系统确认卸载或查看系统应用信息。")
+                        .setNeutralButton("切换："+filterNames[nextFilter],(d,w)->appManager(nextFilter))
+                        .setNegativeButton("返回",null);
+                if(!list.isEmpty())b.setItems(labels,(d,w)->{
+                    ManagedApp m=list.get(w);
+                    managePackage(m.pkg,m.label,m.intent);
+                });
+                host.showDialog(b.create());
+            });
+        });
+    }
+    void managePackage(final String pkg,final String label,final Intent launchIntent){
+        String version="";
+        boolean system=false,updated=false;
+        ApplicationInfo info=null;
+        try{
+            PackageManager pm=host.getPackageManager();
+            info=pm.getApplicationInfo(pkg,0);
+            system=(info.flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+            updated=(info.flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+            PackageInfo pi=pm.getPackageInfo(pkg,0);
+            if(pi!=null&&pi.versionName!=null)version=pi.versionName;
+        }catch(Exception ignored){
+            host.toast("应用已发生变化，请重新打开列表");
             return;
         }
-        host.showDialog(new TvDialog.Builder(host).setTitle("卸载「"+tile.label+"」？")
-                .setMessage("将打开系统卸载确认页。确认卸载后，应用及其本地数据将被删除。")
+        final ApplicationInfo appInfo=info;
+        final boolean isSystem=system,isUpdated=updated;
+        final boolean pinned=host.cards.contains("pinned",pkg),hidden=host.cards.contains("hidden",pkg);
+        String uninstallLabel=isSystem?(isUpdated?"卸载更新（系统确认）":"系统内置应用（不可直接卸载）"):"卸载应用（系统确认）";
+        String[] options={
+                "打开应用",
+                "添加到桌面 / 选择入口",
+                pinned?"取消置顶":"置顶到首位",
+                hidden?"恢复显示到桌面":"从桌面隐藏",
+                uninstallLabel,
+                "系统应用信息（清缓存 / 强停）"
+        };
+        StringBuilder msg=new StringBuilder("包名：").append(pkg);
+        if(!version.isEmpty())msg.append("\n版本：").append(version);
+        msg.append("\n类型：").append(isSystem?(isUpdated?"系统预装（已更新，可卸载更新）":"系统预装应用"):"用户安装应用（可卸载）");
+        if(pinned||hidden)msg.append("\n状态：").append(pinned?"已置顶":"").append(pinned&&hidden?" · ":"").append(hidden?"已隐藏":"");
+        host.showDialog(new TvDialog.Builder(host).setPageId(SettingsCatalog.scope("pkg",pkg))
+                .setTitle("管理 · "+label).setMessage(msg.toString())
+                .setItems(options,(d,w)->{
+                    if(w==0){
+                        Intent target=launchIntent!=null?launchIntent:host.getPackageManager().getLaunchIntentForPackage(pkg);
+                        if(target==null){
+                            host.toast("该应用没有默认可启动页面");
+                            return;
+                        }
+                        Tile t=new Tile();
+                        t.id=pkg;
+                        t.label=label;
+                        t.intent=target;
+                        host.launch(t);
+                    }else if(w==1){
+                        host.library.choose(appInfo);
+                    }else if(w==2){
+                        if(pinned)host.cards.unpin(pkg);
+                        else host.cards.pinFirst(pkg);
+                        host.loadApplications();
+                        host.toast(pinned?"已取消置顶":"已置顶到首位");
+                        managePackage(pkg,label,launchIntent);
+                    }else if(w==3){
+                        host.cards.toggle("hidden",pkg,!hidden);
+                        host.loadApplications();
+                        host.toast(hidden?"已恢复显示到桌面":"已从桌面隐藏");
+                        managePackage(pkg,label,launchIntent);
+                    }else if(w==4){
+                        uninstallPackage(pkg,label);
+                    }else{
+                        openSystemAppInfo(pkg);
+                    }
+                }).setNegativeButton("返回",null).create());
+    }
+    private void uninstall(Tile tile) {
+        uninstallPackage(packageNameOf(tile.id),tile.label);
+    }
+    void uninstallPackage(String pkg,String label) {
+        boolean system=false,updatedSystem=false;
+        try {
+            int flags=host.getPackageManager().getApplicationInfo(pkg,0).flags;
+            system=(flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+            updatedSystem=(flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+        }catch(Exception ignored){}
+        if(system&&!updatedSystem) {
+            host.showDialog(new TvDialog.Builder(host).setTitle("系统内置应用")
+                    .setMessage("此应用由电视系统预装，不能当作普通应用卸载。可以隐藏卡片，或前往系统应用信息查看缓存与停用选项。")
+                    .setPositiveButton("查看系统应用信息",(d,w)->openSystemAppInfo(pkg))
+                    .setNegativeButton("返回",null).create());
+            return;
+        }
+        String title=updatedSystem?("卸载「"+label+"」的更新？"):("卸载「"+label+"」？");
+        String body=updatedSystem
+                ?"此为系统预装应用的更新版本。将打开系统卸载确认页，确认后将卸载更新并还原出厂版本。"
+                :"将打开系统卸载确认页。确认卸载后，应用及其本地数据将被删除。";
+        host.showDialog(new TvDialog.Builder(host).setTitle(title)
+                .setMessage(body)
                 .setPositiveButton("继续卸载",(d,w)->{
             try {
-                host.startActivity(new Intent(Intent.ACTION_DELETE,Uri.parse("package:"+tile.id)));
+                host.startActivity(new Intent(Intent.ACTION_DELETE,Uri.parse("package:"+pkg)));
             }
             catch(RuntimeException error){
                 host.toast("电视未允许卸载此应用");
