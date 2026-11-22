@@ -1,20 +1,32 @@
 # Marco TV
 
-<p align="center"><img src="docs/brand/tv-banner-dark.png" width="560" alt="Marco TV · MAKE IT YOUR HOME"></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/tv-wordmark-white.png">
+  <img src="docs/brand/tv-wordmark-ink.png" width="420" alt="Marco TV">
+</picture>
+</p>
 
-**Pilipala 开发的免费开源 Android 电视桌面。**
+**把电视桌面做到 Apple TV 的质感，还免费。**
 
 作者：**Pilipala** · 当前版本：**0.21.2** · 协议：[GPL-3.0-only](LICENSE)
 
-横向卡片、连续焦点动画、四款时间字体与日期、风景壁纸、时钟屏保，以及适合遥控器的自定义设置。
+Marco TV 是免费开源的 Android 电视桌面：横向卡片、连续焦点动画、4K 60fps 动态壁纸，顺滑得不像第三方桌面。Magic Desktop 24 项调整配 3D 实时预览，卡片长宽、圆角、封面都能单独定制；手机扫码传图、无线投屏、最近任务、本地备份一应俱全。Android 6.0 就能用，老电视还有 Lite 版。
 
 > **本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。**
 
-[![Marco TV 桌面，示例卡片与实机界面](docs/showcase/assets/89-desktop-motion.png)](https://pilipala9919.github.io/MarcoTV/showcase/)
+[![Marco TV 桌面，企鹅动态壁纸与实机界面](docs/images/readme-hero-desktop.jpg)](https://pilipala9919.github.io/MarcoTV/showcase/)
 
 **[打开完整产品展示](https://pilipala9919.github.io/MarcoTV/showcase/)** · [GitHub 图文版：24 个模块逐项介绍](docs/产品介绍与功能展示.md)
 
 3 张 0.14.4 实机截图、4 张 0.14.2 实机截图、11 张 0.14.1 实机截图、9 张 0.14.0 实机截图与标明版本的历史截图，按日常桌面、外观与操作、系统与媒体、维护与隐私分类。支持搜索、切换截图和放大查看。桌面及播放使用示例内容，私人应用、网络与记录已遮挡。
+
+## 界面一览
+
+| | | |
+| --- | --- | --- |
+| ![Magic Desktop](docs/images/readme-magic-desktop.jpg)<br>Magic Desktop | ![我的壁纸](docs/images/readme-wallpapers.jpg)<br>我的壁纸 | ![息屏时钟](docs/images/readme-clock.jpg)<br>息屏时钟 |
+| ![全部应用](docs/images/readme-apps.jpg)<br>全部应用 | ![双栏设置](docs/images/readme-settings.jpg)<br>双栏设置 | ![Marco 互联](docs/images/readme-connect.jpg)<br>Marco 互联 |
 
 0.21.2 修复了 Android 6.0–7.1（API 23–25）最近任务辅助服务启动崩溃（三处 `ActivityManager.getService()` 兼容回退至 `ActivityManagerNative.getDefault()`）及老固件 `pidof` / `ps -A` / `am get-current-user` / `pm list packages -U` / `pm path --user` 兼容问题；同时延续 0.21.1 规范 PKZIP 头与隐式硬件特性修复、0.21.0 全端 **MarcoTV 紫调三层叠卡（Purple Stacked Cards）** 品牌视觉统一、完整版集中式 **「应用管理与卸载」** 及 **Marco TV Lite 0.3.0** 老电视兼容特性下放。实机验证与覆盖范围见[验证记录](docs/验证范围.md)，新版设置路径见[使用说明](docs/使用说明.md)。
 
