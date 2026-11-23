@@ -122,7 +122,6 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         normalizeViewportMetrics();
-        HomeSetup.finishCompatibilityConsent(this);
         arrivalGate.onCreateIntent(getIntent(), getIntent().getBooleanExtra("recent_apps", false), state != null);
         SystemIntegration.clearStandbyWakeReturn(this);
         HomeSetup.markCompatResetIfInterrupted(this);
@@ -240,7 +239,8 @@ public final class MainActivity extends Activity {
         super.onResume();
         normalizeViewportMetrics();
         foreground = true;
-        if (defaultHome != null && defaultHome.compatibilityPending) HomeSetup.finishCompatibilityConsent(this);
+        HomeSetup.resolvePendingPicker(this);
+        HomeSetup.finishCompatibilityConsent(this);
         HomeSetup.reconcile(this);
         arrivalGate.onResume(this, hasWindowFocus(), isPanelWindowFocused(), isFinishing(), isDestroyed());
         Diagnostics.foreground(true);
@@ -327,7 +327,7 @@ public final class MainActivity extends Activity {
             playback.stop();
             unregisterReceiver(playbackAccess);
         }
-        closeMenus();
+        closeMenus(false);
         if(recents!=null&&home!=null)recents.close();
         appReads.close();
         wallpaperReads.close();
@@ -436,7 +436,10 @@ public final class MainActivity extends Activity {
         return dialogs.isPage(id);
     }
     void closeMenus(){
-        if(defaultHome!=null)defaultHome.cancelPending();
+        closeMenus(true);
+    }
+    private void closeMenus(boolean resolvePending){
+        if(resolvePending&&defaultHome!=null)defaultHome.cancelPending();
         if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
         menuEpoch++;

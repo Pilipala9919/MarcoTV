@@ -14,9 +14,9 @@ public final class BootReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
+        if (!HomeSetup.consumeBootBroadcast(context, action)) return;
         SystemIntegration.prefs(context).edit().putString("last_boot_action", action)
                 .putLong("last_boot_time", System.currentTimeMillis()).apply();
-        HomeSetup.onBootBroadcast(context, action);
         Diagnostics.event("BOOT_RECOVERY_REQUESTED");
         boolean nativeReset = false;
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
@@ -25,7 +25,7 @@ public final class BootReceiver extends BroadcastReceiver {
             SystemIntegration.clearStandbyWakeReturn(context);
             SystemIntegration.restoreCompatAfterBoot(context);
             nativeReset = HomeSetup.markNativeResetAtBoot(context);
-            HomeSetup.reconcile(context);
+            HomeSetup.reconcileFromBoot(context);
         }
         SystemIntegration.startRecovery(context);
         // Home preferences are credential-protected; ADB recovery can run before unlock.

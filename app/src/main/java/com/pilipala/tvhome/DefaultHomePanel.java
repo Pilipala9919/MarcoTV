@@ -14,9 +14,6 @@ final class DefaultHomePanel {
     boolean pickerPending;
     boolean pickerCancelled;
     boolean compatibilityPending;
-    private boolean pickerAliasRecorded;
-    private int pickerPriorAlias;
-    private String pickerPriorHome = "";
     private boolean returnToHelp;
     private boolean bootResetOffered;
     private boolean compatResetOffered;
@@ -87,24 +84,22 @@ final class DefaultHomePanel {
                 }).setNegativeButton("返回",null).create());
     }
     void onPickerResult(int resultCode){
-        if(pickerPending&&resultCode!=Activity.RESULT_OK)pickerCancelled=true;
-    }
-    private void restorePickerAliasIfNeeded(){
-        if(pickerAliasRecorded&&!SystemIntegration.homeIsOurs(host)){
-            SystemIntegration.setHomeAliasState(host,pickerPriorAlias);
+        if(pickerPending||HomeSetup.hasPendingPicker(host)){
+            pending=true;
+            pickerPending=true;
+            pendingEpoch=host.menuEpoch;
+            if(resultCode!=Activity.RESULT_OK)pickerCancelled=true;
         }
-        pickerAliasRecorded=false;
-        pickerPriorHome="";
     }
     void request(){
         if(BuildEdition.RESTRICTED){compatibility();return;}
         cancelPending();
         pendingEpoch=host.menuEpoch;
-        // Record prior alias & current HOME before enabling HomeActivity so a cancelled
-        // picker restores the exact prior alias and never unpauses or wipes existing evidence.
-        pickerPriorAlias=SystemIntegration.homeAliasState(host);
-        pickerAliasRecorded=true;
-        pickerPriorHome=SystemIntegration.currentExplicitOtherHome(host);
+        // Persist prior alias & current HOME before enabling HomeActivity so both direct Home
+        // return and process kill/recreation can accurately commit or restore the exact prior state.
+        int priorAlias=SystemIntegration.homeAliasState(host);
+        String priorHome=SystemIntegration.currentExplicitOtherHome(host);
+        HomeSetup.beginPendingPicker(host,priorAlias,priorHome);
         SystemIntegration.enableHome(host,true);
         if(Build.VERSION.SDK_INT>=29)try{
             Object roles=host.getSystemService("role");
@@ -132,7 +127,7 @@ final class DefaultHomePanel {
         }catch(RuntimeException ignored){
             pending=false;pickerPending=false;
         }
-        restorePickerAliasIfNeeded();
+        HomeSetup.resolvePendingPicker(host);
         pickerNextOptions(false);
     }
     private void pickerNextOptions(boolean cancelled){
@@ -173,6 +168,7 @@ final class DefaultHomePanel {
         show();
     }
     private void openAccessibilitySettings(){
+        HomeSetup.beginPendingCompatibility(host);
         try{
             compatibilityPending=true;pending=true;pickerPending=false;pickerCancelled=false;
             returnToHelp=false;pendingEpoch=host.menuEpoch;
@@ -184,6 +180,8 @@ final class DefaultHomePanel {
         }
     }
     void resumed(){
+        HomeSetup.resolvePendingPicker(host);
+        HomeSetup.finishCompatibilityConsent(host);
         if(!bootResetOffered&&HomeSetup.nativeResetPending(host)&&!host.dialogs.open()){
             bootResetOffered=true;
             host.handler.post(()->{if(host.foreground&&!host.dialogs.open())bootReset();});
@@ -205,24 +203,11 @@ final class DefaultHomePanel {
             boolean wasCancelled=pickerCancelled;
             boolean wasCompat=compatibilityPending;
             boolean wasHelp=returnToHelp;
-            String priorHome=pickerPriorHome;
             pending=false;
             pickerPending=false;
             pickerCancelled=false;
             compatibilityPending=false;
             returnToHelp=false;
-            if(wasCompat)HomeSetup.finishCompatibilityConsent(host);
-            if(wasPicker){
-                if(SystemIntegration.homeIsOurs(host)){
-                    pickerAliasRecorded=false;
-                    pickerPriorHome="";
-                    SystemIntegration.adoptExplicitTrackedHome(host,priorHome);
-                    HomeSetup.begin(host);
-                    HomeSetup.acceptNative(host);
-                }else{
-                    restorePickerAliasIfNeeded();
-                }
-            }
             HomeSetup.reconcile(host);
             host.handler.post(()->{
                 if(host.foreground&&host.menuEpoch==pendingEpoch){
@@ -277,13 +262,14 @@ final class DefaultHomePanel {
                 .setMessage((BuildEdition.RESTRICTED?"受限兼容版不含系统默认桌面声明，将通过辅助功能提供 Home 兼容。":"用于系统没有开放默认桌面选择的电视。此方式不等于系统默认桌面，开机和唤醒需要实测。")
                         +"\n无需启用 ADB；只管理 Marco TV 自身服务，保留其他辅助服务。")
                 .setPositiveButton("继续",(d,w)->{
-                    HomeSetup.requestCompatibility(host);
                     if(SystemIntegration.authorized(host)){
+                        HomeSetup.requestCompatibility(host);
                         SystemIntegration.recover(host);
                         HomeSetup.finishCompatibilityConsent(host);
                         SystemIntegration.startRecovery(host);
                         afterCompatibilityReturn();
                     }else if(HomeSetup.serviceEnabled(host)&&HomeKeyService.connected){
+                        HomeSetup.beginPendingCompatibility(host);
                         HomeSetup.finishCompatibilityConsent(host);
                         SystemIntegration.startRecovery(host);
                         verification();
@@ -387,18 +373,25 @@ final class DefaultHomePanel {
     }
     void cancelPending(){
         boolean wasCompat=compatibilityPending;
-        boolean wasPicker=pickerPending;
+        boolean wasPicker=pickerPending||HomeSetup.hasPendingPicker(host);
         pending=false;
         pickerPending=false;
         pickerCancelled=false;
         compatibilityPending=false;
         returnToHelp=false;
         guideReturn.cancel();
-        if(wasPicker)restorePickerAliasIfNeeded();
+        if(wasPicker)HomeSetup.resolvePendingPicker(host);
         if(wasCompat)HomeSetup.finishCompatibilityConsent(host);
     }
     void destroy(){
-        cancelPending();
+        // Activity destruction may happen while the system picker or Accessibility Settings is
+        // still open on top; preserve persisted pending transactions for the recreated instance.
+        pending=false;
+        pickerPending=false;
+        pickerCancelled=false;
+        compatibilityPending=false;
+        returnToHelp=false;
+        guideReturn.cancel();
         if(authorizer!=null){authorizer.cancel();authorizer=null;}
     }
     void help(){

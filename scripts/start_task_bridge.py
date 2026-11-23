@@ -193,23 +193,42 @@ def stop_existing_bridges(shell_try,shell):
     return stopped
 
 
+class BridgeStabilityUnconfirmedError(RuntimeError):
+    """Raised when a verified bridge PID was observed, but stability across adjacent polls was not confirmed."""
+
+
 def verify_bridge_started(shell_try,sleep_fn=time.sleep,attempts=10,interval=.5):
-    prev_pids=set();last_verified=False
+    prev_pids=set();last_verified=False;last_pids=[]
     for _ in range(attempts):
         sleep_fn(interval)
         pids,verified=find_verified_bridge_pids(shell_try,strict=False)
         if not verified:
             prev_pids=set()
             last_verified=False
+            last_pids=[]
             continue
         last_verified=True
+        last_pids=list(pids)
         stable=[pid for pid in pids if pid in prev_pids]
         if stable:
             return 'started',stable
         prev_pids=set(pids)
     if not last_verified:
         return 'unverifiable',[]
+    if last_pids:
+        return 'unconfirmed',last_pids
     return 'not_running',[]
+
+
+def format_verify_outcome(status,pids,log_tail=''):
+    if status=='started':
+        return 'Task bridge started (PID '+','.join(pids)+'). Open Marco TV > 最近任务 > 状态中心.'
+    if status=='unconfirmed':
+        msg='已观察到进程（PID '+','.join(pids)+'），稳定性尚未确认（限时内未连续两轮观察到同一 PID）。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。'
+        return msg+('\n'+log_tail if log_tail else '')
+    if status=='unverifiable':
+        return '无法验证进程列表：已发送启动命令，但 ps -A 与 ps 均未返回有效的 PID 数据行，无法确认任务桥是否运行。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。'
+    return 'Bridge did not start (确认未运行): '+log_tail
 
 
 ADB_ERROR_RE=re.compile(r'^(?:adb(?:\.exe)?:|error:\s*(?:device|no devices|closed|more than one|protocol|cannot))',re.I)
@@ -255,10 +274,14 @@ def main():
     shell(command)
     status,pids=verify_bridge_started(shell_try)
     if status=='unverifiable':
-        raise ProcessListUnavailableError('无法验证进程列表：已发送启动命令，但 ps -A 与 ps 均未返回有效的 PID 数据行，无法确认任务桥是否运行。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。')
+        raise ProcessListUnavailableError(format_verify_outcome(status,pids))
+    if status=='unconfirmed':
+        log_tail=shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:]
+        raise BridgeStabilityUnconfirmedError(format_verify_outcome(status,pids,log_tail))
     if status!='started':
-        raise RuntimeError('Bridge did not start: '+shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:])
-    print('Task bridge started (PID '+','.join(pids)+'). Open Marco TV > 最近任务 > 状态中心.')
+        log_tail=shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:]
+        raise RuntimeError(format_verify_outcome(status,pids,log_tail))
+    print(format_verify_outcome(status,pids))
     print('The helper runs locally as ADB shell, survives ordinary standby, and must be restarted after a full reboot or APK update.')
 
 

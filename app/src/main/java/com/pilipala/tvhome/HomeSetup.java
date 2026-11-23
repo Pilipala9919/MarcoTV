@@ -264,7 +264,7 @@ final class HomeSetup {
                 .remove("setup_home_seen").remove("setup_home_source")
                 .remove("setup_home_deadline").remove("setup_home_started")
                 .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
-                .remove("setup_accessibility_pending")
+                .remove("setup_accessibility_pending").remove("setup_accessibility_deferred")
                 .remove("setup_boot_observed").remove("setup_boot_state").remove("setup_boot_source")
                 .remove("setup_boot_round").remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
                 .remove("setup_boot_observed_elapsed")
@@ -273,6 +273,7 @@ final class HomeSetup {
                 .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
                 .remove("boot_req_round").remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
+                .remove("boot_handled_round").remove("boot_handled_boot").remove("boot_handled_boot_id").remove("boot_handled_elapsed")
                 .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
                 .remove("pending_home_started").remove("pending_home_deadline")
                 .remove("boot_session_interrupted_boot").remove("boot_session_interrupted_id")
@@ -327,23 +328,80 @@ final class HomeSetup {
     static void clearCompatReset(Context c) {
         prefs(c).edit().remove("setup_compat_reset_pending").apply();
     }
+    /**
+     * Persists an in-flight system HOME picker transaction so it survives both
+     * direct Home/firmware return and process kill/recreation while the picker is open.
+     */
+    static void beginPendingPicker(Context c, int priorAlias, String priorHome) {
+        prefs(c).edit().putBoolean("picker_pending", true)
+                .putInt("picker_prior_alias", priorAlias)
+                .putString("picker_prior_home", priorHome == null ? "" : priorHome)
+                .commit();
+    }
+    static boolean hasPendingPicker(Context c) {
+        return prefs(c).getBoolean("picker_pending", false);
+    }
+    /**
+     * Resolves any persisted pending system HOME picker against actual system HOME readback.
+     * Commits only when Marco is actually selected; otherwise restores the exact prior alias
+     * without disturbing prior pause state or verification records.
+     */
+    static boolean resolvePendingPicker(Context c) {
+        SharedPreferences p = prefs(c);
+        if (!p.getBoolean("picker_pending", false)) return false;
+        int priorAlias = p.getInt("picker_prior_alias", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        String priorHome = p.getString("picker_prior_home", "");
+        p.edit().remove("picker_pending").remove("picker_prior_alias").remove("picker_prior_home").commit();
+        if (SystemIntegration.homeIsOurs(c)) {
+            SystemIntegration.adoptExplicitTrackedHome(c, priorHome);
+            begin(c);
+            acceptNative(c);
+            TaskBridgeClient.sync(c);
+            return true;
+        }
+        SystemIntegration.setHomeAliasState(c, priorAlias);
+        return false;
+    }
     static void acceptNative(Context c) {
         if (!prefs(c).getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
         prefs(c).edit().putBoolean("setup_native_seen", true).putBoolean("boot_home", true).apply();
     }
+    /** Programmatic/authorized compatibility entry where service recovery runs immediately. */
     static void requestCompatibility(Context c) {
         begin(c);
         prefs(c).edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
-                .putBoolean("setup_accessibility_pending", true).apply();
+                .putBoolean("setup_accessibility_pending", true)
+                .remove("setup_accessibility_deferred").commit();
+        // While consent is pending, bridge wake recovery must stay off until enabled.
+        TaskBridgeClient.sync(c);
+    }
+    /**
+     * Transactional manual accessibility consent entry: defers unpausing, alias changes,
+     * and evidence reset until the user actually grants the accessibility service.
+     */
+    static void beginPendingCompatibility(Context c) {
+        prefs(c).edit().putBoolean("setup_accessibility_pending", true)
+                .putBoolean("setup_accessibility_deferred", true).commit();
         // While consent is pending, bridge wake recovery must stay off until enabled.
         TaskBridgeClient.sync(c);
     }
     static void finishCompatibilityConsent(Context c) {
-        if (!prefs(c).getBoolean("setup_accessibility_pending", false)) return;
+        SharedPreferences p = prefs(c);
+        if (!p.getBoolean("setup_accessibility_pending", false)) return;
+        boolean deferred = p.getBoolean("setup_accessibility_deferred", false);
         boolean enabled = serviceEnabled(c);
-        prefs(c).edit().remove("setup_accessibility_pending")
-                .putBoolean("home_compat", enabled)
-                .putBoolean("boot_home", enabled || SystemIntegration.homeIsOurs(c)).apply();
+        p.edit().remove("setup_accessibility_pending").remove("setup_accessibility_deferred").commit();
+        if (enabled) {
+            if (deferred) begin(c);
+            p.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
+        } else if (deferred) {
+            // Cancelled without grant: preserve prior pause state, alias, and verification records.
+            boolean keepBoot = !paused(c) && SystemIntegration.homeIsOurs(c);
+            p.edit().putBoolean("home_compat", false).putBoolean("boot_home", keepBoot).commit();
+        } else {
+            p.edit().putBoolean("home_compat", false)
+                    .putBoolean("boot_home", !paused(c) && SystemIntegration.homeIsOurs(c)).commit();
+        }
         TaskBridgeClient.sync(c);
     }
     static void pause(Context c, String reason) {
@@ -353,7 +411,8 @@ final class HomeSetup {
                 .putBoolean("managed_home", false)
                 .remove("setup_home_deadline").remove("setup_home_started")
                 .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
-                .remove("setup_accessibility_pending").remove("setup_home_seen").remove("setup_home_source")
+                .remove("setup_accessibility_pending").remove("setup_accessibility_deferred")
+                .remove("setup_home_seen").remove("setup_home_source")
                 .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source")
                 .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("pending_home_token").remove("pending_home_source")
@@ -365,9 +424,32 @@ final class HomeSetup {
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
+    /**
+     * For Android 6 (missing boot_count) users upgrading from 0.21.2 whose legacy prefs have
+     * no setup_boot_armed_boot_id, establish the baseline on the first readable boot_id without
+     * altering any existing settings or verification records. Subsequent boots then correlate normally.
+     */
+    static boolean ensureBootIdBaseline(Context c) {
+        if (bootCount(c) >= 0 || paused(c)) return false;
+        String nowBootId = currentBootId();
+        if (nowBootId.isEmpty()) return false;
+        SharedPreferences p = prefs(c);
+        if (!p.getString("setup_boot_armed_boot_id", "").isEmpty()) return false;
+        if (!p.getBoolean("setup_requested", false) && !SystemIntegration.homeIsOurs(c)
+                && !p.getBoolean("boot_home", false)) return false;
+        p.edit().putString("setup_boot_armed_boot_id", nowBootId).apply();
+        return true;
+    }
     static void reconcile(Context c) {
+        reconcile(c, true);
+    }
+    static void reconcileFromBoot(Context c) {
+        reconcile(c, false);
+    }
+    private static void reconcile(Context c, boolean allowBaseline) {
         SharedPreferences p = prefs(c);
         if (!unlocked(c) || paused(c)) return;
+        if (allowBaseline) ensureBootIdBaseline(c);
         if (p.getBoolean("setup_compat_reset_pending", false)) {
             if (serviceEnabled(c)) clearCompatReset(c);
             return;
@@ -485,10 +567,30 @@ final class HomeSetup {
                 .remove("pending_home_boot").remove("pending_home_started").remove("pending_home_deadline").apply();
     }
 
+    private static boolean isArmedHomeTestFromCurrentBoot(Context c, SharedPreferences p) {
+        if (!p.contains("setup_home_deadline")) return false;
+        int boot = bootCount(c);
+        int armedBoot = p.getInt("setup_home_boot", -1);
+        if (boot >= 0 && armedBoot >= 0) return armedBoot == boot;
+        String nowBootId = currentBootId();
+        String armedBootId = p.getString("setup_home_boot_id", "");
+        if (!nowBootId.isEmpty() && !armedBootId.isEmpty()) return nowBootId.equals(armedBootId);
+        long armedStarted = p.getLong("setup_home_started", -1L);
+        return p.getLong("setup_home_session", 0L) == processSessionId
+                && armedStarted >= 0 && SystemClock.elapsedRealtime() >= armedStarted;
+    }
+
+    private static void invalidateStaleHomeTestFromPriorBoot(Context c) {
+        SharedPreferences p = prefs(c);
+        if (!p.contains("setup_home_deadline")) return;
+        if (!isArmedHomeTestFromCurrentBoot(c, p)) invalidateHomeTest(c);
+    }
+
     /**
-     * Begins a single boot recovery request for the current boot round.
-     * Returns null when a valid pending request or confirmed arrival already exists for this
-     * exact boot round so duplicate BOOT_COMPLETED broadcasts never re-launch or replace the token.
+     * Begins at most one boot recovery request per boot round.
+     * Returns null when ANY request already exists for this exact boot round — whether
+     * arrived, active, expired, or launch-denied — preserving round state and any active
+     * current-boot Home key test.
      */
     static String tryBeginBootRecoveryRequest(Context c) {
         SharedPreferences p = prefs(c);
@@ -501,17 +603,11 @@ final class HomeSetup {
         int existingReqBoot = p.getInt("boot_req_boot", -1);
         String existingReqBootId = p.getString("boot_req_boot_id", "");
         long existingReqElapsed = p.getLong("boot_req_elapsed", -1L);
-        long existingReqDeadline = p.getLong("boot_req_deadline", -1L);
         String existingReqState = p.getString("boot_req_state", "");
         boolean sameReqRound = !existingReqState.isEmpty()
                 && isSameBootRound(c, existingReqRound, existingReqBoot, existingReqBootId, existingReqElapsed);
         if (sameReqRound) {
-            if (BOOT_STATE_RECOVERY_ARRIVED.equals(existingReqState)) return null;
-            String existingToken = p.getString("boot_req_token", "");
-            if (BOOT_STATE_REQUESTED.equals(existingReqState) && !existingToken.isEmpty()
-                    && existingReqElapsed >= 0 && now >= existingReqElapsed && now <= existingReqDeadline) {
-                return null;
-            }
+            return null;
         }
 
         // Archive previous boot round's success so it can never mask this round's failure or non-arrival.
@@ -528,8 +624,8 @@ final class HomeSetup {
                     .remove("setup_boot_observed_boot_id").remove("setup_boot_observed_elapsed");
         }
 
+        invalidateStaleHomeTestFromPriorBoot(c);
         String token = "b-" + Long.toHexString(nextSessionId()) + "-" + now;
-        cancelPendingShortPress();
         e.putString("boot_req_token", token)
                 .putString("boot_req_round", roundKey)
                 .putInt("boot_req_boot", boot)
@@ -538,8 +634,6 @@ final class HomeSetup {
                 .putLong("boot_req_deadline", now + BOOT_REQUEST_TTL_MS)
                 .putString("boot_req_state", BOOT_STATE_REQUESTED)
                 .putLong("boot_req_time", System.currentTimeMillis())
-                .remove("setup_home_deadline").remove("setup_home_started")
-                .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
                 .commit();
         return token;
     }
@@ -560,17 +654,41 @@ final class HomeSetup {
         Diagnostics.event("BOOT_RECOVERY_LAUNCH_DENIED");
     }
 
-    static void onBootBroadcast(Context c, String action) {
+    /**
+     * Deduplicates ACTION_BOOT_COMPLETED to at most one handling pass per boot round,
+     * preserving current-round failure/expiry states and any in-progress 90s Home test.
+     * Returns false when an identical boot-round ACTION_BOOT_COMPLETED was already processed.
+     */
+    static boolean consumeBootBroadcast(Context c, String action) {
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             cancelPendingShortPress();
             markBootSessionInterrupted(c);
+            ensureBootIdBaseline(c);
             prefs(c).edit().remove("boot_req_token").remove("pending_home_token").remove("pending_home_source")
                     .remove("setup_home_deadline").remove("setup_home_started").remove("setup_home_session").apply();
-            return;
+            return true;
         }
-        // Real reboot invalidates any previous session's Home test without wiping an
-        // earlier native HOME observation that already arrived during this same boot.
-        invalidateHomeTest(c);
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            SharedPreferences p = prefs(c);
+            String handledRound = p.getString("boot_handled_round", "");
+            boolean alreadyHandled = !handledRound.isEmpty() && isSameBootRound(c, handledRound,
+                    p.getInt("boot_handled_boot", -1), p.getString("boot_handled_boot_id", ""),
+                    p.getLong("boot_handled_elapsed", -1L));
+            if (alreadyHandled) return false;
+            p.edit().putString("boot_handled_round", currentBootRoundKey(c))
+                    .putInt("boot_handled_boot", bootCount(c))
+                    .putString("boot_handled_boot_id", currentBootId())
+                    .putLong("boot_handled_elapsed", SystemClock.elapsedRealtime()).commit();
+            invalidateStaleHomeTestFromPriorBoot(c);
+            return true;
+        }
+        // LOCKED_BOOT_COMPLETED: clear only prior-boot stale Home test, never current-boot test.
+        invalidateStaleHomeTestFromPriorBoot(c);
+        return true;
+    }
+
+    static void onBootBroadcast(Context c, String action) {
+        consumeBootBroadcast(c, action);
     }
 
     static void noteStandbyWake(Context c) {
@@ -758,6 +876,7 @@ final class HomeSetup {
         }
 
         if (source == HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME) {
+            ensureBootIdBaseline(c);
             String armedBootId = p.getString("setup_boot_armed_boot_id", "");
             String nowBootId = currentBootId();
             boolean isNewBoot = HomeSetupPolicy.bootChanged(p.getInt("setup_boot_armed", -1), boot, armedBootId, nowBootId);

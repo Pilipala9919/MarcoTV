@@ -1271,12 +1271,387 @@ public final class HomeFlowChecks {
                 && manualSummary.contains("未经自动关联"));
     }
 
+    static void testRound3Counterexamples() throws Exception {
+        drainBridgeSync();
+        final List<JSONObject> bridgeConfigs = Collections.synchronizedList(new ArrayList<>());
+        IBinder r3Bridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) bridgeConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("wake", req.optBoolean("wake")).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(r3Bridge);
+
+        // =====================================================================
+        // Round-3 Fix #1: System picker selects Marco -> (a) normal return, (b) direct remote Home press,
+        //                 (c) firmware directly launches new HOME launcher!
+        // =====================================================================
+        // 1a. Normal return from RoleManager/Settings picker (paused, old tracked A, current HOME B -> Marco)
+        MainActivity host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true));
+        host.pm.homes.add(homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false));
+        host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        SystemIntegration.rememberHome(host); // old tracked A
+        HomeSetup.pause(host, "用户已暂停");
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher"; // system switched A -> B
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0); // "继续一键设置" -> opens picker
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.simulateOnResume(true); // normal return
+        check("r3_1a_picker_normal_return_commits_native_unpauses_and_tracks_B",
+                !HomeSetup.paused(host)
+                && SystemIntegration.homeIsOurs(host)
+                && host.sysPrefs.getBoolean("setup_native_seen", false)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && !HomeSetup.hasPendingPicker(host)
+                && host.isPage("home_verification"));
+
+        // 1b. Direct remote Home press right after picking Marco (onNewIntent -> closeMenus -> cancelPending -> onResume)
+        host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true));
+        host.pm.homes.add(homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false));
+        host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        SystemIntegration.rememberHome(host); // old tracked A
+        HomeSetup.pause(host, "用户已暂停");
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0); // opens picker
+        // User selects Marco in picker and presses remote Home directly!
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.simulateOnPause();
+        host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)); // calls closeMenus -> cancelPending!
+        host.simulateOnResume(true);
+        drainBridgeSync();
+        check("r3_1b_picker_direct_home_key_commits_native_unpauses_and_tracks_B",
+                !HomeSetup.paused(host)
+                && SystemIntegration.homeIsOurs(host)
+                && host.sysPrefs.getBoolean("setup_native_seen", false)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.route(host) == HomeSetupPolicy.Route.NATIVE_READY
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && !HomeSetup.hasPendingPicker(host));
+
+        // 1c. Firmware directly launches new HOME launcher on a fresh MainActivity instance (cold launch / recreate)!
+        host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true));
+        host.pm.homes.add(homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false));
+        host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        SystemIntegration.rememberHome(host);
+        HomeSetup.pause(host, "用户已暂停");
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0);
+        // Firmware destroys old instance and directly launches new MainActivity with CATEGORY_HOME!
+        host.simulateOnPause();
+        host.simulateOnDestroy();
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        MainActivity firmwareLaunched = new MainActivity();
+        firmwareLaunched.sysPrefs = host.sysPrefs;
+        firmwareLaunched.homePrefs = host.homePrefs;
+        firmwareLaunched.pm = host.pm;
+        firmwareLaunched.defaultHome = new DefaultHomePanel(firmwareLaunched);
+        firmwareLaunched.simulateOnCreate(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), false);
+        firmwareLaunched.simulateOnResume(true);
+        check("r3_1c_firmware_direct_launch_commits_native_unpauses_and_tracks_B",
+                !HomeSetup.paused(firmwareLaunched)
+                && SystemIntegration.homeIsOurs(firmwareLaunched)
+                && firmwareLaunched.sysPrefs.getBoolean("setup_native_seen", false)
+                && firmwareLaunched.sysPrefs.getBoolean("boot_home", false)
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(firmwareLaunched))
+                && !HomeSetup.hasPendingPicker(firmwareLaunched));
+
+        // =====================================================================
+        // Round-3 Fix #2: Paused user enters Accessibility Settings -> (a) cancel without grant preserves pause,
+        //                 alias, and old verification records while keeping bridge wake OFF; (b) grant commits!
+        // =====================================================================
+        host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true));
+        host.pm.homes.add(homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false));
+        host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.pm.actions.remove(Settings.ACTION_HOME_SETTINGS); // route -> ACCESSIBILITY
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        SystemIntegration.rememberHome(host);
+        HomeSetup.pause(host, "暂停态原原因");
+        host.sysPrefs.edit()
+                .putLong("setup_home_seen", 1700002222000L)
+                .putString("setup_home_source", HomeSetup.SOURCE_COMPAT_KEY)
+                .putInt("setup_boot_observed", 3)
+                .putString("setup_boot_state", HomeSetup.BOOT_STATE_RECOVERY_ARRIVED)
+                .putString("setup_boot_round", "bc:3")
+                .apply();
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        host.defaultHome.show();
+        check("r3_2a_paused_opens_accessibility_route", host.dialogs.active().items[0].equals("继续一键设置"));
+        host.dialogs.active().clickItem(0); // opens home_compat_consent
+        host.dialogs.active().clickPositive(); // "继续" -> opens Accessibility Settings (pending, deferred!)
+        drainBridgeSync();
+        // While user is still in Accessibility Settings: paused, alias, and old records MUST NOT have been mutated yet!
+        check("r3_2a_while_in_accessibility_settings_state_is_not_prematurely_mutated",
+                HomeSetup.paused(host)
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700002222000L
+                && !bridgeConfigs.isEmpty() && !bridgeConfigs.get(bridgeConfigs.size() - 1).optBoolean("wake"));
+        // User exits Accessibility Settings WITHOUT granting permission!
+        setService(false, false);
+        bridgeConfigs.clear();
+        host.simulateOnResume(true);
+        drainBridgeSync();
+        JSONObject r3_2aCfg = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r3_2a_accessibility_cancel_from_paused_preserves_pause_alias_evidence_and_bridge_off",
+                HomeSetup.paused(host)
+                && "暂停态原原因".equals(host.sysPrefs.getString("setup_pause_reason", ""))
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700002222000L
+                && HomeSetup.SOURCE_COMPAT_KEY.equals(host.sysPrefs.getString("setup_home_source", ""))
+                && host.sysPrefs.getInt("setup_boot_observed", -1) == 3
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && !host.sysPrefs.getBoolean("home_compat", true)
+                && !host.sysPrefs.getBoolean("boot_home", true)
+                && !host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && r3_2aCfg != null && !r3_2aCfg.optBoolean("wake"));
+        // Now user re-enters Accessibility Settings and ACTUALLY grants the service -> commits unpause, tracked B, alias, compat!
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0);
+        host.dialogs.active().clickPositive();
+        setService(true, true);
+        bridgeConfigs.clear();
+        host.simulateOnResume(true);
+        drainBridgeSync();
+        JSONObject r3_2bCfg = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r3_2b_accessibility_grant_commits_unpause_compat_tracked_B_and_bridge_wake_on",
+                !HomeSetup.paused(host)
+                && host.sysPrefs.getBoolean("home_compat", false)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && r3_2bCfg != null && r3_2bCfg.optBoolean("wake") && "com.third.b".equals(r3_2bCfg.optString("home"))
+                && host.isPage("home_verification"));
+
+        // =====================================================================
+        // Round-3 Fix #3: Process killed/recreated while system picker is open ->
+        //                 (a) cancel restores disabled HOME alias & pause/evidence; (b) select commits Marco + B!
+        // =====================================================================
+        // 3a. RoleManager picker -> process killed (onDestroy) -> user cancels -> recreated MainActivity restores DISABLED alias!
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 29;
+        host.roleAvailable = true;
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        HomeSetup.pause(host, "低内存测试暂停");
+        host.sysPrefs.edit().putLong("setup_home_seen", 1700004444000L)
+                .putString("setup_home_source", HomeSetup.SOURCE_SYSTEM_HOME).apply();
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0); // enables alias temporarily + persists picker_pending
+        host.simulateOnPause();
+        host.simulateOnDestroy(); // OS kills background Activity while RoleManager is still on screen!
+        check("r3_3a_background_destroy_keeps_alias_and_persisted_picker_while_picker_open",
+                host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                && HomeSetup.hasPendingPicker(host));
+        // User cancels RoleManager; Android recreates MainActivity, delivers RESULT_CANCELED, and resumes!
+        MainActivity recreatedCancel = new MainActivity();
+        recreatedCancel.sysPrefs = host.sysPrefs;
+        recreatedCancel.homePrefs = host.homePrefs;
+        recreatedCancel.pm = host.pm;
+        recreatedCancel.defaultHome = new DefaultHomePanel(recreatedCancel);
+        recreatedCancel.simulateOnCreate(new Intent(recreatedCancel, MainActivity.class), true);
+        recreatedCancel.defaultHome.onPickerResult(Activity.RESULT_CANCELED);
+        recreatedCancel.simulateOnResume(true);
+        check("r3_3a_recreated_cancel_restores_disabled_alias_pause_and_evidence",
+                recreatedCancel.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && !HomeSetup.hasPendingPicker(recreatedCancel)
+                && HomeSetup.paused(recreatedCancel)
+                && "低内存测试暂停".equals(recreatedCancel.sysPrefs.getString("setup_pause_reason", ""))
+                && recreatedCancel.sysPrefs.getLong("setup_home_seen", 0L) == 1700004444000L
+                && recreatedCancel.isPage("home_picker_next")
+                && recreatedCancel.dialogs.active().message.contains("取消"));
+
+        // 3b. ACTION_HOME_SETTINGS (no onActivityResult) -> process killed -> user cancels -> recreated MainActivity still restores alias!
+        host = freshEnv();
+        host.roleAvailable = false;
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        HomeSetup.pause(host, "设置页暂停");
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0); // opens ACTION_HOME_SETTINGS
+        host.simulateOnPause();
+        host.simulateOnDestroy();
+        MainActivity recreatedSettingsCancel = new MainActivity();
+        recreatedSettingsCancel.sysPrefs = host.sysPrefs;
+        recreatedSettingsCancel.homePrefs = host.homePrefs;
+        recreatedSettingsCancel.pm = host.pm;
+        recreatedSettingsCancel.defaultHome = new DefaultHomePanel(recreatedSettingsCancel);
+        recreatedSettingsCancel.simulateOnCreate(new Intent(recreatedSettingsCancel, MainActivity.class), true);
+        recreatedSettingsCancel.simulateOnResume(true);
+        check("r3_3b_recreated_settings_picker_cancel_restores_disabled_alias_and_pause",
+                recreatedSettingsCancel.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && !HomeSetup.hasPendingPicker(recreatedSettingsCancel)
+                && HomeSetup.paused(recreatedSettingsCancel));
+
+        // =====================================================================
+        // Round-3 Fix #4: Android 6 configured 0.21.2 user upgrade (missing setup_boot_armed_boot_id)
+        // =====================================================================
+        // 4a. Readable boot_id: first boot establishes baseline only; second boot correlates native HOME and confirms!
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "api23-0212-boot-1";
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        // Simulate legacy 0.21.2 persisted preferences (NO setup_boot_armed_boot_id!)
+        host.sysPrefs.edit()
+                .putBoolean("setup_requested", true)
+                .putBoolean("setup_native_seen", true)
+                .putBoolean("boot_home", true)
+                .putInt("setup_boot_armed", -1)
+                .putLong("setup_home_seen", 1700003333000L)
+                .apply();
+        // First boot after upgrade: reconcile + native HOME arrival establishes baseline ONLY, does NOT falsely confirm!
+        SystemClock.elapsed = 15000L;
+        HomeSetup.reconcile(host);
+        HomeSetup.observeHomeIntent(host, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        HomeSetup.confirmBoot(host);
+        check("r3_4a_api23_upgrade_first_boot_sets_baseline_without_false_confirm_and_preserves_legacy_records",
+                "api23-0212-boot-1".equals(host.sysPrefs.getString("setup_boot_armed_boot_id", ""))
+                && !host.sysPrefs.contains("setup_boot_state")
+                && !host.sysPrefs.contains("setup_boot_confirmed")
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700003333000L
+                && host.sysPrefs.getBoolean("setup_native_seen", false));
+        // Second boot after upgrade (new boot_id): correlates native HOME arrival and confirms cleanly!
+        HomeSetup.bootIdOverride = "api23-0212-boot-2";
+        SystemClock.elapsed = 15000L;
+        HomeSetup.observeHomeIntent(host, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.defaultHome.verification();
+        host.dialogs.active().clickItem(1); // "我已重启，确认开机效果"
+        check("r3_4a_api23_upgrade_next_boot_correlates_and_confirms_cleanly",
+                HomeSetup.BOOT_STATE_NATIVE_UNCONFIRMED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && host.sysPrefs.contains("setup_boot_confirmed")
+                && HomeSetup.BOOT_STATE_NATIVE_UNCONFIRMED.equals(host.sysPrefs.getString("setup_boot_confirmed_source", ""))
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700003333000L);
+
+        // 4b. Unreadable boot_id on upgraded 0.21.2 Android 6 user: explicit manual observation preserves legacy records!
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "";
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.sysPrefs.edit()
+                .putBoolean("setup_requested", true)
+                .putBoolean("setup_native_seen", true)
+                .putBoolean("boot_home", true)
+                .putInt("setup_boot_armed", -1)
+                .putLong("setup_home_seen", 1700003333000L)
+                .apply();
+        HomeSetup.reconcile(host);
+        host.defaultHome.verification();
+        check("r3_4b_api23_upgrade_no_boot_id_offers_manual_observation",
+                host.dialogs.active().items[1].equals("记录人工重启观察（系统无启动标识）"));
+        host.dialogs.active().clickItem(1);
+        check("r3_4b_api23_upgrade_manual_observation_preserves_legacy_settings_and_records",
+                HomeSetup.BOOT_CONFIRM_MANUAL_ONLY.equals(host.sysPrefs.getString("setup_boot_confirmed_source", ""))
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700003333000L
+                && host.sysPrefs.getBoolean("setup_native_seen", false)
+                && !host.sysPrefs.contains("setup_boot_state"));
+
+        // =====================================================================
+        // Round-3 Fix #5: Same-round duplicate BOOT_COMPLETED after launch-denied OR request-expired
+        //                 must NOT relaunch, overwrite round state, or cancel active 90s Home test!
+        // =====================================================================
+        // 5a. First boot broadcast launch denied -> user arms 90s Home test -> duplicate broadcast in same boot #4
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r3-dup-denied";
+        SystemClock.elapsed = 12000L;
+        host.startActivityThrows = true;
+        BootReceiver r3Receiver = new BootReceiver();
+        r3Receiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r3_5a_initial_boot_launch_denied",
+                HomeSetup.BOOT_STATE_LAUNCH_DENIED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && host.startedActivities.isEmpty());
+        // User opens Marco and starts the 90s Home test; later a duplicate BOOT_COMPLETED arrives (even if launches wouldn't throw now)
+        SystemClock.elapsed = 20000L;
+        HomeSetup.armHomeTest(host);
+        host.startActivityThrows = false;
+        SystemClock.elapsed = 25000L;
+        r3Receiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String directRetryDenied = HomeSetup.tryBeginBootRecoveryRequest(host);
+        check("r3_5a_duplicate_after_denied_does_not_relaunch_or_cancel_home_test",
+                directRetryDenied == null
+                && host.startedActivities.isEmpty()
+                && HomeSetup.BOOT_STATE_LAUNCH_DENIED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && host.sysPrefs.contains("setup_home_deadline"));
+        // Verify the armed 90s Home test STILL passes when user presses Home!
+        SystemClock.elapsed = 30000L;
+        String t5a = HomeSetup.issueHomeEvent(host, HomeSetup.SOURCE_COMPAT_KEY);
+        HomeSetup.observeHomeIntent(host, SystemIntegration.homeIntent(host).putExtra(HomeSetup.EXTRA_EVENT_TOKEN, t5a));
+        check("r3_5a_armed_home_test_still_passes_after_duplicate_broadcast",
+                host.sysPrefs.contains("setup_home_seen")
+                && HomeSetup.SOURCE_COMPAT_KEY.equals(host.sysPrefs.getString("setup_home_source", "")));
+
+        // 5b. First boot request expires (>60s without arrival) -> user arms 90s Home test -> duplicate broadcast in same boot #4
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r3-dup-expired";
+        SystemClock.elapsed = 10000L;
+        BootReceiver expReceiver = new BootReceiver();
+        expReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String expiredToken = host.sysPrefs.getString("boot_req_token", "");
+        // Advance past 60s request TTL without Activity arrival, then user starts 90s Home test
+        SystemClock.elapsed = 80000L;
+        HomeSetup.armHomeTest(host);
+        SystemClock.elapsed = 85000L;
+        expReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String directRetryExpired = HomeSetup.tryBeginBootRecoveryRequest(host);
+        check("r3_5b_duplicate_after_expired_does_not_relaunch_or_cancel_home_test",
+                directRetryExpired == null
+                && host.startedActivities.size() == 1
+                && expiredToken.equals(host.sysPrefs.getString("boot_req_token", ""))
+                && HomeSetup.BOOT_STATE_REQUESTED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && host.sysPrefs.contains("setup_home_deadline"));
+        // Next real reboot (boot #5) DOES invalidate stale boot #4 Home test and launches boot #5 recovery!
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-r3-dup-boot5";
+        SystemClock.elapsed = 11000L;
+        expReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r3_5b_new_boot_round_invalidates_prior_home_test_and_launches_once",
+                host.startedActivities.size() == 2
+                && !host.sysPrefs.contains("setup_home_deadline")
+                && host.sysPrefs.getInt("boot_req_boot", -1) == 5);
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
         testTask3TrackedHomeAndSnapshot();
         testRound2Regressions();
-        System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2 regression checks");
+        testRound3Counterexamples();
+        System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3 regression checks");
         System.exit(0);
     }
 }
@@ -1415,7 +1790,6 @@ class MainActivity extends Activity {
         return arrivalGate.isDesktopVisible(hasWindowFocus(), panelFocused, isFinishing(), isDestroyed());
     }
     void simulateOnCreate(Intent intent, boolean recreated) {
-        HomeSetup.finishCompatibilityConsent(this);
         boolean recent = intent != null && intent.getBooleanExtra("recent_apps", false);
         arrivalGate.onCreateIntent(intent, recent, recreated);
         if (intent != null && intent.hasCategory(Intent.CATEGORY_HOME)
@@ -1433,12 +1807,14 @@ class MainActivity extends Activity {
             homePressTracker.reset();
         }
         arrivalGate.onNewIntent(intent, recent);
+        closeMenus();
         return recent;
     }
     boolean simulateOnResume(boolean focus) {
         foreground = true;
         windowFocus = focus;
-        if (defaultHome != null && defaultHome.compatibilityPending) HomeSetup.finishCompatibilityConsent(this);
+        HomeSetup.resolvePendingPicker(this);
+        HomeSetup.finishCompatibilityConsent(this);
         HomeSetup.reconcile(this);
         boolean consumed = arrivalGate.onResume(this, hasWindowFocus(), panelFocused, isFinishing(), isDestroyed());
         TaskBridgeClient.sync(this);
@@ -1460,13 +1836,17 @@ class MainActivity extends Activity {
         destroyed = true;
         arrivalGate.onDestroy();
         if (defaultHome != null) defaultHome.destroy();
+        closeMenus(false);
     }
     void showDialog(TvDialog d) { dialogs.show(d); }
     boolean isPage(String id) { return dialogs.isPage(id); }
     void toast(String s) { toasts.add(s); }
     void exitMenus() { closeMenus(); }
     void closeMenus() {
-        if (defaultHome != null) defaultHome.cancelPending();
+        closeMenus(true);
+    }
+    void closeMenus(boolean resolvePending) {
+        if (resolvePending && defaultHome != null) defaultHome.cancelPending();
         menuEpoch++;
         dialogs.close();
     }

@@ -196,7 +196,8 @@ def fake_seen_then_unreadable(*cmd):
 status, pids = bridge.verify_bridge_started(fake_seen_then_unreadable, sleep_fn=lambda _: None, attempts=3)
 assert status == 'unverifiable' and pids == [], f'Expected unverifiable, got {(status, pids)}'
 
-# Case 7 (Fix #10): Adjacent polls see DIFFERENT PIDs (respawn/crash loop) -> cannot confirm same process stable.
+# Case 7 (Round-3 Fix #6): Adjacent polls see DIFFERENT PIDs (18887 -> 18888 -> 18889) and final poll still has verified PID ->
+# cannot confirm same process stable, yet final poll saw PID -> 'unconfirmed' (neither 'started' nor 'not_running').
 changing_pid_poll = {'n': 0}
 ps_pid_2 = (
     'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
@@ -217,7 +218,7 @@ def fake_changing_pids(*cmd):
     raise AssertionError(f'Unexpected command: {cmd}')
 
 status, pids = bridge.verify_bridge_started(fake_changing_pids, sleep_fn=lambda _: None, attempts=3)
-assert status == 'not_running' and pids == [], f'Expected not_running for changing PIDs, got {(status, pids)}'
+assert status == 'unconfirmed' and pids == ['18889'], f'Expected unconfirmed [18889], got {(status, pids)}'
 
 # Case 8 (Fix #10): PID changes once (18887 -> 18888), then stabilizes on SAME PID 18888 -> started with ['18888'].
 stabilizing_poll = {'n': 0}
@@ -246,6 +247,38 @@ def fake_unreadable_then_mitv4_stable(*cmd):
 
 status, pids = bridge.verify_bridge_started(fake_unreadable_then_mitv4_stable, sleep_fn=lambda _: None, attempts=4)
 assert status == 'started' and pids == ['17574'], f'Expected started [17574], got {(status, pids)}'
+
+# Case 10 (Round-3 Fix #6): Earlier polls see NO bridge, LAST poll sees verified PID for the first time -> 'unconfirmed' (not 'not_running').
+late_start_poll = {'n': 0}
+def fake_late_last_poll_pid(*cmd):
+    if cmd == ('ps', '-A'):
+        late_start_poll['n'] += 1
+        return ps_api30 if late_start_poll['n'] == 3 else ps_valid_without_bridge
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_late_last_poll_pid, sleep_fn=lambda _: None, attempts=3)
+assert status == 'unconfirmed' and pids == ['18887'], f'Expected unconfirmed [18887], got {(status, pids)}'
+
+# Case 11 (Round-3 Fix #6): Changing PIDs followed by final poll confirming NO bridge process -> 'not_running'.
+die_after_respawn = {'n': 0}
+def fake_respawn_then_gone(*cmd):
+    if cmd == ('ps', '-A'):
+        die_after_respawn['n'] += 1
+        return [ps_api30, ps_pid_2, ps_valid_without_bridge][min(die_after_respawn['n'] - 1, 2)]
+    if cmd in (('cat', '/proc/18887/cmdline'), ('cat', '/proc/18888/cmdline')):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_respawn_then_gone, sleep_fn=lambda _: None, attempts=3)
+assert status == 'not_running' and pids == [], f'Expected not_running, got {(status, pids)}'
+
+# Verify distinct user-facing messages for all 4 outcomes.
+assert 'started (PID 18887)' in bridge.format_verify_outcome('started', ['18887'])
+assert '已观察到进程' in bridge.format_verify_outcome('unconfirmed', ['18887']) and '稳定性尚未确认' in bridge.format_verify_outcome('unconfirmed', ['18887'])
+assert '确认未运行' in bridge.format_verify_outcome('not_running', [], 'log')
+assert '无法验证进程列表' in bridge.format_verify_outcome('unverifiable', [])
 
 # Simulate Android 6.0.1 (MiTV4): ps -A fails, am get-current-user unsupported, pm -U unsupported, pm path --user 0 empty.
 calls = []
