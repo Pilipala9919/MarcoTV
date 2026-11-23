@@ -274,9 +274,62 @@ def fake_respawn_then_gone(*cmd):
 status, pids = bridge.verify_bridge_started(fake_respawn_then_gone, sleep_fn=lambda _: None, attempts=3)
 assert status == 'not_running' and pids == [], f'Expected not_running, got {(status, pids)}'
 
-# Verify distinct user-facing messages for all 4 outcomes.
+# Case 12 (Round-4 Fix #5): Candidate PID in valid ps, but /proc/<pid>/cmdline returns Permission denied -> 'identity_unverifiable'.
+def fake_cmdline_permission_denied(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_api30
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return 'cat: /proc/18887/cmdline: Permission denied'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_cmdline_permission_denied, sleep_fn=lambda _: None, attempts=3)
+assert status == 'identity_unverifiable' and pids == ['18887'], f'Expected identity_unverifiable [18887], got {(status, pids)}'
+
+# Case 13 (Round-4 Fix #5): Candidate PID in valid ps, but /proc/<pid>/cmdline returns empty -> 'identity_unverifiable'.
+def fake_cmdline_empty(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_api30
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return ''
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_cmdline_empty, sleep_fn=lambda _: None, attempts=3)
+assert status == 'identity_unverifiable' and pids == ['18887'], f'Expected identity_unverifiable [18887], got {(status, pids)}'
+
+# Case 14 (Round-4 Fix #5): Candidate PID vanishes with No such file or directory (including BusyBox "can't open ... No such file") -> 'not_running'.
+def fake_cmdline_vanished_busybox(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_api30
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return "cat: can't open '/proc/18887/cmdline': No such file or directory"
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_cmdline_vanished_busybox, sleep_fn=lambda _: None, attempts=3)
+assert status == 'not_running' and pids == [], f'Expected not_running for vanished proc, got {(status, pids)}'
+
+# Case 15 (Round-4 Fix #5): BusyBox "can't open ... Permission denied" -> 'identity_unverifiable' (never mistaken for vanished!).
+def fake_cmdline_cant_open_denied(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_api30
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return "cat: can't open '/proc/18887/cmdline': Permission denied"
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_cmdline_cant_open_denied, sleep_fn=lambda _: None, attempts=3)
+assert status == 'identity_unverifiable' and pids == ['18887'], f'Expected identity_unverifiable, got {(status, pids)}'
+
+# Verify stop_existing_bridges refuses to claim stopped when candidate identity is unreadable.
+unverifiable_id_stop = False
+try:
+    bridge.stop_existing_bridges(fake_cmdline_permission_denied, lambda *_: '')
+except bridge.BridgeIdentityUnverifiableError as exc:
+    unverifiable_id_stop = '发现候选进程' in str(exc) and '身份无法核实' in str(exc)
+assert unverifiable_id_stop
+
+# Verify distinct user-facing messages for all 5 outcomes.
 assert 'started (PID 18887)' in bridge.format_verify_outcome('started', ['18887'])
 assert '已观察到进程' in bridge.format_verify_outcome('unconfirmed', ['18887']) and '稳定性尚未确认' in bridge.format_verify_outcome('unconfirmed', ['18887'])
+assert '发现候选进程' in bridge.format_verify_outcome('identity_unverifiable', ['18887']) and '身份无法核实' in bridge.format_verify_outcome('identity_unverifiable', ['18887'])
 assert '确认未运行' in bridge.format_verify_outcome('not_running', [], 'log')
 assert '无法验证进程列表' in bridge.format_verify_outcome('unverifiable', [])
 

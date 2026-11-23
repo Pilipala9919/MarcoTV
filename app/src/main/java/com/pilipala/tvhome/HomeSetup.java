@@ -273,7 +273,6 @@ final class HomeSetup {
                 .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
                 .remove("boot_req_round").remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
-                .remove("boot_handled_round").remove("boot_handled_boot").remove("boot_handled_boot_id").remove("boot_handled_elapsed")
                 .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
                 .remove("pending_home_started").remove("pending_home_deadline")
                 .remove("boot_session_interrupted_boot").remove("boot_session_interrupted_id")
@@ -331,11 +330,14 @@ final class HomeSetup {
     /**
      * Persists an in-flight system HOME picker transaction so it survives both
      * direct Home/firmware return and process kill/recreation while the picker is open.
+     * Tracks whether Marco was already default HOME before opening so cancelling without
+     * changing HOME never unpauses, alters boot_home, or clears prior records.
      */
-    static void beginPendingPicker(Context c, int priorAlias, String priorHome) {
+    static void beginPendingPicker(Context c, int priorAlias, String priorHome, boolean wasOursBefore) {
         prefs(c).edit().putBoolean("picker_pending", true)
                 .putInt("picker_prior_alias", priorAlias)
                 .putString("picker_prior_home", priorHome == null ? "" : priorHome)
+                .putBoolean("picker_prior_ours", wasOursBefore)
                 .commit();
     }
     static boolean hasPendingPicker(Context c) {
@@ -343,23 +345,29 @@ final class HomeSetup {
     }
     /**
      * Resolves any persisted pending system HOME picker against actual system HOME readback.
-     * Commits only when Marco is actually selected; otherwise restores the exact prior alias
-     * without disturbing prior pause state or verification records.
+     * Commits only when actual HOME genuinely transitioned from another launcher to Marco;
+     * otherwise preserves prior pause state, boot preference, and verification records (and
+     * restores the prior HOME alias if Marco is not currently selected).
      */
     static boolean resolvePendingPicker(Context c) {
         SharedPreferences p = prefs(c);
         if (!p.getBoolean("picker_pending", false)) return false;
         int priorAlias = p.getInt("picker_prior_alias", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
         String priorHome = p.getString("picker_prior_home", "");
-        p.edit().remove("picker_pending").remove("picker_prior_alias").remove("picker_prior_home").commit();
-        if (SystemIntegration.homeIsOurs(c)) {
+        boolean wasOursBefore = p.getBoolean("picker_prior_ours", false);
+        p.edit().remove("picker_pending").remove("picker_prior_alias")
+                .remove("picker_prior_home").remove("picker_prior_ours").commit();
+        boolean isOursNow = SystemIntegration.homeIsOurs(c);
+        if (!wasOursBefore && isOursNow) {
             SystemIntegration.adoptExplicitTrackedHome(c, priorHome);
             begin(c);
             acceptNative(c);
             TaskBridgeClient.sync(c);
             return true;
         }
-        SystemIntegration.setHomeAliasState(c, priorAlias);
+        if (!isOursNow) {
+            SystemIntegration.setHomeAliasState(c, priorAlias);
+        }
         return false;
     }
     static void acceptNative(Context c) {
@@ -395,9 +403,8 @@ final class HomeSetup {
             if (deferred) begin(c);
             p.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
         } else if (deferred) {
-            // Cancelled without grant: preserve prior pause state, alias, and verification records.
-            boolean keepBoot = !paused(c) && SystemIntegration.homeIsOurs(c);
-            p.edit().putBoolean("home_compat", false).putBoolean("boot_home", keepBoot).commit();
+            // Cancelled without grant: preserve prior boot_home toggle, pause state, alias, and verification records.
+            p.edit().putBoolean("home_compat", false).commit();
         } else {
             p.edit().putBoolean("home_compat", false)
                     .putBoolean("boot_home", !paused(c) && SystemIntegration.homeIsOurs(c)).commit();
@@ -424,10 +431,19 @@ final class HomeSetup {
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
+    private static boolean hasActiveBootRequestToken(SharedPreferences p) {
+        if (p.getString("boot_req_token", "").isEmpty()) return false;
+        long elapsed = p.getLong("boot_req_elapsed", -1L);
+        long deadline = p.getLong("boot_req_deadline", -1L);
+        long now = SystemClock.elapsedRealtime();
+        return elapsed >= 0 && now >= elapsed && now <= deadline;
+    }
     /**
      * For Android 6 (missing boot_count) users upgrading from 0.21.2 whose legacy prefs have
      * no setup_boot_armed_boot_id, establish the baseline on the first readable boot_id without
-     * altering any existing settings or verification records. Subsequent boots then correlate normally.
+     * altering any existing settings or verification records. Deferred while an active
+     * BOOT_COMPLETED recovery token is waiting for window focus so the genuine recovery
+     * arrival is never dropped before it can be consumed.
      */
     static boolean ensureBootIdBaseline(Context c) {
         if (bootCount(c) >= 0 || paused(c)) return false;
@@ -435,6 +451,7 @@ final class HomeSetup {
         if (nowBootId.isEmpty()) return false;
         SharedPreferences p = prefs(c);
         if (!p.getString("setup_boot_armed_boot_id", "").isEmpty()) return false;
+        if (hasActiveBootRequestToken(p)) return false;
         if (!p.getBoolean("setup_requested", false) && !SystemIntegration.homeIsOurs(c)
                 && !p.getBoolean("boot_home", false)) return false;
         p.edit().putString("setup_boot_armed_boot_id", nowBootId).apply();
@@ -754,6 +771,7 @@ final class HomeSetup {
                     .putLong("setup_boot_observed_elapsed", now)
                     .putLong("setup_boot_observed_time", System.currentTimeMillis()).commit();
             Diagnostics.event("BOOT_RECOVERY_ARRIVED");
+            ensureBootIdBaseline(c);
         }
         return true;
     }

@@ -82,7 +82,7 @@ final class HomeSetupSnapshot {
         SharedPreferences.Editor e = p.edit();
         for (String flag : FLAGS) e.putBoolean(flag, p.getBoolean(PREFIX + flag, false));
         e.remove("setup_accessibility_pending").remove("setup_accessibility_deferred")
-                .remove("picker_pending").remove("picker_prior_alias").remove("picker_prior_home")
+                .remove("picker_pending").remove("picker_prior_alias").remove("picker_prior_home").remove("picker_prior_ours")
                 .remove("setup_home_seen").remove("setup_home_source")
                 .remove("setup_home_deadline").remove("setup_home_started").remove("setup_home_session")
                 .remove("setup_home_boot").remove("setup_home_boot_id")
@@ -94,7 +94,6 @@ final class HomeSetupSnapshot {
                 .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
                 .remove("boot_req_round").remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
-                .remove("boot_handled_round").remove("boot_handled_boot").remove("boot_handled_boot_id").remove("boot_handled_elapsed")
                 .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
                 .remove("pending_home_started").remove("pending_home_deadline")
                 .putString("setup_pause_reason", p.getString(PREFIX + "reason", ""));

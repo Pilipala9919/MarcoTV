@@ -166,26 +166,50 @@ def resolve_apk_path(shell_try,user):
     return paths[0]
 
 
-def find_verified_bridge_pids(shell_try,strict=False):
+def classify_cmdline_read(output):
+    text=(output or '').replace('\x00',' ').strip()
+    if not text:
+        return 'unreadable',''
+    low=text.lower()
+    if 'permission denied' in low or 'operation not permitted' in low or 'access denied' in low or 'not accessible' in low:
+        return 'unreadable',''
+    if 'no such file' in low or 'no such process' in low:
+        return 'vanished',''
+    if "can't open" in low or 'cannot open' in low:
+        return 'unreadable',''
+    return 'readable',text
+
+
+def probe_bridge_candidates(shell_try,strict=False):
     out,verified=probe_processes(shell_try)
-    if not verified:return None,False
-    matched=[]
+    if not verified:return None,None,False
+    matched=[];unverified=[]
     for pid in parse_bridge_pids(out):
         if not _is_positive_pid(pid):raise RuntimeError('Invalid process id')
-        command=shell_try('cat','/proc/'+pid+'/cmdline').replace('\x00',' ').strip()
-        if not command or 'No such file' in command or "can't open" in command:
+        kind,command=classify_cmdline_read(shell_try('cat','/proc/'+pid+'/cmdline'))
+        if kind=='vanished':
+            continue
+        if kind=='unreadable':
+            unverified.append(pid)
             continue
         if not is_bridge_cmdline(command):
             if strict:raise RuntimeError('Unexpected process; not stopping')
             continue
         matched.append(pid)
-    return matched,True
+    return matched,unverified,True
+
+
+def find_verified_bridge_pids(shell_try,strict=False):
+    matched,_,verified=probe_bridge_candidates(shell_try,strict=strict)
+    return matched,verified
 
 
 def stop_existing_bridges(shell_try,shell):
-    pids,verified=find_verified_bridge_pids(shell_try,strict=True)
+    pids,unverified,verified=probe_bridge_candidates(shell_try,strict=True)
     if not verified:
         raise ProcessListUnavailableError('无法验证进程列表：ps -A 与 ps 均未返回有效的 PID 数据行，无法确认现有任务桥状态。')
+    if unverified and not pids:
+        raise BridgeIdentityUnverifiableError('发现候选进程（PID '+','.join(unverified)+'），身份无法核实（无法读取 /proc/<pid>/cmdline），未执行终止。')
     stopped=False
     for pid in pids:
         shell('kill',pid)
@@ -197,18 +221,24 @@ class BridgeStabilityUnconfirmedError(RuntimeError):
     """Raised when a verified bridge PID was observed, but stability across adjacent polls was not confirmed."""
 
 
+class BridgeIdentityUnverifiableError(RuntimeError):
+    """Raised when candidate bridge PID(s) appeared in ps, but reading /proc/<pid>/cmdline failed or returned empty."""
+
+
 def verify_bridge_started(shell_try,sleep_fn=time.sleep,attempts=10,interval=.5):
-    prev_pids=set();last_verified=False;last_pids=[]
+    prev_pids=set();last_verified=False;last_pids=[];last_unverified=[]
     for _ in range(attempts):
         sleep_fn(interval)
-        pids,verified=find_verified_bridge_pids(shell_try,strict=False)
+        pids,unverified,verified=probe_bridge_candidates(shell_try,strict=False)
         if not verified:
             prev_pids=set()
             last_verified=False
             last_pids=[]
+            last_unverified=[]
             continue
         last_verified=True
         last_pids=list(pids)
+        last_unverified=list(unverified)
         stable=[pid for pid in pids if pid in prev_pids]
         if stable:
             return 'started',stable
@@ -217,6 +247,8 @@ def verify_bridge_started(shell_try,sleep_fn=time.sleep,attempts=10,interval=.5)
         return 'unverifiable',[]
     if last_pids:
         return 'unconfirmed',last_pids
+    if last_unverified:
+        return 'identity_unverifiable',last_unverified
     return 'not_running',[]
 
 
@@ -225,6 +257,9 @@ def format_verify_outcome(status,pids,log_tail=''):
         return 'Task bridge started (PID '+','.join(pids)+'). Open Marco TV > 最近任务 > 状态中心.'
     if status=='unconfirmed':
         msg='已观察到进程（PID '+','.join(pids)+'），稳定性尚未确认（限时内未连续两轮观察到同一 PID）。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。'
+        return msg+('\n'+log_tail if log_tail else '')
+    if status=='identity_unverifiable':
+        msg='发现候选进程（PID '+','.join(pids)+'），身份无法核实（无法读取 /proc/<pid>/cmdline）。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。'
         return msg+('\n'+log_tail if log_tail else '')
     if status=='unverifiable':
         return '无法验证进程列表：已发送启动命令，但 ps -A 与 ps 均未返回有效的 PID 数据行，无法确认任务桥是否运行。请在电视端打开 Marco TV > 最近任务 > 状态中心确认实际连接状态。'
@@ -246,7 +281,10 @@ def _run_adb_shell(base,command,check):
             raise RuntimeError(err or (res.stdout or '').strip() or f'adb shell exited with {res.returncode}')
         if is_adb_transport_error(err):
             raise RuntimeError(err)
-    return (res.stdout or '').strip()
+    out=(res.stdout or '').strip()
+    if not out and res.returncode!=0:
+        return (res.stderr or '').strip()
+    return out
 
 
 def main():
@@ -278,6 +316,9 @@ def main():
     if status=='unconfirmed':
         log_tail=shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:]
         raise BridgeStabilityUnconfirmedError(format_verify_outcome(status,pids,log_tail))
+    if status=='identity_unverifiable':
+        log_tail=shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:]
+        raise BridgeIdentityUnverifiableError(format_verify_outcome(status,pids,log_tail))
     if status!='started':
         log_tail=shell_try('cat','/data/local/tmp/marcotv-task-bridge.log')[-1200:]
         raise RuntimeError(format_verify_outcome(status,pids,log_tail))

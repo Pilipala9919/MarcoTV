@@ -95,11 +95,12 @@ final class DefaultHomePanel {
         if(BuildEdition.RESTRICTED){compatibility();return;}
         cancelPending();
         pendingEpoch=host.menuEpoch;
-        // Persist prior alias & current HOME before enabling HomeActivity so both direct Home
-        // return and process kill/recreation can accurately commit or restore the exact prior state.
+        // Persist prior alias, prior HOME, and whether Marco was already default before enabling
+        // HomeActivity so cancelling never mutates unchanged state while real changes commit cleanly.
+        boolean wasOursBefore=SystemIntegration.homeIsOurs(host);
         int priorAlias=SystemIntegration.homeAliasState(host);
         String priorHome=SystemIntegration.currentExplicitOtherHome(host);
-        HomeSetup.beginPendingPicker(host,priorAlias,priorHome);
+        HomeSetup.beginPendingPicker(host,priorAlias,priorHome,wasOursBefore);
         SystemIntegration.enableHome(host,true);
         if(Build.VERSION.SDK_INT>=29)try{
             Object roles=host.getSystemService("role");
@@ -214,7 +215,8 @@ final class DefaultHomePanel {
                     if(wasHelp)help();
                     else if(wasPicker){
                         if(SystemIntegration.homeIsOurs(host)){
-                            verification();
+                            if(HomeSetup.paused(host))show();
+                            else verification();
                         }else pickerNextOptions(wasCancelled);
                     }else if(wasCompat){
                         afterCompatibilityReturn();

@@ -1645,13 +1645,258 @@ public final class HomeFlowChecks {
                 && host.sysPrefs.getInt("boot_req_boot", -1) == 5);
     }
 
+    static void testRound4EdgeCases() throws Exception {
+        drainBridgeSync();
+        final List<JSONObject> bridgeConfigs = Collections.synchronizedList(new ArrayList<>());
+        IBinder r4Bridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) bridgeConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("wake", req.optBoolean("wake")).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(r4Bridge);
+
+        // =====================================================================
+        // Round-4 Fix #1: Marco is ALREADY default HOME, user paused, opens system picker from "更多设置方式"
+        //                 and cancels -> MUST stay paused, keep boot_home=false, and preserve old records!
+        // =====================================================================
+        // 1a. RoleManager cancel when Marco was already HOME before opening picker
+        MainActivity host = freshEnv();
+        Build.VERSION.SDK_INT = 29;
+        host.roleAvailable = true;
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        HomeSetup.pause(host, "用户主动暂停");
+        host.sysPrefs.edit()
+                .putLong("setup_home_seen", 1700005555000L)
+                .putString("setup_home_source", HomeSetup.SOURCE_SYSTEM_HOME)
+                .putInt("setup_boot_observed", 3)
+                .putString("setup_boot_state", HomeSetup.BOOT_STATE_RECOVERY_ARRIVED)
+                .putString("setup_boot_round", "bc:3")
+                .apply();
+        host.defaultHome.help(); // "更多设置方式"
+        host.dialogs.active().clickItem(5); // "系统默认桌面选择（无需调试）" -> request()
+        host.defaultHome.onPickerResult(Activity.RESULT_CANCELED);
+        host.simulateOnResume(true);
+        check("r4_1a_already_marco_paused_cancel_role_picker_preserves_pause_boot_off_and_records",
+                HomeSetup.paused(host)
+                && "用户主动暂停".equals(host.sysPrefs.getString("setup_pause_reason", ""))
+                && !host.sysPrefs.getBoolean("boot_home", true)
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700005555000L
+                && host.sysPrefs.getInt("setup_boot_observed", -1) == 3
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && !HomeSetup.hasPendingPicker(host)
+                && host.isPage("default_home"));
+
+        // 1b. ACTION_HOME_SETTINGS cancel (normal Back AND direct Home key) when Marco was already HOME
+        host = freshEnv();
+        host.roleAvailable = false;
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        HomeSetup.pause(host, "设置页暂停");
+        host.sysPrefs.edit().putLong("setup_home_seen", 1700006666000L).apply();
+        host.defaultHome.help();
+        host.dialogs.active().clickItem(5); // opens ACTION_HOME_SETTINGS
+        host.simulateOnResume(true); // Back without changing HOME
+        check("r4_1b_already_marco_paused_cancel_settings_picker_preserves_pause_and_records",
+                HomeSetup.paused(host)
+                && !host.sysPrefs.getBoolean("boot_home", true)
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700006666000L
+                && host.isPage("default_home"));
+        // Also via direct Home key without changing HOME
+        host.defaultHome.help();
+        host.dialogs.active().clickItem(5);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.simulateOnResume(true);
+        check("r4_1b_already_marco_paused_home_key_preserves_pause_and_records",
+                HomeSetup.paused(host)
+                && !host.sysPrefs.getBoolean("boot_home", true)
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700006666000L);
+
+        // 1c. Switching from another launcher B to Marco and pressing Home directly MUST STILL commit!
+        host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true));
+        host.pm.homes.add(homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false));
+        host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        SystemIntegration.rememberHome(host);
+        HomeSetup.pause(host, "切换前暂停");
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        host.defaultHome.help();
+        host.dialogs.active().clickItem(5);
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.simulateOnPause();
+        host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.simulateOnResume(true);
+        check("r4_1c_other_home_to_marco_direct_home_key_still_commits",
+                !HomeSetup.paused(host)
+                && SystemIntegration.homeIsOurs(host)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && host.sysPrefs.getBoolean("setup_native_seen", false)
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host)));
+
+        // =====================================================================
+        // Round-4 Fix #2: Cancelling Accessibility Settings preserves independent "开机打开 Marco TV" (boot_home)
+        //                 for BOTH initial values: true AND false!
+        // =====================================================================
+        // 2a. OEM is HOME, user manually toggled boot_home = true -> enters Accessibility Settings -> cancels without grant
+        host = freshEnv();
+        host.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+        host.sysPrefs.edit().putBoolean("boot_home", true)
+                .putLong("setup_home_seen", 1700007777000L).apply();
+        setService(false, false);
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        host.defaultHome.compatibility();
+        host.dialogs.active().clickPositive(); // opens Accessibility Settings
+        host.simulateOnResume(true); // returned without granting
+        drainBridgeSync();
+        JSONObject r4_2aCfg = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r4_2a_accessibility_cancel_preserves_independent_boot_home_true",
+                host.sysPrefs.getBoolean("boot_home", false)
+                && !host.sysPrefs.getBoolean("home_compat", true)
+                && !host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700007777000L
+                && r4_2aCfg != null && !r4_2aCfg.optBoolean("wake")
+                && host.toasts.stream().anyMatch(t -> t.contains("尚未启用 Home 兼容服务")));
+
+        // 2b. OEM is HOME, boot_home = false -> enters Accessibility Settings -> cancels without grant
+        host = freshEnv();
+        host.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+        host.sysPrefs.edit().putBoolean("boot_home", false).apply();
+        setService(false, false);
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        host.defaultHome.compatibility();
+        host.dialogs.active().clickPositive();
+        host.simulateOnResume(true);
+        drainBridgeSync();
+        JSONObject r4_2bCfg = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r4_2b_accessibility_cancel_preserves_independent_boot_home_false",
+                !host.sysPrefs.getBoolean("boot_home", true)
+                && !host.sysPrefs.getBoolean("home_compat", true)
+                && !host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && r4_2bCfg != null && !r4_2bCfg.optBoolean("wake"));
+
+        // =====================================================================
+        // Round-4 Fix #3: Same boot round handled once -> user re-enables compat (begin()) ->
+        //                 duplicate broadcast in same boot MUST NOT launch a second time or cancel 90s Home test!
+        // =====================================================================
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        // Boot #4 first broadcast launches once
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r4-3-b4";
+        SystemClock.elapsed = 12000L;
+        BootReceiver r4Boot = new BootReceiver();
+        r4Boot.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r4_3_boot4_first_broadcast_launches_once", host.startedActivities.size() == 1);
+        // User re-enables compat mode in settings (calls HomeSetup.begin!) and starts 90s Home test
+        SystemClock.elapsed = 20000L;
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        HomeSetup.armHomeTest(host);
+        // Duplicate BOOT_COMPLETED arrives in SAME Boot #4 (same boot_count=4, same boot_id)
+        SystemClock.elapsed = 25000L;
+        r4Boot.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r4_3_duplicate_after_reenable_in_same_boot_does_not_launch_twice_or_cancel_home_test",
+                host.startedActivities.size() == 1
+                && host.sysPrefs.contains("setup_home_deadline"));
+        // Armed 90s Home test still succeeds
+        SystemClock.elapsed = 30000L;
+        String tR4_3 = HomeSetup.issueHomeEvent(host, HomeSetup.SOURCE_COMPAT_KEY);
+        HomeSetup.observeHomeIntent(host, SystemIntegration.homeIntent(host).putExtra(HomeSetup.EXTRA_EVENT_TOKEN, tR4_3));
+        check("r4_3_armed_home_test_still_succeeds_after_same_boot_duplicate",
+                host.sysPrefs.contains("setup_home_seen")
+                && HomeSetup.SOURCE_COMPAT_KEY.equals(host.sysPrefs.getString("setup_home_source", "")));
+        // Next real reboot (Boot #5) DOES launch normally
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-r4-3-b5";
+        SystemClock.elapsed = 11000L;
+        r4Boot.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r4_3_next_real_reboot_launches_normally",
+                host.startedActivities.size() == 2 && host.sysPrefs.getInt("boot_req_boot", -1) == 5);
+
+        // =====================================================================
+        // Round-4 Fix #4: Android 6 legacy 0.21.2 compat user's FIRST boot_id read happens during boot recovery ->
+        //                 MUST record RECOVERY_ARRIVED after window focus, while ordinary native HOME still only sets baseline!
+        // =====================================================================
+        // 4a. Legacy 0.21.2 Android 6 compat user (no setup_boot_armed_boot_id) receives BOOT_COMPLETED -> window focus
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "api23-legacy-compat-first";
+        host.sysPrefs.edit()
+                .putBoolean("setup_requested", true)
+                .putBoolean("home_compat", true)
+                .putBoolean("boot_home", true)
+                .putInt("setup_boot_armed", -1)
+                .apply(); // NO setup_boot_armed_boot_id!
+        setService(true, true);
+        SystemClock.elapsed = 12000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r4_4a_boot_receiver_issued_recovery_launch", host.startedActivities.size() == 1);
+        Intent api23RecoveryLaunch = host.startedActivities.get(0);
+        // Simulate MainActivity cold start -> onResume(focus=false) [calls reconcile BEFORE focus!] -> onWindowFocusChanged(true)
+        MainActivity api23Act = new MainActivity();
+        api23Act.sysPrefs = host.sysPrefs;
+        api23Act.homePrefs = host.homePrefs;
+        api23Act.pm = host.pm;
+        api23Act.defaultHome = new DefaultHomePanel(api23Act);
+        api23Act.simulateOnCreate(api23RecoveryLaunch, false);
+        api23Act.simulateOnResume(false); // reconcile runs here before window focus!
+        boolean focusedArrived = api23Act.simulateOnWindowFocusChanged(true);
+        HomeSetup.confirmBoot(api23Act);
+        check("r4_4a_api23_legacy_compat_first_boot_id_records_recovery_arrival",
+                focusedArrived
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && HomeSetup.bootStatus(api23Act).contains("已记录开机恢复到达")
+                && "api23-legacy-compat-first".equals(host.sysPrefs.getString("setup_boot_armed_boot_id", ""))
+                && host.sysPrefs.contains("setup_boot_confirmed"));
+
+        // 4b. Legacy 0.21.2 Android 6 native HOME user on FIRST boot_id read STILL only establishes baseline (no false boot arrival!)
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "api23-legacy-native-first";
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.sysPrefs.edit()
+                .putBoolean("setup_requested", true)
+                .putBoolean("setup_native_seen", true)
+                .putBoolean("boot_home", true)
+                .putInt("setup_boot_armed", -1)
+                .apply();
+        SystemClock.elapsed = 15000L;
+        host.simulateOnPause();
+        host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.simulateOnResume(true);
+        check("r4_4b_api23_legacy_native_first_boot_id_only_sets_baseline",
+                "api23-legacy-native-first".equals(host.sysPrefs.getString("setup_boot_armed_boot_id", ""))
+                && !host.sysPrefs.contains("setup_boot_state"));
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
         testTask3TrackedHomeAndSnapshot();
         testRound2Regressions();
         testRound3Counterexamples();
-        System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3 regression checks");
+        testRound4EdgeCases();
+        System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3/4 regression checks");
         System.exit(0);
     }
 }
