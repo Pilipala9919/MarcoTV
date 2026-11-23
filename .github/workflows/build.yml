@@ -32,11 +32,12 @@ jobs:
         run: |
           python scripts/bootstrap.py
           python scripts/bootstrap_lite.py
-      - name: Build and verify Standard, Restricted, and Lite APKs
+      - name: Build and verify Standard, Restricted, Lite, and Lite Restricted APKs
         run: |
           python scripts/build.py
           python scripts/build.py --restricted
           python scripts/build_lite.py
+          python scripts/build_lite.py --restricted
       - name: Run all offline host, transport, feedback, Lite, and release checks
         run: python scripts/test_offline.py
       - name: Verify web installation route guide

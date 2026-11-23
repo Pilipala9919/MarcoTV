@@ -194,20 +194,21 @@ def stop_existing_bridges(shell_try,shell):
 
 
 def verify_bridge_started(shell_try,sleep_fn=time.sleep,attempts=10,interval=.5):
-    seen_once=False;saw_valid_listing=False
+    prev_pids=set();last_verified=False
     for _ in range(attempts):
         sleep_fn(interval)
         pids,verified=find_verified_bridge_pids(shell_try,strict=False)
         if not verified:
-            seen_once=False
+            prev_pids=set()
+            last_verified=False
             continue
-        saw_valid_listing=True
-        if pids:
-            if seen_once:return 'started',pids
-            seen_once=True
-        else:
-            seen_once=False
-    if not saw_valid_listing:return 'unverifiable',[]
+        last_verified=True
+        stable=[pid for pid in pids if pid in prev_pids]
+        if stable:
+            return 'started',stable
+        prev_pids=set(pids)
+    if not last_verified:
+        return 'unverifiable',[]
     return 'not_running',[]
 
 

@@ -49,6 +49,12 @@ final class HomeSetupPolicy {
         if (armedBoot >= 0 || currentBoot >= 0) return armedBoot >= 0 && armedBoot == currentBoot;
         return true;
     }
+    static boolean bootChanged(int armedBoot, int currentBoot, String armedBootId, String currentBootId) {
+        if (armedBoot >= 0 && currentBoot >= 0) return currentBoot > armedBoot;
+        return armedBootId != null && !armedBootId.isEmpty()
+                && currentBootId != null && !currentBootId.isEmpty()
+                && !armedBootId.equals(currentBootId);
+    }
     static boolean bootRecoveryEvidence(boolean setupRequested, boolean paused, boolean pendingRequestValid,
                                         int armedBoot, int requestBoot, int currentBoot,
                                         long requestElapsed, long deadline, long elapsed) {
@@ -62,11 +68,18 @@ final class HomeSetupPolicy {
                                          int armedBoot, int currentBoot, long elapsed,
                                          HomeReturnSource source, boolean alreadyObservedThisBoot,
                                          boolean bootSessionInterrupted) {
-        if (!setupRequested || paused || !nativeHome) return false;
+        return nativeBootObservation(setupRequested, paused, nativeHome,
+                armedBoot >= 0 && currentBoot > armedBoot, elapsed,
+                source, alreadyObservedThisBoot, bootSessionInterrupted);
+    }
+    static boolean nativeBootObservation(boolean setupRequested, boolean paused, boolean nativeHome,
+                                         boolean isNewBoot, long elapsed,
+                                         HomeReturnSource source, boolean alreadyObservedThisBoot,
+                                         boolean bootSessionInterrupted) {
+        if (!setupRequested || paused || !nativeHome || !isNewBoot) return false;
         if (source != HomeReturnSource.SYSTEM_HOME) return false;
         if (alreadyObservedThisBoot || bootSessionInterrupted) return false;
-        if (elapsed < 0 || elapsed >= 180000L) return false;
-        return armedBoot >= 0 && currentBoot > armedBoot;
+        return elapsed >= 0 && elapsed < 180000L;
     }
     static boolean bootEvidence(int armedBoot, int currentBoot, long elapsed, boolean homeIntent) {
         return armedBoot >= 0 && currentBoot > armedBoot && elapsed >= 0 && elapsed < 180000 && homeIntent;

@@ -22,6 +22,7 @@ final class HomeSetup {
     static final String BOOT_STATE_LAUNCH_DENIED = "launch_denied";
     static final String BOOT_STATE_RECOVERY_ARRIVED = "recovery_arrived";
     static final String BOOT_STATE_NATIVE_UNCONFIRMED = "native_home_unconfirmed";
+    static final String BOOT_CONFIRM_MANUAL_ONLY = "manual_observation_no_boot_id";
     private static final long HOME_TEST_WINDOW_MS = 90000L;
     private static final long PENDING_HOME_TTL_MS = 15000L;
     private static final long BOOT_REQUEST_TTL_MS = 60000L;
@@ -29,6 +30,126 @@ final class HomeSetup {
     private static volatile long processSessionId = nextSessionId();
     private static volatile String cachedBootId;
     static volatile String bootIdOverride;
+
+    /** In-memory staged arrival; consumed once only when the desktop is visibly in the foreground. */
+    static final class StagedArrival {
+        final Intent intent;
+        final boolean openRecents;
+        final boolean recreated;
+        boolean consumed;
+        StagedArrival(Intent intent, boolean openRecents, boolean recreated) {
+            this.intent = intent;
+            this.openRecents = openRecents;
+            this.recreated = recreated;
+        }
+    }
+
+    /**
+     * Activity arrival lifecycle gate shared by MainActivity and tests.
+     * Stages onCreate / onNewIntent intents and consumes them at most once only
+     * when the desktop window is actually visible and focused in the foreground.
+     */
+    static final class ArrivalGate {
+        private boolean foreground;
+        private boolean windowVisible;
+        private StagedArrival staged;
+
+        void onCreateIntent(Intent intent, boolean openRecents, boolean recreated) {
+            stage(intent, openRecents, recreated);
+        }
+
+        void onNewIntent(Intent intent, boolean openRecents) {
+            stage(intent, openRecents, false);
+        }
+
+        private void stage(Intent intent, boolean openRecents, boolean recreated) {
+            if (openRecents || (intent != null && intent.getBooleanExtra("recent_apps", false))) {
+                cancelPendingShortPress();
+                staged = null;
+                return;
+            }
+            staged = stageIntent(intent, false, recreated);
+        }
+
+        boolean onResume(Context c, boolean hasWindowFocus, boolean panelWindowFocused,
+                         boolean finishing, boolean destroyed) {
+            foreground = true;
+            if (hasWindowFocus) windowVisible = true;
+            return flush(c, hasWindowFocus, panelWindowFocused, finishing, destroyed);
+        }
+
+        boolean onWindowFocusChanged(Context c, boolean hasFocus, boolean panelWindowFocused,
+                                     boolean finishing, boolean destroyed) {
+            windowVisible = hasFocus;
+            if (!hasFocus) return false;
+            return flush(c, hasFocus, panelWindowFocused, finishing, destroyed);
+        }
+
+        void onPause() {
+            foreground = false;
+            windowVisible = false;
+            staged = null;
+        }
+
+        void onDestroy() {
+            foreground = false;
+            windowVisible = false;
+            staged = null;
+        }
+
+        boolean isDesktopVisible(boolean hasWindowFocus, boolean panelWindowFocused,
+                                 boolean finishing, boolean destroyed) {
+            return foreground && !finishing && !destroyed
+                    && (windowVisible || hasWindowFocus || panelWindowFocused);
+        }
+
+        boolean hasPendingArrival() {
+            return staged != null && !staged.consumed;
+        }
+
+        boolean flush(Context c, boolean hasWindowFocus, boolean panelWindowFocused,
+                      boolean finishing, boolean destroyed) {
+            if (staged == null || !isDesktopVisible(hasWindowFocus, panelWindowFocused, finishing, destroyed)) {
+                return false;
+            }
+            StagedArrival pending = staged;
+            staged = null;
+            return consumeStagedArrival(c, pending, true);
+        }
+    }
+
+    /** Deferred short-press test proof so a double-press opening recents never passes the short-press check. */
+    private static final class PendingShortPress {
+        final Context app;
+        final HomeSetupPolicy.HomeReturnSource source;
+        final int armedBoot;
+        final long armedStarted;
+        final long deadline;
+        final long sessionId;
+        final String armedBootId;
+        final long pressElapsed;
+        final long commitAfterElapsed;
+        final long observedWall;
+        Runnable scheduled;
+        PendingShortPress(Context app, HomeSetupPolicy.HomeReturnSource source, int armedBoot,
+                          long armedStarted, long deadline, long sessionId, String armedBootId,
+                          long pressElapsed, long commitAfterElapsed, long observedWall) {
+            this.app = app;
+            this.source = source;
+            this.armedBoot = armedBoot;
+            this.armedStarted = armedStarted;
+            this.deadline = deadline;
+            this.sessionId = sessionId;
+            this.armedBootId = armedBootId;
+            this.pressElapsed = pressElapsed;
+            this.commitAfterElapsed = commitAfterElapsed;
+            this.observedWall = observedWall;
+        }
+    }
+
+    private static final Object SHORT_PRESS_LOCK = new Object();
+    private static PendingShortPress pendingShortPress;
+    private static Handler shortPressHandler;
 
     private HomeSetup() { }
 
@@ -38,6 +159,7 @@ final class HomeSetup {
     }
 
     static void resetProcessSessionForTest() {
+        cancelPendingShortPress();
         processSessionId = nextSessionId();
     }
 
@@ -53,6 +175,31 @@ final class HomeSetup {
         } catch (Exception ignored) { }
         cachedBootId = value;
         return value;
+    }
+
+    static String currentBootRoundKey(Context c) {
+        int boot = bootCount(c);
+        if (boot >= 0) return "bc:" + boot;
+        String id = currentBootId();
+        if (!id.isEmpty()) return "id:" + id;
+        return "proc:" + processSessionId;
+    }
+
+    static boolean canIdentifyBootAutomatically(Context c) {
+        return bootCount(c) >= 0 || !currentBootId().isEmpty();
+    }
+
+    private static boolean isSameBootRound(Context c, String storedRound, int storedBoot,
+                                           String storedBootId, long storedElapsed) {
+        int boot = bootCount(c);
+        if (boot >= 0 && storedBoot >= 0) return boot == storedBoot;
+        String id = currentBootId();
+        if (!id.isEmpty() && storedBootId != null && !storedBootId.isEmpty()) return id.equals(storedBootId);
+        if (storedRound == null || storedRound.isEmpty()) return false;
+        if (storedRound.equals("proc:" + processSessionId)) {
+            return storedElapsed < 0 || SystemClock.elapsedRealtime() >= storedElapsed;
+        }
+        return false;
     }
 
     static SharedPreferences prefs(Context c) { return SystemIntegration.prefs(c); }
@@ -109,6 +256,7 @@ final class HomeSetup {
     }
     /** Explicit user action only. Refreshes tracked HOME before mutating system HOME. */
     static void begin(Context c) {
+        cancelPendingShortPress();
         SystemIntegration.refreshTrackedHomeForSetup(c);
         SystemIntegration.enableHome(c, true);
         prefs(c).edit().putBoolean("setup_requested", true).putBoolean("setup_paused", false)
@@ -118,10 +266,13 @@ final class HomeSetup {
                 .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
                 .remove("setup_accessibility_pending")
                 .remove("setup_boot_observed").remove("setup_boot_state").remove("setup_boot_source")
-                .remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
-                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source").remove("setup_boot_confirmed_time")
+                .remove("setup_boot_round").remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
+                .remove("setup_boot_observed_elapsed")
+                .remove("setup_boot_history_state").remove("setup_boot_history_boot")
+                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source")
+                .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
-                .remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
+                .remove("boot_req_round").remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
                 .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
                 .remove("pending_home_started").remove("pending_home_deadline")
                 .remove("boot_session_interrupted_boot").remove("boot_session_interrupted_id")
@@ -184,6 +335,8 @@ final class HomeSetup {
         begin(c);
         prefs(c).edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
                 .putBoolean("setup_accessibility_pending", true).apply();
+        // While consent is pending, bridge wake recovery must stay off until enabled.
+        TaskBridgeClient.sync(c);
     }
     static void finishCompatibilityConsent(Context c) {
         if (!prefs(c).getBoolean("setup_accessibility_pending", false)) return;
@@ -191,15 +344,18 @@ final class HomeSetup {
         prefs(c).edit().remove("setup_accessibility_pending")
                 .putBoolean("home_compat", enabled)
                 .putBoolean("boot_home", enabled || SystemIntegration.homeIsOurs(c)).apply();
+        TaskBridgeClient.sync(c);
     }
     static void pause(Context c, String reason) {
+        cancelPendingShortPress();
         prefs(c).edit().putBoolean("setup_paused", true).putString("setup_pause_reason", reason)
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
                 .putBoolean("managed_home", false)
                 .remove("setup_home_deadline").remove("setup_home_started")
                 .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
                 .remove("setup_accessibility_pending").remove("setup_home_seen").remove("setup_home_source")
-                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source").remove("setup_boot_confirmed_time")
+                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source")
+                .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("pending_home_token").remove("pending_home_source")
                 .remove("setup_native_reset_pending")
                 .remove("setup_compat_reset_pending")
@@ -231,7 +387,69 @@ final class HomeSetup {
         } else acceptNative(c);
     }
 
+    static void cancelPendingShortPress() {
+        synchronized (SHORT_PRESS_LOCK) {
+            if (pendingShortPress != null && pendingShortPress.scheduled != null && shortPressHandler != null) {
+                shortPressHandler.removeCallbacks(pendingShortPress.scheduled);
+            }
+            pendingShortPress = null;
+        }
+    }
+
+    /** Commits a deferred short-press Home test observation once the double-press window has elapsed. */
+    static boolean flushPendingShortPress(Context c) {
+        PendingShortPress candidate;
+        long now = SystemClock.elapsedRealtime();
+        synchronized (SHORT_PRESS_LOCK) {
+            candidate = pendingShortPress;
+            if (candidate == null || now < candidate.commitAfterElapsed) return false;
+            if (candidate.scheduled != null && shortPressHandler != null) {
+                shortPressHandler.removeCallbacks(candidate.scheduled);
+            }
+            pendingShortPress = null;
+        }
+        Context target = c != null ? c : candidate.app;
+        if (target == null || paused(target)) return false;
+        SharedPreferences p = prefs(target);
+        if (!p.contains("setup_home_deadline")) return false;
+        int boot = bootCount(target);
+        String nowBootId = currentBootId();
+        boolean bootIdOk = candidate.armedBootId.isEmpty() || nowBootId.isEmpty() || candidate.armedBootId.equals(nowBootId);
+        boolean sessionValid = bootIdOk
+                && ((candidate.armedBoot >= 0 && boot >= 0) || candidate.sessionId == processSessionId);
+        if (!HomeSetupPolicy.homeEvidence(true, candidate.armedBoot, boot, candidate.armedStarted,
+                candidate.deadline, candidate.pressElapsed, sessionValid, candidate.source)) return false;
+        if (now < candidate.pressElapsed) return false;
+        p.edit().putLong("setup_home_seen", candidate.observedWall)
+                .putString("setup_home_source", sourceKey(candidate.source))
+                .remove("setup_home_deadline").remove("setup_home_started")
+                .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session").apply();
+        Diagnostics.event("HOME_TEST_OBSERVED_" + candidate.source.name());
+        return true;
+    }
+
+    private static void scheduleShortPressCommit(Context c, HomeSetupPolicy.HomeReturnSource source,
+                                                 int armedBoot, long armedStarted, long deadline,
+                                                 long sessionId, String armedBootId, long now, int doubleWindowMs) {
+        cancelPendingShortPress();
+        long commitAt = now + Math.max(100, doubleWindowMs);
+        PendingShortPress entry = new PendingShortPress(c.getApplicationContext(), source, armedBoot,
+                armedStarted, deadline, sessionId, armedBootId, now, commitAt, System.currentTimeMillis());
+        synchronized (SHORT_PRESS_LOCK) {
+            pendingShortPress = entry;
+            if (shortPressHandler == null) {
+                try { shortPressHandler = new Handler(Looper.getMainLooper()); }
+                catch (RuntimeException ignored) { }
+            }
+            if (shortPressHandler != null) {
+                entry.scheduled = () -> flushPendingShortPress(entry.app);
+                shortPressHandler.postDelayed(entry.scheduled, Math.max(100, doubleWindowMs) + 40L);
+            }
+        }
+    }
+
     static void invalidateHomeTest(Context c) {
+        cancelPendingShortPress();
         prefs(c).edit().remove("setup_home_deadline").remove("setup_home_started")
                 .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session")
                 .remove("pending_home_token").remove("pending_home_source")
@@ -239,6 +457,7 @@ final class HomeSetup {
     }
 
     static void armHomeTest(Context c) {
+        cancelPendingShortPress();
         long now = SystemClock.elapsedRealtime();
         prefs(c).edit().putInt("setup_home_boot", bootCount(c))
                 .putString("setup_home_boot_id", currentBootId())
@@ -266,13 +485,55 @@ final class HomeSetup {
                 .remove("pending_home_boot").remove("pending_home_started").remove("pending_home_deadline").apply();
     }
 
-    /** Single-use in-app token linking a real BOOT_COMPLETED recovery launch to arrival. */
-    static String beginBootRecoveryRequest(Context c) {
+    /**
+     * Begins a single boot recovery request for the current boot round.
+     * Returns null when a valid pending request or confirmed arrival already exists for this
+     * exact boot round so duplicate BOOT_COMPLETED broadcasts never re-launch or replace the token.
+     */
+    static String tryBeginBootRecoveryRequest(Context c) {
+        SharedPreferences p = prefs(c);
         long now = SystemClock.elapsedRealtime();
+        int boot = bootCount(c);
+        String bootId = currentBootId();
+        String roundKey = currentBootRoundKey(c);
+
+        String existingReqRound = p.getString("boot_req_round", "");
+        int existingReqBoot = p.getInt("boot_req_boot", -1);
+        String existingReqBootId = p.getString("boot_req_boot_id", "");
+        long existingReqElapsed = p.getLong("boot_req_elapsed", -1L);
+        long existingReqDeadline = p.getLong("boot_req_deadline", -1L);
+        String existingReqState = p.getString("boot_req_state", "");
+        boolean sameReqRound = !existingReqState.isEmpty()
+                && isSameBootRound(c, existingReqRound, existingReqBoot, existingReqBootId, existingReqElapsed);
+        if (sameReqRound) {
+            if (BOOT_STATE_RECOVERY_ARRIVED.equals(existingReqState)) return null;
+            String existingToken = p.getString("boot_req_token", "");
+            if (BOOT_STATE_REQUESTED.equals(existingReqState) && !existingToken.isEmpty()
+                    && existingReqElapsed >= 0 && now >= existingReqElapsed && now <= existingReqDeadline) {
+                return null;
+            }
+        }
+
+        // Archive previous boot round's success so it can never mask this round's failure or non-arrival.
+        SharedPreferences.Editor e = p.edit();
+        String prevState = p.getString("setup_boot_state", "");
+        boolean prevIsSameRound = !prevState.isEmpty() && isSameBootRound(c,
+                p.getString("setup_boot_round", ""), p.getInt("setup_boot_observed", -1),
+                p.getString("setup_boot_observed_boot_id", ""), p.getLong("setup_boot_observed_elapsed", -1L));
+        if (!prevState.isEmpty() && !prevIsSameRound) {
+            e.putString("setup_boot_history_state", prevState)
+                    .putInt("setup_boot_history_boot", p.getInt("setup_boot_observed", -1))
+                    .remove("setup_boot_state").remove("setup_boot_source")
+                    .remove("setup_boot_round").remove("setup_boot_observed")
+                    .remove("setup_boot_observed_boot_id").remove("setup_boot_observed_elapsed");
+        }
+
         String token = "b-" + Long.toHexString(nextSessionId()) + "-" + now;
-        prefs(c).edit().putString("boot_req_token", token)
-                .putInt("boot_req_boot", bootCount(c))
-                .putString("boot_req_boot_id", currentBootId())
+        cancelPendingShortPress();
+        e.putString("boot_req_token", token)
+                .putString("boot_req_round", roundKey)
+                .putInt("boot_req_boot", boot)
+                .putString("boot_req_boot_id", bootId)
                 .putLong("boot_req_elapsed", now)
                 .putLong("boot_req_deadline", now + BOOT_REQUEST_TTL_MS)
                 .putString("boot_req_state", BOOT_STATE_REQUESTED)
@@ -283,8 +544,17 @@ final class HomeSetup {
         return token;
     }
 
+    static String beginBootRecoveryRequest(Context c) {
+        String token = tryBeginBootRecoveryRequest(c);
+        return token != null ? token : prefs(c).getString("boot_req_token", "");
+    }
+
     static void markBootRecoveryLaunchDenied(Context c) {
         prefs(c).edit().remove("boot_req_token")
+                .putString("boot_req_round", currentBootRoundKey(c))
+                .putInt("boot_req_boot", bootCount(c))
+                .putString("boot_req_boot_id", currentBootId())
+                .putLong("boot_req_elapsed", SystemClock.elapsedRealtime())
                 .putString("boot_req_state", BOOT_STATE_LAUNCH_DENIED)
                 .putLong("boot_req_time", System.currentTimeMillis()).commit();
         Diagnostics.event("BOOT_RECOVERY_LAUNCH_DENIED");
@@ -292,6 +562,7 @@ final class HomeSetup {
 
     static void onBootBroadcast(Context c, String action) {
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
+            cancelPendingShortPress();
             markBootSessionInterrupted(c);
             prefs(c).edit().remove("boot_req_token").remove("pending_home_token").remove("pending_home_source")
                     .remove("setup_home_deadline").remove("setup_home_started").remove("setup_home_session").apply();
@@ -347,15 +618,22 @@ final class HomeSetup {
         String nowBootId = currentBootId();
         boolean bootIdOk = reqBootId.isEmpty() || nowBootId.isEmpty() || reqBootId.equals(nowBootId);
         int armedBoot = p.getInt("setup_boot_armed", -1);
-        boolean valid = bootIdOk && HomeSetupPolicy.bootRecoveryEvidence(
+        String armedBootId = p.getString("setup_boot_armed_boot_id", "");
+        boolean notSameArmedApi23Boot = currentBoot >= 0 || armedBootId.isEmpty() || nowBootId.isEmpty()
+                || !armedBootId.equals(nowBootId);
+        boolean valid = bootIdOk && notSameArmedApi23Boot && HomeSetupPolicy.bootRecoveryEvidence(
                 p.getBoolean("setup_requested", false), paused(c), true,
                 armedBoot, reqBoot, currentBoot, reqElapsed, deadline, now);
         if (valid) {
+            String roundKey = currentBootRoundKey(c);
             p.edit().putString("boot_req_state", BOOT_STATE_RECOVERY_ARRIVED)
+                    .putString("boot_req_round", roundKey)
                     .putString("setup_boot_state", BOOT_STATE_RECOVERY_ARRIVED)
                     .putString("setup_boot_source", BOOT_STATE_RECOVERY_ARRIVED)
+                    .putString("setup_boot_round", roundKey)
                     .putInt("setup_boot_observed", currentBoot)
                     .putString("setup_boot_observed_boot_id", nowBootId)
+                    .putLong("setup_boot_observed_elapsed", now)
                     .putLong("setup_boot_observed_time", System.currentTimeMillis()).commit();
             Diagnostics.event("BOOT_RECOVERY_ARRIVED");
         }
@@ -384,12 +662,40 @@ final class HomeSetup {
         return parseSource(rawSource);
     }
 
+    static StagedArrival stageIntent(Intent i, boolean openRecents, boolean recreated) {
+        if (i == null) return null;
+        return new StagedArrival(i, openRecents, recreated);
+    }
+
+    static boolean consumeStagedArrival(Context c, StagedArrival staged, boolean desktopVisible) {
+        if (staged == null || staged.consumed || !desktopVisible) return false;
+        staged.consumed = true;
+        observeHomeIntent(c, staged.intent, staged.openRecents, staged.recreated, true);
+        return true;
+    }
+
+    private static boolean contextDesktopVisible(Context c) {
+        if (c instanceof MainActivity) return ((MainActivity) c).isDesktopVisible();
+        return true;
+    }
+
     static void observeHomeIntent(Context c, Intent i) {
-        observeHomeIntent(c, i, false, false);
+        observeHomeIntent(c, i, false, false, contextDesktopVisible(c));
     }
 
     static void observeHomeIntent(Context c, Intent i, boolean openRecents, boolean recreated) {
+        observeHomeIntent(c, i, openRecents, recreated, contextDesktopVisible(c));
+    }
+
+    static void observeHomeIntent(Context c, Intent i, boolean openRecents, boolean recreated, boolean desktopVisible) {
         if (i == null) return;
+        boolean isRecents = openRecents || i.getBooleanExtra("recent_apps", false);
+        if (isRecents) {
+            // Double-press / long-press opening recents cancels any in-flight Tap-1 short-press proof immediately.
+            cancelPendingShortPress();
+            return;
+        }
+        if (!desktopVisible) return;
         SharedPreferences p = prefs(c);
         int boot = bootCount(c);
         long now = SystemClock.elapsedRealtime();
@@ -399,7 +705,7 @@ final class HomeSetup {
             noteStandbyWake(c);
             return;
         }
-        if (i.getBooleanExtra("ambient", false) || openRecents || i.getBooleanExtra("recent_apps", false)) return;
+        if (i.getBooleanExtra("ambient", false)) return;
 
         String token = i.getStringExtra(EXTRA_EVENT_TOKEN);
         if (consumePendingBootToken(c, p, token, boot, now)) return;
@@ -424,17 +730,27 @@ final class HomeSetup {
             int armedBoot = p.getInt("setup_home_boot", -1);
             long armedStarted = p.getLong("setup_home_started", 0L);
             long deadline = p.getLong("setup_home_deadline", 0L);
+            long armedSession = p.getLong("setup_home_session", 0L);
             String armedBootId = p.getString("setup_home_boot_id", "");
             String nowBootId = currentBootId();
             boolean bootIdOk = armedBootId.isEmpty() || nowBootId.isEmpty() || armedBootId.equals(nowBootId);
             boolean sessionValid = bootIdOk
-                    && ((armedBoot >= 0 && boot >= 0) || p.getLong("setup_home_session", 0L) == processSessionId);
+                    && ((armedBoot >= 0 && boot >= 0) || armedSession == processSessionId);
             if (HomeSetupPolicy.homeEvidence(true, armedBoot, boot, armedStarted, deadline, now, sessionValid, source)) {
-                p.edit().putLong("setup_home_seen", System.currentTimeMillis())
-                        .putString("setup_home_source", sourceKey(source))
-                        .remove("setup_home_deadline").remove("setup_home_started")
-                        .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session").apply();
-                Diagnostics.event("HOME_TEST_OBSERVED_" + source.name());
+                boolean deferForDoublePress = source != HomeSetupPolicy.HomeReturnSource.WINDOW_FALLBACK
+                        && unlocked(c)
+                        && c.getSharedPreferences("home", 0).getBoolean("recent_enabled", false);
+                if (deferForDoublePress) {
+                    int doubleWindow = c.getSharedPreferences("home", 0).getInt("recent_double_ms", 400);
+                    scheduleShortPressCommit(c, source, armedBoot, armedStarted, deadline, armedSession, armedBootId, now, doubleWindow);
+                } else {
+                    cancelPendingShortPress();
+                    p.edit().putLong("setup_home_seen", System.currentTimeMillis())
+                            .putString("setup_home_source", sourceKey(source))
+                            .remove("setup_home_deadline").remove("setup_home_started")
+                            .remove("setup_home_boot").remove("setup_home_boot_id").remove("setup_home_session").apply();
+                    Diagnostics.event("HOME_TEST_OBSERVED_" + source.name());
+                }
             } else if (!sessionValid || now > deadline || now < armedStarted
                     || (armedBoot >= 0 && boot >= 0 && armedBoot != boot)) {
                 invalidateHomeTest(c);
@@ -442,15 +758,25 @@ final class HomeSetup {
         }
 
         if (source == HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME) {
-            boolean alreadyObservedThisBoot = boot >= 0 && p.getInt("setup_boot_observed", -1) == boot;
+            String armedBootId = p.getString("setup_boot_armed_boot_id", "");
+            String nowBootId = currentBootId();
+            boolean isNewBoot = HomeSetupPolicy.bootChanged(p.getInt("setup_boot_armed", -1), boot, armedBootId, nowBootId);
+            boolean alreadyObservedThisBoot = !p.getString("setup_boot_state", "").isEmpty()
+                    && isSameBootRound(c, p.getString("setup_boot_round", ""),
+                            p.getInt("setup_boot_observed", -1),
+                            p.getString("setup_boot_observed_boot_id", ""),
+                            p.getLong("setup_boot_observed_elapsed", -1L));
             boolean interrupted = isBootSessionInterrupted(p, boot);
             if (HomeSetupPolicy.nativeBootObservation(p.getBoolean("setup_requested", false), false,
-                    SystemIntegration.homeIsOurs(c), p.getInt("setup_boot_armed", -1), boot, now,
+                    SystemIntegration.homeIsOurs(c), isNewBoot, now,
                     source, alreadyObservedThisBoot, interrupted)) {
+                String roundKey = currentBootRoundKey(c);
                 p.edit().putInt("setup_boot_observed", boot)
                         .putString("setup_boot_state", BOOT_STATE_NATIVE_UNCONFIRMED)
                         .putString("setup_boot_source", BOOT_STATE_NATIVE_UNCONFIRMED)
-                        .putString("setup_boot_observed_boot_id", currentBootId())
+                        .putString("setup_boot_round", roundKey)
+                        .putString("setup_boot_observed_boot_id", nowBootId)
+                        .putLong("setup_boot_observed_elapsed", now)
                         .putLong("setup_boot_observed_time", System.currentTimeMillis()).apply();
                 Diagnostics.event("BOOT_NATIVE_HOME_UNCONFIRMED");
             }
@@ -460,21 +786,68 @@ final class HomeSetup {
         }
     }
 
+    static boolean hasCurrentRoundBootArrival(Context c) {
+        SharedPreferences p = prefs(c);
+        if (paused(c)) return false;
+        String reqState = p.getString("boot_req_state", "");
+        boolean reqCurrent = !reqState.isEmpty() && isSameBootRound(c,
+                p.getString("boot_req_round", ""), p.getInt("boot_req_boot", -1),
+                p.getString("boot_req_boot_id", ""), p.getLong("boot_req_elapsed", -1L));
+        if (reqCurrent && BOOT_STATE_RECOVERY_ARRIVED.equals(reqState)) return true;
+        String state = p.getString("setup_boot_state", "");
+        boolean stateCurrent = !state.isEmpty() && isSameBootRound(c,
+                p.getString("setup_boot_round", ""), p.getInt("setup_boot_observed", -1),
+                p.getString("setup_boot_observed_boot_id", ""), p.getLong("setup_boot_observed_elapsed", -1L));
+        return stateCurrent && (BOOT_STATE_RECOVERY_ARRIVED.equals(state) || BOOT_STATE_NATIVE_UNCONFIRMED.equals(state));
+    }
+
+    private static boolean hasCurrentRoundBootFailureOrPending(Context c, SharedPreferences p) {
+        String reqState = p.getString("boot_req_state", "");
+        boolean reqIsCurrentRound = !reqState.isEmpty() && isSameBootRound(c,
+                p.getString("boot_req_round", ""), p.getInt("boot_req_boot", -1),
+                p.getString("boot_req_boot_id", ""), p.getLong("boot_req_elapsed", -1L));
+        return reqIsCurrentRound && (BOOT_STATE_LAUNCH_DENIED.equals(reqState) || BOOT_STATE_REQUESTED.equals(reqState));
+    }
+
     static void confirmBoot(Context c) {
         SharedPreferences p = prefs(c);
-        if (paused(c)) return;
+        if (paused(c) || hasCurrentRoundBootFailureOrPending(c, p)) return;
         int boot = bootCount(c);
+        String nowBootId = currentBootId();
+        String armedBootId = p.getString("setup_boot_armed_boot_id", "");
         String state = p.getString("setup_boot_state", "");
+        boolean stateIsCurrentRound = !state.isEmpty() && isSameBootRound(c,
+                p.getString("setup_boot_round", ""), p.getInt("setup_boot_observed", -1),
+                p.getString("setup_boot_observed_boot_id", ""), p.getLong("setup_boot_observed_elapsed", -1L));
         boolean hasBootCountObs = boot >= 0 && p.contains("setup_boot_observed")
                 && p.getInt("setup_boot_observed", -1) == boot
                 && boot > p.getInt("setup_boot_armed", Integer.MAX_VALUE);
-        boolean hasApi23RecoveryObs = boot < 0 && BOOT_STATE_RECOVERY_ARRIVED.equals(state)
-                && (currentBootId().isEmpty() || currentBootId().equals(p.getString("setup_boot_observed_boot_id", "")));
-        if (hasBootCountObs || hasApi23RecoveryObs) {
+        boolean hasApi23IdObs = boot < 0 && stateIsCurrentRound
+                && (BOOT_STATE_RECOVERY_ARRIVED.equals(state)
+                    || (BOOT_STATE_NATIVE_UNCONFIRMED.equals(state)
+                        && HomeSetupPolicy.bootChanged(-1, -1, armedBootId, nowBootId)));
+        if (hasBootCountObs || hasApi23IdObs) {
             p.edit().putInt("setup_boot_confirmed", boot >= 0 ? boot : 1)
                     .putString("setup_boot_confirmed_source", state.isEmpty() ? "legacy" : state)
+                    .putString("setup_boot_confirmed_round", currentBootRoundKey(c))
                     .putLong("setup_boot_confirmed_time", System.currentTimeMillis()).apply();
         }
+    }
+
+    /**
+     * Explicit human-observation fallback ONLY when the system exposes neither boot_count
+     * nor a readable boot_id. Never fakes automatic correlation or native HOME status.
+     */
+    static boolean recordManualBootObservation(Context c) {
+        SharedPreferences p = prefs(c);
+        if (paused(c) || canIdentifyBootAutomatically(c) || hasCurrentRoundBootFailureOrPending(c, p)) return false;
+        if (!p.getBoolean("setup_requested", false)) return false;
+        if (!SystemIntegration.homeIsOurs(c) && !p.getBoolean("boot_home", false)) return false;
+        p.edit().putInt("setup_boot_confirmed", 1)
+                .putString("setup_boot_confirmed_source", BOOT_CONFIRM_MANUAL_ONLY)
+                .putString("setup_boot_confirmed_round", currentBootRoundKey(c))
+                .putLong("setup_boot_confirmed_time", System.currentTimeMillis()).apply();
+        return true;
     }
 
     static boolean shouldOpenAfterBoot(Context c, boolean unlocked) {
@@ -500,6 +873,7 @@ final class HomeSetup {
     }
 
     static String homeReturnStatus(Context c) {
+        flushPendingShortPress(c);
         SharedPreferences p = prefs(c);
         if (p.contains("setup_home_seen")) {
             String src = p.getString("setup_home_source", "");
@@ -519,14 +893,43 @@ final class HomeSetup {
         if (paused(c)) return "已暂停自动恢复";
         if (nativeResetPending(c)) return "本次开机时默认桌面被系统改回，等待你确认";
         if (compatResetPending(c)) return "待机或系统停止时 Home 服务被关闭，等待你确认";
-        String state = p.getString("setup_boot_state", "");
+
         String reqState = p.getString("boot_req_state", "");
-        if (BOOT_STATE_RECOVERY_ARRIVED.equals(state)) return "已记录开机恢复到达（已关联本轮开机恢复请求）";
-        if (BOOT_STATE_LAUNCH_DENIED.equals(reqState)) return "已发起开机恢复请求，但系统拒绝后台启动（未自动进入）";
-        if (BOOT_STATE_REQUESTED.equals(reqState)) return "已发起开机恢复请求，尚未观察到前台到达";
-        if (BOOT_STATE_NATIVE_UNCONFIRMED.equals(state)) return "观察到开机后原生 HOME 到达（来源待确认）";
+        boolean reqCurrent = !reqState.isEmpty() && isSameBootRound(c,
+                p.getString("boot_req_round", ""), p.getInt("boot_req_boot", -1),
+                p.getString("boot_req_boot_id", ""), p.getLong("boot_req_elapsed", -1L));
+        String histNote = BOOT_STATE_RECOVERY_ARRIVED.equals(p.getString("setup_boot_history_state", ""))
+                ? "（上一轮曾成功，不代表本次生效）" : "";
+        if (reqCurrent) {
+            if (BOOT_STATE_RECOVERY_ARRIVED.equals(reqState)) return "已记录开机恢复到达（已关联本轮开机恢复请求）";
+            if (BOOT_STATE_LAUNCH_DENIED.equals(reqState)) return "本轮已发起开机恢复请求，但系统拒绝后台启动（未自动进入）" + histNote;
+            if (BOOT_STATE_REQUESTED.equals(reqState)) return "本轮已发起开机恢复请求，尚未观察到前台到达" + histNote;
+        }
+
+        String state = p.getString("setup_boot_state", "");
+        boolean stateCurrent = !state.isEmpty() && isSameBootRound(c,
+                p.getString("setup_boot_round", ""), p.getInt("setup_boot_observed", -1),
+                p.getString("setup_boot_observed_boot_id", ""), p.getLong("setup_boot_observed_elapsed", -1L));
+        if (stateCurrent) {
+            if (BOOT_STATE_RECOVERY_ARRIVED.equals(state)) return "已记录开机恢复到达（已关联本轮开机恢复请求）";
+            if (BOOT_STATE_NATIVE_UNCONFIRMED.equals(state)) return "观察到开机后原生 HOME 到达（来源待确认）";
+        }
+
+        if (!reqState.isEmpty()) {
+            if (BOOT_STATE_LAUNCH_DENIED.equals(reqState)) return "最近一次开机恢复请求被系统拒绝后台启动（未自动进入）" + histNote;
+            if (BOOT_STATE_REQUESTED.equals(reqState)) return "最近一次开机恢复请求尚未观察到前台到达" + histNote;
+            if (BOOT_STATE_RECOVERY_ARRIVED.equals(reqState)) return "历史轮次曾记录开机恢复到达（本轮尚未观察到新请求）";
+        }
+        if (BOOT_STATE_NATIVE_UNCONFIRMED.equals(state)) return "历史轮次曾观察到开机后原生 HOME 到达（来源待确认）";
         if (p.contains("setup_boot_observed")) return "已记录历史开机观察（旧版记录，来源未知）";
-        if (SystemIntegration.homeIsOurs(c) || p.getBoolean("boot_home", false)) return "已配置，等待实际重启或断电冷启动验证";
+        if (BOOT_CONFIRM_MANUAL_ONLY.equals(p.getString("setup_boot_confirmed_source", ""))) {
+            return "系统缺少启动计数与启动标识，无法自动关联本轮重启（仅保留人工观察记录）";
+        }
+        if (SystemIntegration.homeIsOurs(c) || p.getBoolean("boot_home", false)) {
+            return canIdentifyBootAutomatically(c)
+                    ? "已配置，等待实际重启或断电冷启动验证"
+                    : "已配置；本机缺少启动计数与启动标识，重启后可手动记录人工观察";
+        }
         return "尚未配置";
     }
 
@@ -534,7 +937,19 @@ final class HomeSetup {
         SharedPreferences p = prefs(c);
         if (!p.contains("setup_boot_confirmed")) return "";
         String src = p.getString("setup_boot_confirmed_source", "");
+        if (BOOT_CONFIRM_MANUAL_ONLY.equals(src)) {
+            return "人工观察记录：用户确认已重启返回（系统缺少启动标识，未经自动关联；完整重启与断电冷启动请现场分别记录）";
+        }
         if (src.isEmpty() || "legacy".equals(src)) return "已保留旧版人工确认（来源未知）";
+        int boot = bootCount(c);
+        int confirmedBoot = p.getInt("setup_boot_confirmed", -1);
+        String confirmedRound = p.getString("setup_boot_confirmed_round", "");
+        if (boot >= 0 && confirmedBoot >= 0 && confirmedBoot != boot) {
+            return "历史轮次曾人工确认重启返回（非本次启动）";
+        }
+        if (!confirmedRound.isEmpty() && !confirmedRound.equals(currentBootRoundKey(c))) {
+            return "历史轮次曾人工确认重启返回（非本次启动）";
+        }
         return "已人工确认一次重启返回（完整重启与断电冷启动请现场分别记录）";
     }
 

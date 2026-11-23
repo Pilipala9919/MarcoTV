@@ -52,37 +52,42 @@ final class LocalHomeAuthorizer {
             try {
                 check();
                 // Existing authorization can configure the restricted edition without ADB.
-                boolean localOnly = onMain(() -> restore ? canRestoreLocally()
-                        : BuildEdition.RESTRICTED && SystemIntegration.authorized(context));
-                if (localOnly) result = restore ? onMain(this::restoreLocalResult) : "使用已有系统设置权限。\n" + finishSetup();
-                else {
-                    File folder = new File(context.getNoBackupFilesDir(), "home-setup");
-                    if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
-                    LocalAdbWire wire = new LocalAdbWire();
-                    connection = wire;
-                    check();
-                    java.security.KeyPair key = LocalAdbWire.key(folder);
-                    check();
-                    issue = HomeDeviceGuide.Issue.CONNECTION;
-                    wire.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
-                    issue = HomeDeviceGuide.Issue.SYSTEM;
-                    check();
-                    HomeShellSetup commands = new HomeShellSetup(command -> {
-                        check();
-                        String output = wire.shell(command);
-                        check();
-                        return output;
-                    }, android.os.Process.myUid() / 100000);
-                    commands.authenticate();
-                    Diagnostics.event("HOME_AUTO_ADB_AUTHENTICATED");
-                    if (restore) result = restore(commands);
+                boolean unavailableRecordedTarget = restore && onMain(this::hasUnavailableRecordedTarget);
+                if (unavailableRecordedTarget) {
+                    result = onMain(this::unavailableRecordedTargetResult);
+                } else {
+                    boolean localOnly = onMain(() -> restore ? canRestoreLocally()
+                            : BuildEdition.RESTRICTED && SystemIntegration.authorized(context));
+                    if (localOnly) result = restore ? onMain(this::restoreLocalResult) : "使用已有系统设置权限。\n" + finishSetup();
                     else {
-                        onMain(() -> { HomeSetupSnapshot.capture(context); HomeSetup.begin(context); return null; });
-                        commands.grantSettings();
-                        // An explicit repair re-applies HOME even if a stale OEM preference
-                        // table still lists us. A read-only status query never comes here.
-                        if (!BuildEdition.RESTRICTED) commands.selectHome(HomeSetup.OWN);
-                        result = "本机调试连接已授权。\n" + finishSetup();
+                        File folder = new File(context.getNoBackupFilesDir(), "home-setup");
+                        if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
+                        LocalAdbWire wire = new LocalAdbWire();
+                        connection = wire;
+                        check();
+                        java.security.KeyPair key = LocalAdbWire.key(folder);
+                        check();
+                        issue = HomeDeviceGuide.Issue.CONNECTION;
+                        wire.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
+                        issue = HomeDeviceGuide.Issue.SYSTEM;
+                        check();
+                        HomeShellSetup commands = new HomeShellSetup(command -> {
+                            check();
+                            String output = wire.shell(command);
+                            check();
+                            return output;
+                        }, android.os.Process.myUid() / 100000);
+                        commands.authenticate();
+                        Diagnostics.event("HOME_AUTO_ADB_AUTHENTICATED");
+                        if (restore) result = restore(commands);
+                        else {
+                            onMain(() -> { HomeSetupSnapshot.capture(context); HomeSetup.begin(context); return null; });
+                            commands.grantSettings();
+                            // An explicit repair re-applies HOME even if a stale OEM preference
+                            // table still lists us. A read-only status query never comes here.
+                            if (!BuildEdition.RESTRICTED) commands.selectHome(HomeSetup.OWN);
+                            result = "本机调试连接已授权。\n" + finishSetup();
+                        }
                     }
                 }
                 issue = HomeDeviceGuide.Issue.NONE;
@@ -165,16 +170,31 @@ final class LocalHomeAuthorizer {
         });
     }
 
+    private boolean hasUnavailableRecordedTarget() {
+        return HomeSetup.prefs(context).getBoolean(HomeSetupSnapshot.PREFIX + "saved", false)
+                && HomeSetupSnapshot.hasRecordedTarget(context)
+                && HomeSetupSnapshot.target(context).isEmpty();
+    }
+
+    private String unavailableRecordedTargetResult() {
+        String recorded = HomeSetupSnapshot.recordedComponent(context);
+        return "设置前记录的原桌面（" + recorded + "）当前已停用或不可用，暂不能自动切回。"
+                + "\n恢复快照已保留；重新启用该桌面后可重试恢复，或在系统设置中手动选择桌面。";
+    }
+
     private boolean canRestoreLocally() {
         if (!HomeSetup.prefs(context).getBoolean(HomeSetupSnapshot.PREFIX + "saved", false)) return true;
+        boolean hasRecorded = HomeSetupSnapshot.hasRecordedTarget(context);
         String target = HomeSetupSnapshot.target(context);
+        if (hasRecorded && target.isEmpty()) return false;
         boolean nativeBefore = HomeSetup.prefs(context).getBoolean(HomeSetupSnapshot.PREFIX + "native", false);
         return target.length() > 0 && HomeSetupSnapshot.matches(context, target)
                 || nativeBefore && SystemIntegration.homeIsOurs(context)
-                || target.length() == 0 && !SystemIntegration.homeIsOurs(context);
+                || !hasRecorded && !SystemIntegration.homeIsOurs(context);
     }
 
     private String restore(HomeShellSetup commands) throws Exception {
+        if (onMain(this::hasUnavailableRecordedTarget)) return onMain(this::unavailableRecordedTargetResult);
         String target = onMain(() -> HomeSetupSnapshot.target(context));
         if (target.length() == 0) return "没有可核实的原桌面记录，请在其他设置方式中打开系统桌面选择。恢复记录仍保留。";
         // Stop fallback interception before returning HOME to the previous launcher.
@@ -187,6 +207,7 @@ final class LocalHomeAuthorizer {
 
     private String restoreLocalResult() {
         if (!HomeSetup.prefs(context).getBoolean(HomeSetupSnapshot.PREFIX + "saved", false)) return "没有本次一键设置的恢复记录。";
+        if (hasUnavailableRecordedTarget()) return unavailableRecordedTargetResult();
         String target = HomeSetupSnapshot.target(context);
         boolean verifiedHome = target.length() > 0 && HomeSetupSnapshot.matches(context, target)
                 || HomeSetup.prefs(context).getBoolean(HomeSetupSnapshot.PREFIX + "native", false)

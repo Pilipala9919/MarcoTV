@@ -181,6 +181,72 @@ def fake_exiting_bridge(*cmd):
 status, pids = bridge.verify_bridge_started(fake_exiting_bridge, sleep_fn=lambda _: None, attempts=4)
 assert status == 'not_running' and pids == []
 
+# Case 6 (Fix #10): Poll 1 sees PID, subsequent polls unreadable -> reports unverifiable (not not_running / started).
+degrading_poll = {'n': 0}
+def fake_seen_then_unreadable(*cmd):
+    if cmd == ('ps', '-A'):
+        degrading_poll['n'] += 1
+        return ps_api30 if degrading_poll['n'] == 1 else ps_mitv4_header_only
+    if cmd == ('ps',):
+        return ''
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_seen_then_unreadable, sleep_fn=lambda _: None, attempts=3)
+assert status == 'unverifiable' and pids == [], f'Expected unverifiable, got {(status, pids)}'
+
+# Case 7 (Fix #10): Adjacent polls see DIFFERENT PIDs (respawn/crash loop) -> cannot confirm same process stable.
+changing_pid_poll = {'n': 0}
+ps_pid_2 = (
+    'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
+    'root             1     0   12345   2345 SyS_epoll_wait      0 S init\n'
+    'shell        18888     1 1345678  45678 0                   0 S marcotv-task-bridge\n'
+)
+ps_pid_3 = (
+    'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
+    'root             1     0   12345   2345 SyS_epoll_wait      0 S init\n'
+    'shell        18889     1 1345678  45678 0                   0 S marcotv-task-bridge\n'
+)
+def fake_changing_pids(*cmd):
+    if cmd == ('ps', '-A'):
+        changing_pid_poll['n'] += 1
+        return [ps_api30, ps_pid_2, ps_pid_3][min(changing_pid_poll['n'] - 1, 2)]
+    if cmd in (('cat', '/proc/18887/cmdline'), ('cat', '/proc/18888/cmdline'), ('cat', '/proc/18889/cmdline')):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_changing_pids, sleep_fn=lambda _: None, attempts=3)
+assert status == 'not_running' and pids == [], f'Expected not_running for changing PIDs, got {(status, pids)}'
+
+# Case 8 (Fix #10): PID changes once (18887 -> 18888), then stabilizes on SAME PID 18888 -> started with ['18888'].
+stabilizing_poll = {'n': 0}
+def fake_stabilizing_pid(*cmd):
+    if cmd == ('ps', '-A'):
+        stabilizing_poll['n'] += 1
+        return ps_api30 if stabilizing_poll['n'] == 1 else ps_pid_2
+    if cmd in (('cat', '/proc/18887/cmdline'), ('cat', '/proc/18888/cmdline')):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_stabilizing_pid, sleep_fn=lambda _: None, attempts=4)
+assert status == 'started' and pids == ['18888'], f'Expected started [18888], got {(status, pids)}'
+
+# Case 9 (Fix #10): Poll 1 unreadable, Polls 2 & 3 fallback from MiTV4 header-only ps -A to plain ps with same PID -> started.
+recovering_poll = {'n': 0}
+def fake_unreadable_then_mitv4_stable(*cmd):
+    if cmd == ('ps', '-A'):
+        recovering_poll['n'] += 1
+        return ps_mitv4_header_only
+    if cmd == ('ps',):
+        return '' if recovering_poll['n'] == 1 else ps_api23
+    if cmd == ('cat', '/proc/17574/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_unreadable_then_mitv4_stable, sleep_fn=lambda _: None, attempts=4)
+assert status == 'started' and pids == ['17574'], f'Expected started [17574], got {(status, pids)}'
+
 # Simulate Android 6.0.1 (MiTV4): ps -A fails, am get-current-user unsupported, pm -U unsupported, pm path --user 0 empty.
 calls = []
 killed = []

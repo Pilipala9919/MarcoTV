@@ -86,6 +86,7 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
                 check("consent_return_clears_pending",!p.getBoolean("setup_accessibility_pending",false));
                 check("boot_choice_requires_available_route",p.getBoolean("boot_home",false)==(HomeSetup.serviceEnabled(host)||SystemIntegration.homeIsOurs(host)));
                 p.edit().putBoolean("setup_requested",true).putBoolean("setup_paused",false).remove("setup_home_seen").remove("setup_boot_observed").remove("setup_boot_confirmed").commit();
+                host.preferences.edit().putBoolean("recent_enabled",false).commit();
                 HomeSetup.armHomeTest(host);
                 HomeSetup.observeHomeIntent(host,new Intent().setClass(host,MainActivity.class));
                 check("normal_launch_does_not_pass_home_test",!p.contains("setup_home_seen"));

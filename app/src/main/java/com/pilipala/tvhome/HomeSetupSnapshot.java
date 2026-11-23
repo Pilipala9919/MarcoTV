@@ -29,8 +29,16 @@ final class HomeSetupSnapshot {
             throw new IllegalStateException("Cannot save recovery point");
     }
 
+    static String recordedComponent(Context c) {
+        return HomeSetup.prefs(c).getString(PREFIX + "component", "");
+    }
+
+    static boolean hasRecordedTarget(Context c) {
+        return !recordedComponent(c).isEmpty();
+    }
+
     static String target(Context c) {
-        String value = HomeSetup.prefs(c).getString(PREFIX + "component", "");
+        String value = recordedComponent(c);
         return eligible(c, value) ? value : "";
     }
 
@@ -77,10 +85,13 @@ final class HomeSetupSnapshot {
                 .remove("setup_home_deadline").remove("setup_home_started").remove("setup_home_session")
                 .remove("setup_home_boot").remove("setup_home_boot_id")
                 .remove("setup_boot_observed").remove("setup_boot_state").remove("setup_boot_source")
-                .remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
-                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source").remove("setup_boot_confirmed_time")
+                .remove("setup_boot_round").remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
+                .remove("setup_boot_observed_elapsed")
+                .remove("setup_boot_history_state").remove("setup_boot_history_boot")
+                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source")
+                .remove("setup_boot_confirmed_round").remove("setup_boot_confirmed_time")
                 .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
-                .remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
+                .remove("boot_req_round").remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
                 .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
                 .remove("pending_home_started").remove("pending_home_deadline")
                 .putString("setup_pause_reason", p.getString(PREFIX + "reason", ""));

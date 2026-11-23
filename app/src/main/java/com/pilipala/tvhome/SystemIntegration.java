@@ -128,7 +128,7 @@ final class SystemIntegration {
         } catch (RuntimeException ignored) { }
         return false;
     }
-    private static String currentExplicitOtherHome(Context context) {
+    static String currentExplicitOtherHome(Context context) {
         String home = currentHome(context);
         return isValidTrackedHome(context, home) ? home : "";
     }
@@ -241,6 +241,33 @@ final class SystemIntegration {
             TaskBridgeClient.sync(context);
         }
         return "";
+    }
+    /** Updates tracked target to an explicit pre-captured launcher B (used when system HOME just switched to Marco). */
+    static void adoptExplicitTrackedHome(Context context, String candidate) {
+        if (candidate == null || candidate.isEmpty() || !isValidTrackedHome(context, candidate)) return;
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        if (!candidate.equals(saved) || p.contains("original_home_invalid")) {
+            p.edit().putString("original_home", candidate).remove("original_home_invalid").apply();
+            TaskBridgeClient.sync(context);
+        }
+    }
+    static int homeAliasState(Context context) {
+        if (BuildEdition.RESTRICTED) return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
+        try {
+            return context.getPackageManager().getComponentEnabledSetting(
+                    new ComponentName(context, "com.pilipala.tvhome.HomeActivity"));
+        } catch (RuntimeException e) {
+            return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
+        }
+    }
+    static void setHomeAliasState(Context context, int state) {
+        if (BuildEdition.RESTRICTED) return;
+        try {
+            context.getPackageManager().setComponentEnabledSetting(
+                    new ComponentName(context, "com.pilipala.tvhome.HomeActivity"),
+                    state, PackageManager.DONT_KILL_APP);
+        } catch (RuntimeException ignored) { }
     }
     static void syncTrackedHomeAfterPackageChange(Context context) {
         SharedPreferences p = prefs(context);
@@ -444,6 +471,8 @@ final class SystemIntegration {
     static boolean restoreCompatOnUserConfirm(Context context) {
         HomeSetup.clearCompatReset(context);
         if (!authorized(context) || !HomeSetup.unlocked(context)) return false;
+        HomeSetupSnapshot.capture(context);
+        refreshTrackedHomeForSetup(context);
         SharedPreferences p = prefs(context);
         p.edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
                 .putBoolean("setup_paused", false).remove("setup_pause_reason")

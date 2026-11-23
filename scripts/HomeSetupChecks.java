@@ -60,6 +60,20 @@ public final class HomeSetupChecks {
                 &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.WINDOW_FALLBACK,false,false)
                 &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,true,false)
                 &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,true));
+        check("boot_changed_supports_boot_count_and_api23_boot_id",
+                HomeSetupPolicy.bootChanged(3,4,"","")
+                &&!HomeSetupPolicy.bootChanged(3,3,"a","b")
+                &&HomeSetupPolicy.bootChanged(-1,-1,"boot-1","boot-2")
+                &&!HomeSetupPolicy.bootChanged(-1,-1,"boot-1","boot-1")
+                &&!HomeSetupPolicy.bootChanged(-1,-1,"","boot-2")
+                &&!HomeSetupPolicy.bootChanged(-1,-1,"",""));
+        check("native_boot_observation_accepts_api23_boot_id_change",
+                HomeSetupPolicy.nativeBootObservation(true,false,true,
+                        HomeSetupPolicy.bootChanged(-1,-1,"boot-1","boot-2"),15000,
+                        HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,true,
+                        HomeSetupPolicy.bootChanged(-1,-1,"boot-1","boot-1"),15000,
+                        HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,false));
         check("new_boot_arrival_recordable",HomeSetupPolicy.bootEvidence(3,4,10000,true));
         check("same_boot_not_reboot",!HomeSetupPolicy.bootEvidence(3,3,10000,true));
         check("manual_launch_not_auto_boot",!HomeSetupPolicy.bootEvidence(3,4,10000,false));

@@ -33,14 +33,16 @@ public final class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) SystemIntegration.refreshHomeService(context);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && (nativeReset || HomeSetup.shouldOpenAfterBoot(context, true))) {
-            String token = HomeSetup.beginBootRecoveryRequest(context);
-            try {
-                context.startActivity(SystemIntegration.homeIntent(context)
-                        .putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token));
-            }
-            catch (RuntimeException e) {
-                HomeSetup.markBootRecoveryLaunchDenied(context);
-                Log.w("MarcoTVSystem", "Boot activity unavailable", e);
+            String token = HomeSetup.tryBeginBootRecoveryRequest(context);
+            if (token != null) {
+                try {
+                    context.startActivity(SystemIntegration.homeIntent(context)
+                            .putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token));
+                }
+                catch (RuntimeException e) {
+                    HomeSetup.markBootRecoveryLaunchDenied(context);
+                    Log.w("MarcoTVSystem", "Boot activity unavailable", e);
+                }
             }
         }
     }

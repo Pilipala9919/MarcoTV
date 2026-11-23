@@ -7,14 +7,18 @@ import android.content.*;
 import android.content.pm.*;
 import android.os.*;
 import android.provider.Settings;
+import java.lang.reflect.Field;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONObject;
 
 /**
- * End-to-end production logic checks for Tasks 1, 2 and 3.
- * Compiles and executes real DefaultHomePanel, HomeSetup, HomeSetupPolicy, HomeDeviceGuide,
- * SystemIntegration, HomeSetupSnapshot, HomeShellSetup, BootReceiver, StatusSnapshot,
- * TaskBridgeClient and HomePressTracker against in-memory Android services.
+ * End-to-end production logic checks for Tasks 1, 2, 3 and Round-2 regressions.
+ * Compiles and executes real DefaultHomePanel, LocalHomeAuthorizer, HomeSetup,
+ * HomeSetupPolicy, HomeDeviceGuide, SystemIntegration, HomeSetupSnapshot,
+ * HomeShellSetup, BootReceiver, StatusSnapshot, TaskBridgeClient and HomePressTracker
+ * against in-memory Android services.
  */
 public final class HomeFlowChecks {
     static int passed;
@@ -23,6 +27,13 @@ public final class HomeFlowChecks {
         if (!ok) throw new AssertionError(name);
         passed++;
         System.out.println("PASS " + name);
+    }
+
+    static void drainBridgeSync() throws Exception {
+        Field f = TaskBridgeClient.class.getDeclaredField("worker");
+        f.setAccessible(true);
+        ExecutorService ex = (ExecutorService) f.get(null);
+        ex.submit(() -> { }).get(5, TimeUnit.SECONDS);
     }
 
     static ResolveInfo homeEntry(String pkg, String cls, boolean enabled, boolean exported, boolean appEnabled, boolean system) {
@@ -47,21 +58,20 @@ public final class HomeFlowChecks {
         Build.VERSION.SDK_INT = 28;
         Build.VERSION.RELEASE = "9";
         SystemClock.elapsed = 10000L;
+        Handler.clearDelayed();
         HomeSetup.bootIdOverride = "boot-uuid-1";
         HomeSetup.resetProcessSessionForTest();
         HomeKeyService.connected = false;
         RecoveryService.running = false;
         Diagnostics.events.clear();
-        LocalHomeAuthorizer.starts = 0;
-        LocalHomeAuthorizer.restores = 0;
-        LocalHomeAuthorizer.cancels = 0;
+        LocalAdbWire.reset();
         Settings.Global.ints.clear();
         Settings.Secure.ints.clear();
         Settings.Secure.strings.clear();
         Settings.Global.ints.put("boot_count", 3);
         Settings.Global.ints.put("adb_enabled", 0);
         MainActivity host = new MainActivity();
-        host.foreground = true;
+        LocalAdbWire.activeHost = host;
         host.pm.homes.add(homeEntry("com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode", true, true, true, true));
         host.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
         host.pm.currentHome = "com.mitv.tvhome/com.mitv.tvhome.MainActivityUserMode";
@@ -70,6 +80,9 @@ public final class HomeFlowChecks {
         host.pm.actions.put(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, homeEntry("com.android.tv.settings", "com.android.tv.settings.DevSettings", true, true, true, true));
         host.pm.actions.put(Settings.ACTION_SETTINGS, homeEntry("com.android.tv.settings", "com.android.tv.settings.MainSettings", true, true, true, true));
         host.defaultHome = new DefaultHomePanel(host);
+        host.foreground = true;
+        host.windowFocus = true;
+        host.arrivalGate.onResume(host, true, false, false, false);
         return host;
     }
 
@@ -111,7 +124,7 @@ public final class HomeFlowChecks {
                 host.isPage("home_picker_next")
                 && host.dialogs.active().message.contains("取消")
                 && host.dialogs.active().items[0].contains("Home 兼容")
-                && LocalHomeAuthorizer.starts == 0);
+                && LocalAdbWire.connects.get() == 0);
         // Even if RoleManager reported RESULT_OK, OEM keeping its launcher must NOT mark Marco as default.
         host = freshEnv();
         Build.VERSION.SDK_INT = 29;
@@ -132,19 +145,19 @@ public final class HomeFlowChecks {
         host.defaultHome.show();
         host.dialogs.active().clickItem(0);
         check("t1_accessibility_main_button_enters_compat_consent_directly",
-                host.isPage("home_compat_consent") && LocalHomeAuthorizer.starts == 0);
+                host.isPage("home_compat_consent") && LocalAdbWire.connects.get() == 0);
         host.dialogs.active().clickPositive();
         check("t1_accessibility_confirm_opens_settings_without_adb",
                 host.startedActivities.size() == 1
                 && Settings.ACTION_ACCESSIBILITY_SETTINGS.equals(host.startedActivities.get(0).getAction())
-                && LocalHomeAuthorizer.starts == 0);
+                && LocalAdbWire.connects.get() == 0);
         // Allowed AND bound/connected -> verification!
         setService(true, true);
         host.defaultHome.resumed();
         check("t1_accessibility_connected_finishes_without_adb",
                 host.isPage("home_verification")
                 && HomeSetup.route(host) == HomeSetupPolicy.Route.COMPAT_READY
-                && LocalHomeAuthorizer.starts == 0);
+                && LocalAdbWire.connects.get() == 0);
 
         // 1d. Allowed but UNBOUND -> distinct from connected, does not claim ready, does not jump to ADB guide!
         host = freshEnv();
@@ -169,7 +182,7 @@ public final class HomeFlowChecks {
         setService(false, false);
         host.defaultHome.resumed();
         check("t1_accessibility_cancel_does_not_jump_to_adb",
-                host.isPage("default_home") && !host.toasts.isEmpty() && LocalHomeAuthorizer.starts == 0);
+                host.isPage("default_home") && !host.toasts.isEmpty() && LocalAdbWire.connects.get() == 0);
 
         // 1f. Restricted edition -> skips HOME picker even if system has one, no "system default" promise in UI.
         host = freshEnv();
@@ -236,12 +249,15 @@ public final class HomeFlowChecks {
 
         // 1i. Cancel, Home leave, Activity recreation cancel pending continuation; only explicit guide return continues once.
         host = freshEnv();
+        LocalAdbWire.connectFails = true;
+        host.dialogs.armResultLatch();
         host.defaultHome.deviceGuide(HomeDeviceGuide.Issue.NONE);
         host.dialogs.active().clickItem(0); // "打开调试设置，返回后自动继续"
         host.defaultHome.resumed();
-        check("t1_explicit_guide_return_continues_once", LocalHomeAuthorizer.starts == 1);
+        check("t1_explicit_guide_return_continues_once",
+                host.dialogs.awaitResult() && LocalAdbWire.connects.get() == 1);
         host.defaultHome.resumed();
-        check("t1_explicit_guide_return_never_repeats", LocalHomeAuthorizer.starts == 1);
+        check("t1_explicit_guide_return_never_repeats", LocalAdbWire.connects.get() == 1);
 
         // Leave by pressing Home (closeMenus -> cancelPending + menuEpoch++)
         host = freshEnv();
@@ -249,7 +265,8 @@ public final class HomeFlowChecks {
         host.dialogs.active().clickItem(0);
         host.closeMenus();
         host.defaultHome.resumed();
-        check("t1_home_leave_cancels_guide_continuation", LocalHomeAuthorizer.starts == 0);
+        check("t1_home_leave_cancels_guide_continuation",
+                !host.isPage("home_local_authorize") && LocalAdbWire.connects.get() == 0);
 
         // Leave by pressing Back out of deviceGuide (onLeave cancels guideReturn)
         host = freshEnv();
@@ -257,7 +274,8 @@ public final class HomeFlowChecks {
         host.dialogs.active().clickItem(0);
         host.dialogs.back();
         host.defaultHome.resumed();
-        check("t1_back_cancel_cancels_guide_continuation", LocalHomeAuthorizer.starts == 0);
+        check("t1_back_cancel_cancels_guide_continuation",
+                !host.isPage("home_local_authorize") && LocalAdbWire.connects.get() == 0);
 
         // Activity recreation creates fresh DefaultHomePanel -> no stale continuation
         host = freshEnv();
@@ -269,14 +287,16 @@ public final class HomeFlowChecks {
         recreated.pm = host.pm;
         recreated.defaultHome = new DefaultHomePanel(recreated);
         recreated.defaultHome.resumed();
-        check("t1_activity_recreation_cancels_continuation", LocalHomeAuthorizer.starts == 0);
+        check("t1_activity_recreation_cancels_continuation",
+                !recreated.isPage("home_local_authorize") && LocalAdbWire.connects.get() == 0);
 
         // Help -> "打开电视系统设置" does NOT arm automatic ADB continuation
         host = freshEnv();
         host.defaultHome.help();
         host.dialogs.active().clickItem(0);
         host.defaultHome.resumed();
-        check("t1_help_settings_never_auto_runs_adb", host.isPage("default_home_help") && LocalHomeAuthorizer.starts == 0);
+        check("t1_help_settings_never_auto_runs_adb",
+                host.isPage("default_home_help") && LocalAdbWire.connects.get() == 0);
     }
 
     static void testTask2Attribution() {
@@ -656,11 +676,607 @@ public final class HomeFlowChecks {
                 && "prior pause".equals(host.sysPrefs.getString("setup_pause_reason", "")));
     }
 
+    static void testRound2Regressions() throws Exception {
+        // Attach a dedicated TaskBridge Binder recording EVERY real configure IPC (sync + async).
+        drainBridgeSync();
+        final List<JSONObject> bridgeConfigs = Collections.synchronizedList(new ArrayList<>());
+        IBinder round2Bridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) bridgeConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("wake", req.optBoolean("wake")).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(round2Bridge);
+
+        // =====================================================================
+        // Fix #1: Per-boot-round tracking — (a) succeed then denied, (b) succeed then no arrival, (c) duplicate broadcast
+        // =====================================================================
+        // 1a. Succeed in boot #4, then denied in boot #5 -> panel MUST show current-round denied, NOT current success!
+        MainActivity host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        // Boot #4 succeeds
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-4";
+        SystemClock.elapsed = 12000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Intent boot4Launch = host.startedActivities.get(0);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(boot4Launch);
+        host.simulateOnResume(true);
+        HomeSetup.confirmBoot(host);
+        check("r2_1a_boot4_initial_success_and_confirm",
+                HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && HomeSetup.bootStatus(host).contains("已记录开机恢复到达")
+                && host.sysPrefs.getInt("setup_boot_confirmed", -1) == 4);
+        // Boot #5 launch denied by system
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-r2-5";
+        SystemClock.elapsed = 11000L;
+        host.startActivityThrows = true;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String statusBoot5Denied = HomeSetup.bootStatus(host);
+        String confirmBoot5Denied = HomeSetup.bootConfirmationStatus(host);
+        HomeSetup.confirmBoot(host); // must NOT confirm boot #5!
+        check("r2_1a_boot_succeed_then_denied_shows_current_round_denied",
+                HomeSetup.BOOT_STATE_LAUNCH_DENIED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && statusBoot5Denied.contains("本轮已发起开机恢复请求，但系统拒绝后台启动")
+                && !statusBoot5Denied.contains("已记录开机恢复到达")
+                && confirmBoot5Denied.contains("历史轮次")
+                && host.sysPrefs.getInt("setup_boot_confirmed", -1) == 4);
+
+        // 1b. Succeed in boot #4, then boot #5 launches but NEVER arrives -> panel MUST show current-round pending!
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-4b";
+        SystemClock.elapsed = 12000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Intent boot4bLaunch = host.startedActivities.get(0);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(boot4bLaunch);
+        host.simulateOnResume(true);
+        // Boot #5 launches, Activity never becomes visible
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-r2-5b";
+        SystemClock.elapsed = 13000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String statusBoot5NoArrival = HomeSetup.bootStatus(host);
+        HomeSetup.confirmBoot(host);
+        check("r2_1b_boot_succeed_then_no_arrival_shows_current_round_pending",
+                HomeSetup.BOOT_STATE_REQUESTED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && statusBoot5NoArrival.contains("本轮已发起开机恢复请求，尚未观察到前台到达")
+                && !statusBoot5NoArrival.contains("已记录开机恢复到达")
+                && !host.sysPrefs.contains("setup_boot_confirmed"));
+
+        // 1c. Duplicate BOOT_COMPLETED in the SAME boot round (both before arrival and after arrival)
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-dup";
+        SystemClock.elapsed = 12000L;
+        BootReceiver dupReceiver = new BootReceiver();
+        dupReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String firstToken = host.sysPrefs.getString("boot_req_token", "");
+        // Second broadcast arrives in same boot #4 BEFORE Activity becomes visible
+        SystemClock.elapsed = 12500L;
+        dupReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r2_1c_duplicate_boot_broadcast_before_arrival_keeps_token_and_no_relaunch",
+                host.startedActivities.size() == 1
+                && firstToken.equals(host.sysPrefs.getString("boot_req_token", "")));
+        // Original Activity launch now becomes visible and succeeds with firstToken
+        Intent dupLaunch = host.startedActivities.get(0);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(dupLaunch);
+        host.simulateOnResume(true);
+        check("r2_1c_first_launch_arrives_after_duplicate_broadcast",
+                HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && HomeSetup.bootStatus(host).contains("已记录开机恢复到达"));
+        // Third broadcast in the same boot #4 AFTER arrival must NOT relaunch or downgrade!
+        SystemClock.elapsed = 15000L;
+        dupReceiver.onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r2_1c_duplicate_boot_broadcast_after_arrival_never_downgrades",
+                host.startedActivities.size() == 1
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("boot_req_state", ""))
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && HomeSetup.bootStatus(host).contains("已记录开机恢复到达"));
+
+        // =====================================================================
+        // Fix #2: Staged arrival in real HomeSetup.ArrivalGate (create-only interrupted, existing occluded, normal visible)
+        // =====================================================================
+        // 2a. Create-only interrupted ("仅创建便中断") -> onCreate stages intent, then destroyed/paused without focus -> NEVER recorded!
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-vis1";
+        SystemClock.elapsed = 10000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Intent visIntent1 = host.startedActivities.get(0);
+        MainActivity createOnly = new MainActivity();
+        createOnly.sysPrefs = host.sysPrefs;
+        createOnly.homePrefs = host.homePrefs;
+        createOnly.pm = host.pm;
+        createOnly.defaultHome = new DefaultHomePanel(createOnly);
+        createOnly.simulateOnCreate(visIntent1, false);
+        check("r2_2a_onCreate_alone_does_not_record_arrival",
+                createOnly.arrivalGate.hasPendingArrival()
+                && !host.sysPrefs.contains("setup_boot_state")
+                && HomeSetup.BOOT_STATE_REQUESTED.equals(host.sysPrefs.getString("boot_req_state", "")));
+        createOnly.simulateOnDestroy();
+        check("r2_2a_create_then_interrupted_never_records_arrival",
+                !createOnly.arrivalGate.hasPendingArrival()
+                && !host.sysPrefs.contains("setup_boot_state")
+                && HomeSetup.bootStatus(host).contains("尚未观察到前台到达"));
+
+        // 2b. Existing instance still occluded ("已有实例仍被遮挡") -> onNewIntent + onResume(focus=false) -> NOT recorded while occluded!
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-vis2";
+        SystemClock.elapsed = 10000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Intent visIntent2 = host.startedActivities.get(0);
+        host.simulateOnPause(); // existing instance was paused behind system overlay
+        host.simulateOnNewIntent(visIntent2);
+        boolean consumedWhileOccluded = host.simulateOnResume(false);
+        check("r2_2b_existing_instance_occluded_does_not_record_arrival",
+                !consumedWhileOccluded
+                && host.arrivalGate.hasPendingArrival()
+                && !host.sysPrefs.contains("setup_boot_state")
+                && HomeSetup.bootStatus(host).contains("尚未观察到前台到达"));
+        // If paused while still occluded, staged arrival is dropped and NEVER recorded!
+        host.simulateOnPause();
+        check("r2_2b_occluded_then_paused_drops_staged_arrival",
+                !host.arrivalGate.hasPendingArrival()
+                && !host.sysPrefs.contains("setup_boot_state")
+                && HomeSetup.BOOT_STATE_REQUESTED.equals(host.sysPrefs.getString("boot_req_state", "")));
+
+        // 2c. Normal entry to visible desktop ("正常进入桌面") -> consumes ONCE on focus gain!
+        host = freshEnv();
+        Settings.Global.ints.put("boot_count", 3);
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-r2-vis3";
+        SystemClock.elapsed = 10000L;
+        new BootReceiver().onReceive(host, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        Intent visIntent3 = host.startedActivities.get(0);
+        MainActivity normalHost = new MainActivity();
+        normalHost.sysPrefs = host.sysPrefs;
+        normalHost.homePrefs = host.homePrefs;
+        normalHost.pm = host.pm;
+        normalHost.defaultHome = new DefaultHomePanel(normalHost);
+        Diagnostics.events.clear();
+        normalHost.simulateOnCreate(visIntent3, false);
+        boolean beforeFocus = normalHost.simulateOnResume(false);
+        check("r2_2c_normal_entry_waits_for_window_focus",
+                !beforeFocus && normalHost.arrivalGate.hasPendingArrival()
+                && !host.sysPrefs.contains("setup_boot_state"));
+        boolean onFocus = normalHost.simulateOnWindowFocusChanged(true);
+        int arrivedEvents = 0;
+        for (String e : Diagnostics.events) if ("BOOT_RECOVERY_ARRIVED".equals(e)) arrivedEvents++;
+        boolean secondFocus = normalHost.simulateOnWindowFocusChanged(true);
+        int arrivedEventsAfter = 0;
+        for (String e : Diagnostics.events) if ("BOOT_RECOVERY_ARRIVED".equals(e)) arrivedEventsAfter++;
+        check("r2_2c_normal_visible_entry_consumes_once",
+                onFocus && !secondFocus
+                && !normalHost.arrivalGate.hasPendingArrival()
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && HomeSetup.bootStatus(host).contains("已记录开机恢复到达")
+                && arrivedEvents == 1 && arrivedEventsAfter == 1);
+
+        // =====================================================================
+        // Fix #4: Cancel system HOME picker from paused state preserves pause, alias state, and prior evidence
+        // =====================================================================
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 29;
+        host.roleAvailable = true;
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        HomeSetup.pause(host, "用户主动暂停");
+        // Seed prior verification evidence that must survive a cancelled picker attempt
+        host.sysPrefs.edit()
+                .putLong("setup_home_seen", 1700001111000L)
+                .putString("setup_home_source", HomeSetup.SOURCE_COMPAT_KEY)
+                .putInt("setup_boot_observed", 3)
+                .putString("setup_boot_state", HomeSetup.BOOT_STATE_RECOVERY_ARRIVED)
+                .putString("setup_boot_round", "bc:3")
+                .apply();
+        host.defaultHome.show();
+        check("r2_4_paused_entry_shows_resume_button", host.dialogs.active().items[0].equals("继续一键设置"));
+        host.dialogs.active().clickItem(0); // opens RoleManager picker
+        check("r2_4_picker_enables_alias_only_while_pending",
+                host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                && host.startedReqCodes.get(0) == 812);
+        host.defaultHome.onPickerResult(Activity.RESULT_CANCELED);
+        host.defaultHome.resumed();
+        check("r2_4_cancel_role_picker_preserves_pause_alias_and_evidence",
+                HomeSetup.paused(host)
+                && "用户主动暂停".equals(host.sysPrefs.getString("setup_pause_reason", ""))
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700001111000L
+                && HomeSetup.SOURCE_COMPAT_KEY.equals(host.sysPrefs.getString("setup_home_source", ""))
+                && host.sysPrefs.getInt("setup_boot_observed", -1) == 3
+                && HomeSetup.BOOT_STATE_RECOVERY_ARRIVED.equals(host.sysPrefs.getString("setup_boot_state", "")));
+        // Also test ACTION_HOME_SETTINGS cancelled via Home / closeMenus()
+        host.roleAvailable = false;
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0);
+        host.closeMenus();
+        check("r2_4_cancel_settings_picker_via_closeMenus_preserves_all_state",
+                HomeSetup.paused(host)
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && host.sysPrefs.getLong("setup_home_seen", 0L) == 1700001111000L);
+        // When user DOES accept Marco in picker after switching A -> B, it updates tracked home to B and unpauses!
+        ResolveInfo thirdB = homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false);
+        host.pm.homes.add(thirdB);
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        host.defaultHome.show();
+        host.dialogs.active().clickItem(0);
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        host.defaultHome.resumed();
+        check("r2_4_accepted_picker_commits_tracked_B_and_unpauses",
+                !HomeSetup.paused(host)
+                && SystemIntegration.homeIsOurs(host)
+                && "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && host.isPage("home_verification"));
+
+        // =====================================================================
+        // Fix #5: Accessibility settings exited without grant -> app AND TaskBridge wake OFF in BOTH orderings
+        // =====================================================================
+        // Order 1: Bridge previously had wake=true, service becomes unbound/ungranted, user enters Accessibility Settings,
+        //          bridge sync runs FIRST (while consent pending), then consent finishes without grant.
+        host = freshEnv();
+        host.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+        SystemIntegration.rememberHome(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        TaskBridgeClient.sync(host);
+        drainBridgeSync();
+        check("r2_5_precondition_bridge_wake_enabled",
+                !bridgeConfigs.isEmpty() && bridgeConfigs.get(bridgeConfigs.size() - 1).optBoolean("wake"));
+        // Service is unbound (or not yet enabled) so compatibility() opens Accessibility Settings with pending consent.
+        setService(true, false);
+        bridgeConfigs.clear();
+        host.defaultHome.compatibility();
+        host.dialogs.active().clickPositive();
+        drainBridgeSync();
+        check("r2_5_order1_opened_accessibility_settings_pending",
+                host.defaultHome.compatibilityPending
+                && host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && host.startedActivities.size() == 1
+                && Settings.ACTION_ACCESSIBILITY_SETTINGS.equals(host.startedActivities.get(0).getAction()));
+        // Order 1a: Bridge sync runs FIRST while consent is still pending -> MUST send wake=false even if serviceEnabled was still true!
+        TaskBridgeClient.sync(host);
+        drainBridgeSync();
+        JSONObject duringPending = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r2_5_order1_bridge_sync_first_receives_wake_false",
+                duringPending != null && !duringPending.optBoolean("wake"));
+        // User exits Accessibility Settings WITHOUT granting the service -> resumed() finishes consent and syncs bridge!
+        setService(false, false);
+        bridgeConfigs.clear();
+        host.defaultHome.resumed();
+        drainBridgeSync();
+        JSONObject order1Final = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r2_5_order1_final_app_and_bridge_wake_off",
+                !host.sysPrefs.getBoolean("home_compat", true)
+                && !host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && !TaskBridgeClient.shouldEnableWake(host)
+                && order1Final != null && !order1Final.optBoolean("wake"));
+
+        // Order 2: Permission result returns FIRST (finishCompatibilityConsent runs before MainActivity.onResume TaskBridgeClient.sync)
+        host = freshEnv();
+        host.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+        SystemIntegration.rememberHome(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        TaskBridgeClient.configure(host);
+        setService(false, false);
+        host.defaultHome.compatibility();
+        host.dialogs.active().clickPositive();
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        // Simulate MainActivity.onResume ordering: finishCompatibilityConsent -> reconcile -> TaskBridgeClient.sync -> defaultHome.resumed
+        host.simulateOnResume(true);
+        drainBridgeSync();
+        JSONObject order2Final = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r2_5_order2_consent_first_then_sync_final_bridge_wake_off",
+                !host.sysPrefs.getBoolean("home_compat", true)
+                && !host.sysPrefs.getBoolean("setup_accessibility_pending", false)
+                && !TaskBridgeClient.shouldEnableWake(host)
+                && order2Final != null && !order2Final.optBoolean("wake"));
+
+        // =====================================================================
+        // Fix #6: After A -> B switch, clicking "重新启用 Home 兼容" in compatReset tracks B while snapshot keeps A
+        // =====================================================================
+        // 6a. Authorized path: compatReset -> item 0 -> SystemIntegration.restoreCompatOnUserConfirm
+        host = freshEnv();
+        host.pm.homes.clear();
+        ResolveInfo oemA = homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true);
+        ResolveInfo launcherB6 = homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false);
+        ResolveInfo marcoH6 = homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false);
+        host.pm.homes.add(oemA);
+        host.pm.homes.add(launcherB6);
+        host.pm.homes.add(marcoH6);
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.secureAuthorized = true;
+        SystemIntegration.rememberHome(host);
+        HomeSetupSnapshot.capture(host);
+        // Simulate compat mode active, then user switched HOME A -> B and firmware stopped HomeKeyService
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("compat_seen_present", true)
+                .putBoolean("compat_service_active", true).apply();
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        setService(false, false);
+        check("r2_6a_compat_reset_marked", HomeSetup.markCompatResetIfInterrupted(host));
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        host.defaultHome.compatReset();
+        host.dialogs.active().clickItem(0); // "重新启用 Home 兼容"
+        drainBridgeSync();
+        JSONObject cfg6a = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r2_6a_compat_reset_reenable_tracks_B_syncs_bridge_and_preserves_snapshot_A",
+                "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && SystemIntegration.matchesTrackedHomePackage(host, "com.third.b")
+                && !SystemIntegration.matchesTrackedHomePackage(host, "com.oem.a")
+                && cfg6a != null && "com.third.b".equals(cfg6a.optString("home")) && cfg6a.optBoolean("wake")
+                && "com.oem.a/com.oem.a.Home".equals(HomeSetupSnapshot.target(host)));
+
+        // 6b. Unauthorized path: compatReset -> item 0 -> compatibility consent -> Continue -> tracks B & preserves snapshot A
+        host = freshEnv();
+        host.pm.homes.clear();
+        host.pm.homes.add(oemA);
+        host.pm.homes.add(launcherB6);
+        host.pm.homes.add(marcoH6);
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.secureAuthorized = false;
+        SystemIntegration.rememberHome(host);
+        HomeSetupSnapshot.capture(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("compat_seen_present", true)
+                .putBoolean("compat_service_active", true).apply();
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        setService(false, false);
+        HomeSetup.markCompatResetIfInterrupted(host);
+        host.defaultHome.compatReset();
+        host.dialogs.active().clickItem(0); // opens compatibility consent
+        host.dialogs.active().clickPositive(); // Continue -> HomeSetup.requestCompatibility -> begin -> refreshTrackedHomeForSetup
+        setService(true, true);
+        drainBridgeSync();
+        bridgeConfigs.clear();
+        host.defaultHome.resumed();
+        drainBridgeSync();
+        JSONObject cfg6b = bridgeConfigs.isEmpty() ? null : bridgeConfigs.get(bridgeConfigs.size() - 1);
+        check("r2_6b_compat_reset_unauth_reenable_tracks_B_and_preserves_snapshot_A",
+                "com.third.b/com.third.b.Launcher".equals(SystemIntegration.trackedHome(host))
+                && SystemIntegration.matchesTrackedHomePackage(host, "com.third.b")
+                && !SystemIntegration.matchesTrackedHomePackage(host, "com.oem.a")
+                && cfg6b != null && "com.third.b".equals(cfg6b.optString("home")) && cfg6b.optBoolean("wake")
+                && "com.oem.a/com.oem.a.Home".equals(HomeSetupSnapshot.target(host)));
+
+        // =====================================================================
+        // Fix #7: Real DefaultHomePanel.restore() -> Real LocalHomeAuthorizer -> Real HomeSetupSnapshot
+        //         when snapshot A is temporarily disabled (current HOME = B), then re-enabled -> retry restores A!
+        // =====================================================================
+        host = freshEnv();
+        host.pm.homes.clear();
+        ResolveInfo snapA = homeEntry("com.oem.a", "com.oem.a.Home", true, true, true, true);
+        ResolveInfo snapB = homeEntry("com.third.b", "com.third.b.Launcher", true, true, true, false);
+        ResolveInfo snapMarco = homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false);
+        host.pm.homes.add(snapA);
+        host.pm.homes.add(snapB);
+        host.pm.homes.add(snapMarco);
+        host.pm.currentHome = "com.oem.a/com.oem.a.Home";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        host.secureAuthorized = true;
+        HomeSetupSnapshot.capture(host);
+        // Switch current HOME to B and temporarily disable A
+        host.pm.currentHome = "com.third.b/com.third.b.Launcher";
+        host.pm.alias = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        snapA.activityInfo.enabled = false;
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        // Click actual restore entry while A is disabled
+        host.dialogs.armResultLatch();
+        host.defaultHome.restore();
+        check("r2_7_restore_entry_opens_confirmation", host.isPage("home_auto_restore"));
+        host.dialogs.active().clickPositive(); // "恢复" -> runAutomatic(true) -> real LocalHomeAuthorizer.restore()
+        check("r2_7_disabled_A_completes_without_clearing_snapshot",
+                host.dialogs.awaitResult()
+                && host.isPage("home_local_result")
+                && host.dialogs.active().message.contains("已停用或不可用")
+                && host.dialogs.active().message.contains("恢复快照已保留")
+                && host.dialogs.active().items[0].equals("重试恢复")
+                && host.sysPrefs.getBoolean(HomeSetupSnapshot.PREFIX + "saved", false)
+                && "com.oem.a/com.oem.a.Home".equals(HomeSetupSnapshot.recordedComponent(host))
+                && LocalAdbWire.connects.get() == 0);
+        // Now re-enable A and retry from the ACTUAL "重试恢复" button!
+        snapA.activityInfo.enabled = true;
+        host.dialogs.active().clickItem(0); // "重试恢复" -> opens home_auto_restore
+        check("r2_7_retry_button_reopens_restore_confirmation", host.isPage("home_auto_restore"));
+        host.dialogs.armResultLatch();
+        host.dialogs.active().clickPositive(); // "恢复" -> real LocalHomeAuthorizer -> set-home-activity -> A
+        check("r2_7_reenabled_A_restores_back_to_A_and_clears_snapshot",
+                host.dialogs.awaitResult()
+                && host.isPage("home_local_result")
+                && host.dialogs.active().message.contains("已恢复本次设置前的桌面配置")
+                && host.dialogs.active().items[0].equals("检查使用效果")
+                && "com.oem.a/com.oem.a.Home".equals(SystemIntegration.currentHome(host))
+                && !host.sysPrefs.getBoolean(HomeSetupSnapshot.PREFIX + "saved", false)
+                && host.pm.alias == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                && !HomeSetup.serviceEnabled(host)
+                && LocalAdbWire.commands.toString().contains("'com.oem.a/com.oem.a.Home'"));
+
+        // =====================================================================
+        // Fix #8: Double-press Home opening RecentApps must NOT pass short-press 90s test; single-press stays instant
+        // =====================================================================
+        // 8a. Native HOME double-press sequence with recent_enabled=true, double window=400ms
+        host = freshEnv();
+        host.homePrefs.edit().putBoolean("recent_enabled", true).putInt("recent_double_ms", 400).apply();
+        HomeSetup.begin(host);
+        HomeSetup.armHomeTest(host);
+        // Tap 1 at t=11000: returns to desktop immediately (no navigation delay), test proof deferred!
+        SystemClock.elapsed = 11000L;
+        host.simulateOnPause();
+        boolean tap1Recents = host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        boolean tap1Visible = host.simulateOnResume(true);
+        check("r2_8a_native_tap1_returns_immediately_without_premature_short_press_pass",
+                !tap1Recents && tap1Visible && !host.sysPrefs.contains("setup_home_seen"));
+        // Tap 2 at t=11250 (within 400ms): HomePressTracker returns true -> opens RecentApps -> cancels pending short press!
+        SystemClock.elapsed = 11250L;
+        host.simulateOnPause();
+        boolean tap2Recents = host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.simulateOnResume(true);
+        // Advance well past double-press window and flush due Handler callbacks
+        SystemClock.elapsed = 12000L;
+        Handler.runDue();
+        String statusAfterDouble = HomeSetup.homeReturnStatus(host);
+        check("r2_8a_native_double_press_never_passes_short_press_test",
+                tap2Recents && !host.sysPrefs.contains("setup_home_seen") && !statusAfterDouble.contains("已回到 Marco"));
+        // Now single press at t=15000 (no Tap 2) -> commits after 400ms with SYSTEM_HOME!
+        SystemClock.elapsed = 15000L;
+        host.simulateOnPause();
+        boolean singleRecents = host.simulateOnNewIntent(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        host.simulateOnResume(true);
+        SystemClock.elapsed = 15200L;
+        Handler.runDue();
+        boolean committedEarly = host.sysPrefs.contains("setup_home_seen");
+        SystemClock.elapsed = 15500L;
+        Handler.runDue();
+        check("r2_8a_native_single_press_commits_after_double_window",
+                !singleRecents && !committedEarly
+                && host.sysPrefs.contains("setup_home_seen")
+                && HomeSetup.SOURCE_SYSTEM_HOME.equals(host.sysPrefs.getString("setup_home_source", "")));
+
+        // 8b. Compat-key two-tap sequence (HomeKeyService token on Tap 1, recent_apps=true on Tap 2)
+        host = freshEnv();
+        host.homePrefs.edit().putBoolean("recent_enabled", true).putInt("recent_double_ms", 400).apply();
+        HomeSetup.begin(host);
+        HomeSetup.armHomeTest(host);
+        HomePressTracker compatTracker = new HomePressTracker();
+        SystemClock.elapsed = 20000L;
+        boolean compatTap1Twice = compatTracker.press(SystemClock.elapsed, 400);
+        String compatToken1 = HomeSetup.issueHomeEvent(host, HomeSetup.SOURCE_COMPAT_KEY);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(SystemIntegration.homeIntent(host).putExtra("home_press_handled", true)
+                .putExtra("recent_apps", compatTap1Twice).putExtra(HomeSetup.EXTRA_EVENT_TOKEN, compatToken1));
+        host.simulateOnResume(true);
+        // Tap 2 at t=20250 opens RecentApps
+        SystemClock.elapsed = 20250L;
+        boolean compatTap2Twice = compatTracker.press(SystemClock.elapsed, 400);
+        HomeSetup.cancelPendingShortPress();
+        HomeSetup.clearPendingHomeEvent(host);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(SystemIntegration.homeIntent(host).putExtra("home_press_handled", true)
+                .putExtra("recent_apps", compatTap2Twice));
+        host.simulateOnResume(true);
+        SystemClock.elapsed = 21000L;
+        Handler.runDue();
+        check("r2_8b_compat_double_press_never_passes_short_press_test",
+                !compatTap1Twice && compatTap2Twice && !host.sysPrefs.contains("setup_home_seen"));
+        // Single compat press with recent_enabled=false commits IMMEDIATELY (0ms delay)!
+        host.homePrefs.edit().putBoolean("recent_enabled", false).apply();
+        SystemClock.elapsed = 22000L;
+        String compatTokenSingle = HomeSetup.issueHomeEvent(host, HomeSetup.SOURCE_COMPAT_KEY);
+        host.simulateOnPause();
+        host.simulateOnNewIntent(SystemIntegration.homeIntent(host).putExtra("home_press_handled", true)
+                .putExtra(HomeSetup.EXTRA_EVENT_TOKEN, compatTokenSingle));
+        host.simulateOnResume(true);
+        check("r2_8b_recent_disabled_single_press_commits_immediately",
+                host.sysPrefs.contains("setup_home_seen")
+                && HomeSetup.SOURCE_COMPAT_KEY.equals(host.sysPrefs.getString("setup_home_source", "")));
+
+        // =====================================================================
+        // Fix #9: Android 6 (API 23) missing boot_count — (a) reliable boot_id correlation, (b) explicit manual observation
+        // =====================================================================
+        // 9a. API 23 with reliable boot_id ("api23-boot-1" -> "api23-boot-2") correlates native HOME arrival!
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "api23-boot-1";
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        HomeSetup.begin(host);
+        HomeSetup.acceptNative(host);
+        // Same boot_id must NOT record boot arrival
+        SystemClock.elapsed = 15000L;
+        HomeSetup.observeHomeIntent(host, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        check("r2_9a_api23_same_boot_id_does_not_record_boot", !host.sysPrefs.contains("setup_boot_state"));
+        // Reboot with new boot_id
+        HomeSetup.bootIdOverride = "api23-boot-2";
+        SystemClock.elapsed = 15000L;
+        HomeSetup.observeHomeIntent(host, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
+        check("r2_9a_api23_new_boot_id_correlates_native_home_arrival",
+                HomeSetup.canIdentifyBootAutomatically(host)
+                && HomeSetup.BOOT_STATE_NATIVE_UNCONFIRMED.equals(host.sysPrefs.getString("setup_boot_state", ""))
+                && HomeSetup.bootStatus(host).contains("观察到开机后原生 HOME 到达（来源待确认）"));
+        // Verification page button confirms via confirmBoot
+        host.defaultHome.verification();
+        check("r2_9a_api23_with_boot_id_uses_normal_confirm_button",
+                host.dialogs.active().items[1].equals("我已重启，确认开机效果"));
+        host.dialogs.active().clickItem(1);
+        check("r2_9a_api23_with_boot_id_confirms_boot",
+                host.sysPrefs.contains("setup_boot_confirmed")
+                && HomeSetup.BOOT_STATE_NATIVE_UNCONFIRMED.equals(host.sysPrefs.getString("setup_boot_confirmed_source", "")));
+
+        // 9b. API 23 missing BOTH boot_count AND boot_id -> explicit human-observation button (never stuck, never fakes native/auto!)
+        host = freshEnv();
+        Build.VERSION.SDK_INT = 23;
+        Settings.Global.ints.put("boot_count", -1);
+        HomeSetup.bootIdOverride = "";
+        HomeSetup.begin(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).apply();
+        setService(true, true);
+        check("r2_9b_api23_no_boot_id_explains_manual_observation_instead_of_stuck_wait",
+                !HomeSetup.canIdentifyBootAutomatically(host)
+                && HomeSetup.bootStatus(host).contains("缺少启动计数与启动标识")
+                && HomeSetup.bootStatus(host).contains("手动记录人工观察"));
+        // Automatic confirmBoot still refuses when nothing was automatically observed!
+        HomeSetup.confirmBoot(host);
+        check("r2_9b_confirmBoot_still_refuses_without_automatic_observation",
+                !host.sysPrefs.contains("setup_boot_confirmed"));
+        // Actual verification panel button offers explicit manual observation and labels it clearly!
+        host.defaultHome.verification();
+        check("r2_9b_verification_button_clearly_labeled_manual_observation",
+                host.dialogs.active().items[1].equals("记录人工重启观察（系统无启动标识）"));
+        host.dialogs.active().clickItem(1);
+        String manualSummary = HomeSetup.summary(host);
+        check("r2_9b_manual_observation_recorded_without_faking_auto_or_native",
+                HomeSetup.BOOT_CONFIRM_MANUAL_ONLY.equals(host.sysPrefs.getString("setup_boot_confirmed_source", ""))
+                && !host.sysPrefs.contains("setup_boot_state")
+                && !host.sysPrefs.contains("setup_boot_observed")
+                && !SystemIntegration.homeIsOurs(host)
+                && manualSummary.contains("人工观察记录")
+                && manualSummary.contains("未经自动关联"));
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
         testTask3TrackedHomeAndSnapshot();
-        System.out.println("OK " + passed + " end-to-end home setup flow, attribution and persistence checks");
+        testRound2Regressions();
+        System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2 regression checks");
         System.exit(0);
     }
 }
@@ -669,22 +1285,46 @@ class BuildEdition { static boolean RESTRICTED; }
 class HomeKeyService { static volatile boolean connected; }
 class RecoveryService { static volatile boolean running; }
 class AmbientIntegration { static void configure(Context c) { } }
-class Diagnostics { static final List<String> events = new ArrayList<>(); static void event(String e) { events.add(e); } }
+class Diagnostics { static final List<String> events = Collections.synchronizedList(new ArrayList<>()); static void event(String e) { events.add(e); } }
 class TaskBridgeServer { static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1"; }
 class HealthPanel {
     static String date(long s) { return s == 0 ? "尚无记录" : String.valueOf(s); }
     void status() { }
 }
 class SettingsNavigator { void personalization(String key) { } }
-class LocalHomeAuthorizer {
-    interface Result { void complete(String text); }
-    static int starts, restores, cancels;
-    HomeDeviceGuide.Issue issue = HomeDeviceGuide.Issue.NONE;
-    LocalHomeAuthorizer(Context c) { }
-    HomeDeviceGuide.Issue issue() { return issue; }
-    void start(Result cb) { starts++; }
-    void restore(Result cb) { restores++; }
-    void cancel() { cancels++; }
+class LocalAdbWire {
+    interface Status { void accept(String text); }
+    static final AtomicInteger connects = new AtomicInteger();
+    static final List<String> commands = Collections.synchronizedList(new ArrayList<>());
+    static volatile boolean connectFails;
+    static volatile boolean selectSucceeds = true;
+    static volatile MainActivity activeHost;
+    static void reset() {
+        connects.set(0);
+        commands.clear();
+        connectFails = false;
+        selectSucceeds = true;
+    }
+    static java.security.KeyPair key(java.io.File folder) { return null; }
+    void connect(String host, int port, java.security.KeyPair key, Status status) throws Exception {
+        connects.incrementAndGet();
+        if (connectFails) throw new java.io.IOException("unavailable");
+    }
+    String shell(String command) throws Exception {
+        commands.add(command);
+        if ("id -u".equals(command)) return "2000";
+        if ("cmd package help".equals(command)) return "  set-home-activity [--user USER_ID] TARGET";
+        if (command.startsWith("pm grant")) {
+            if (activeHost != null) activeHost.secureAuthorized = true;
+            return "";
+        }
+        if (command.contains(" set-home-activity ") && selectSucceeds && activeHost != null) {
+            int first = command.indexOf('\''), last = command.lastIndexOf('\'');
+            if (first >= 0 && last > first) activeHost.pm.currentHome = command.substring(first + 1, last);
+        }
+        return "";
+    }
+    void close() { }
 }
 class TvDialog {
     final String pageId, title, message;
@@ -724,26 +1364,35 @@ class TvDialog {
     }
 }
 class DialogStack {
-    TvDialog activeDialog;
-    final List<TvDialog> history = new ArrayList<>();
+    volatile TvDialog activeDialog;
+    final List<TvDialog> history = Collections.synchronizedList(new ArrayList<>());
+    private volatile CountDownLatch resultLatch;
+    void armResultLatch() { resultLatch = new CountDownLatch(1); }
+    boolean awaitResult() {
+        CountDownLatch l = resultLatch;
+        if (l == null) return true;
+        try { return l.await(5, TimeUnit.SECONDS); } catch (InterruptedException e) { return false; }
+    }
     boolean open() { return activeDialog != null; }
     TvDialog active() { return activeDialog; }
-    boolean isPage(String id) { return activeDialog != null && id.equals(activeDialog.pageKey()); }
-    void show(TvDialog d) { activeDialog = d; d.showing = true; history.add(d); }
-    void replace(TvDialog old, TvDialog next) {
+    boolean isPage(String id) { TvDialog d = activeDialog; return d != null && id.equals(d.pageKey()); }
+    synchronized void show(TvDialog d) { activeDialog = d; d.showing = true; history.add(d); }
+    synchronized void replace(TvDialog old, TvDialog next) {
         if (activeDialog == old && !history.isEmpty()) {
             history.remove(history.size() - 1);
             old.leave();
             show(next);
+            CountDownLatch l = resultLatch;
+            if (l != null && "home_local_result".equals(next.pageKey())) l.countDown();
         }
     }
-    void back() {
+    synchronized void back() {
         if (history.isEmpty()) return;
         TvDialog leaving = history.remove(history.size() - 1);
         activeDialog = history.isEmpty() ? null : history.get(history.size() - 1);
         leaving.leave();
     }
-    void close() {
+    synchronized void close() {
         List<TvDialog> leaving = new ArrayList<>(history);
         history.clear();
         activeDialog = null;
@@ -753,12 +1402,65 @@ class DialogStack {
 class MainActivity extends Activity {
     int menuEpoch;
     boolean foreground;
+    boolean panelFocused;
+    final HomeSetup.ArrivalGate arrivalGate = new HomeSetup.ArrivalGate();
+    final HomePressTracker homePressTracker = new HomePressTracker();
     final Handler handler = new Handler(Looper.getMainLooper());
     final DialogStack dialogs = new DialogStack();
     DefaultHomePanel defaultHome;
     HealthPanel health = new HealthPanel();
     SettingsNavigator navigator = new SettingsNavigator();
-    final List<String> toasts = new ArrayList<>();
+    final List<String> toasts = Collections.synchronizedList(new ArrayList<>());
+    boolean isDesktopVisible() {
+        return arrivalGate.isDesktopVisible(hasWindowFocus(), panelFocused, isFinishing(), isDestroyed());
+    }
+    void simulateOnCreate(Intent intent, boolean recreated) {
+        HomeSetup.finishCompatibilityConsent(this);
+        boolean recent = intent != null && intent.getBooleanExtra("recent_apps", false);
+        arrivalGate.onCreateIntent(intent, recent, recreated);
+        if (intent != null && intent.hasCategory(Intent.CATEGORY_HOME)
+                && homePrefs.getBoolean("recent_enabled", false)) {
+            homePressTracker.press(SystemClock.elapsedRealtime(), homePrefs.getInt("recent_double_ms", 400));
+        }
+    }
+    boolean simulateOnNewIntent(Intent intent) {
+        boolean recent = intent != null && intent.getBooleanExtra("recent_apps", false);
+        if (intent != null && !intent.getBooleanExtra("home_press_handled", false)
+                && intent.hasCategory(Intent.CATEGORY_HOME)
+                && homePrefs.getBoolean("recent_enabled", false)) {
+            recent = homePressTracker.press(SystemClock.elapsedRealtime(), homePrefs.getInt("recent_double_ms", 400));
+        } else if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) {
+            homePressTracker.reset();
+        }
+        arrivalGate.onNewIntent(intent, recent);
+        return recent;
+    }
+    boolean simulateOnResume(boolean focus) {
+        foreground = true;
+        windowFocus = focus;
+        if (defaultHome != null && defaultHome.compatibilityPending) HomeSetup.finishCompatibilityConsent(this);
+        HomeSetup.reconcile(this);
+        boolean consumed = arrivalGate.onResume(this, hasWindowFocus(), panelFocused, isFinishing(), isDestroyed());
+        TaskBridgeClient.sync(this);
+        if (defaultHome != null) defaultHome.resumed();
+        return consumed;
+    }
+    boolean simulateOnWindowFocusChanged(boolean focus) {
+        windowFocus = focus;
+        return arrivalGate.onWindowFocusChanged(this, focus, panelFocused, isFinishing(), isDestroyed());
+    }
+    void simulateOnPause() {
+        foreground = false;
+        windowFocus = false;
+        arrivalGate.onPause();
+    }
+    void simulateOnDestroy() {
+        foreground = false;
+        windowFocus = false;
+        destroyed = true;
+        arrivalGate.onDestroy();
+        if (defaultHome != null) defaultHome.destroy();
+    }
     void showDialog(TvDialog d) { dialogs.show(d); }
     boolean isPage(String id) { return dialogs.isPage(id); }
     void toast(String s) { toasts.add(s); }

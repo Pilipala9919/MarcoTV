@@ -78,7 +78,12 @@ public final class HomeKeyService extends AccessibilityService {
             homePressTracker.reset();
         }
         Intent intent=SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",twice);
-        if(!twice&&source!=null&&!source.isEmpty())intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,HomeSetup.issueHomeEvent(this,source));
+        if(twice){
+            HomeSetup.cancelPendingShortPress();
+            HomeSetup.clearPendingHomeEvent(this);
+        }else if(source!=null&&!source.isEmpty()){
+            intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,HomeSetup.issueHomeEvent(this,source));
+        }
         return intent;
     }
     private boolean handlingHome;

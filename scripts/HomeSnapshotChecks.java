@@ -35,6 +35,15 @@ public final class HomeSnapshotChecks {
         check("disabled_application_is_not_restore_target",HomeSetupSnapshot.target(c).isEmpty());
         reset();HomeSetupSnapshot.capture(c);c.pm.homes.clear();
         check("removed_home_is_rechecked_before_restore",HomeSetupSnapshot.target(c).isEmpty());
+        check("recorded_target_distinguished_from_missing_record",
+                HomeSetupSnapshot.hasRecordedTarget(c)&&HomeSetupSnapshot.recordedComponent(c).equals("com.vendor/.Home"));
+        reset();HomeSetupSnapshot.capture(c);c.pm.homes.get(0).activityInfo.enabled=false;
+        check("temporarily_disabled_home_preserves_recorded_component_until_reenabled",
+                HomeSetupSnapshot.hasRecordedTarget(c)&&HomeSetupSnapshot.target(c).isEmpty()
+                &&HomeSetupSnapshot.recordedComponent(c).equals("com.vendor/.Home"));
+        c.pm.homes.get(0).activityInfo.enabled=true;
+        check("reenabled_home_becomes_eligible_restore_target_again",
+                HomeSetupSnapshot.target(c).equals("com.vendor/.Home"));
         reset();HomeSetupSnapshot.capture(c);
         HomeSetup.service=true;HomeSetup.p.edit().putBoolean("home_compat",true).putBoolean("boot_home",true).putBoolean("adb_restore",true).putString("unrelated","keep").commit();
         check("successful_local_rollback",HomeSetupSnapshot.restoreLocal(c));

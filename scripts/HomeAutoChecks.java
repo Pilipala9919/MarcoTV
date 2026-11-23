@@ -21,6 +21,7 @@ public final class HomeAutoChecks {
         HomeSetup.service = false; HomeSetup.compat = false; HomeSetup.paused = false;
         HomeSetup.begins = 0; HomeSetup.accepted = false; HomeKeyService.connected = false;
         HomeSetupSnapshot.saved = false; HomeSetupSnapshot.original = "com.vendor.launcher/.Home";
+        HomeSetupSnapshot.recorded = "com.vendor.launcher/.Home";
         HomeSetupSnapshot.beforeNative = false; HomeSetupSnapshot.localRestores = 0;
         LocalAdbWire.commands.clear(); LocalAdbWire.connects = 0;
         LocalAdbWire.grant = true; LocalAdbWire.select = true; LocalAdbWire.uid = "2000";
@@ -103,9 +104,23 @@ public final class HomeAutoChecks {
         check("restore_failure_keeps_snapshot_and_pauses", HomeSetupSnapshot.saved && HomeSetupSnapshot.localRestores==0 && HomeSetup.paused);
         reset(false); HomeSetupSnapshot.saved=true; run(true);
         check("already_original_restores_without_adb", LocalAdbWire.connects==0 && HomeSetupSnapshot.localRestores==1);
-        reset(false); HomeSetupSnapshot.saved=true; HomeSetupSnapshot.original=""; SystemIntegration.nativeHome=true; run(true);
+        reset(false); HomeSetupSnapshot.saved=true; HomeSetupSnapshot.original=""; HomeSetupSnapshot.recorded=""; SystemIntegration.nativeHome=true; run(true);
         check("missing_target_never_guessed", !selected() && HomeSetupSnapshot.saved);
-        reset(false); HomeSetupSnapshot.saved=true; HomeSetupSnapshot.beforeNative=true; HomeSetupSnapshot.original=""; SystemIntegration.nativeHome=true; run(true);
+        // Fix #7: Snapshot has recorded target A, A is temporarily disabled (target()=="" while recordedComponent()==A),
+        // current HOME is B (not Marco) -> restore must NOT clear snapshot locally! Then re-enable A -> restore switches back to A!
+        reset(false); HomeSetupSnapshot.saved=true; HomeSetupSnapshot.recorded="com.vendor.launcher/.Home"; HomeSetupSnapshot.original="";
+        SystemIntegration.nativeHome=false; LocalAdbWire.current="com.other.b/.Home";
+        String disabledRestoreMsg = run(true);
+        check("disabled_recorded_target_preserves_snapshot_and_allows_retry",
+                HomeSetupSnapshot.saved && HomeSetupSnapshot.localRestores==0 && LocalAdbWire.connects==0
+                && !selected() && disabledRestoreMsg.contains("已停用或不可用") && disabledRestoreMsg.contains("恢复快照已保留"));
+        HomeSetupSnapshot.original="com.vendor.launcher/.Home";
+        String reenabledRestoreMsg = run(true);
+        check("reenabled_recorded_target_restores_back_to_A_and_clears_snapshot",
+                !HomeSetupSnapshot.saved && HomeSetupSnapshot.localRestores==1
+                && "com.vendor.launcher/.Home".equals(LocalAdbWire.current)
+                && reenabledRestoreMsg.contains("已恢复本次设置前的桌面配置"));
+        reset(false); HomeSetupSnapshot.saved=true; HomeSetupSnapshot.beforeNative=true; HomeSetupSnapshot.original=""; HomeSetupSnapshot.recorded=""; SystemIntegration.nativeHome=true; run(true);
         check("previously_marco_remains_marco", LocalAdbWire.connects==0 && SystemIntegration.nativeHome);
         check("reject_shell_injection", !HomeShellSetup.validComponent("com.vendor/.Home;reboot"));
         check("reject_newline", !HomeShellSetup.validComponent("com.vendor/.Home\nreboot"));
@@ -295,8 +310,10 @@ class HomeSetup {
 }
 class HomeSetupSnapshot {
     static final String PREFIX="auto_home_before_";
-    static boolean saved,beforeNative; static String original; static int localRestores;
+    static boolean saved,beforeNative; static String original,recorded; static int localRestores;
     static void capture(Context c){if(!saved){beforeNative=SystemIntegration.nativeHome;saved=true;}}
+    static String recordedComponent(Context c){return recorded==null?"":recorded;}
+    static boolean hasRecordedTarget(Context c){return recorded!=null&&!recorded.isEmpty();}
     static String target(Context c){return original;}
     static boolean matches(Context c,String target){return target.equals(LocalAdbWire.current);}
     static boolean restoreLocal(Context c){localRestores++;return true;}

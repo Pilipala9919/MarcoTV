@@ -42,11 +42,40 @@ android_stubs={
  'android/os/Looper.java': '''package android.os;
  public class Looper { public static Looper getMainLooper(){return new Looper();} }''',
  'android/os/Handler.java': '''package android.os;
+ import java.util.*;
  public class Handler {
+  private static final class Entry {
+   final Runnable task; final long runAt;
+   Entry(Runnable t, long at) { task = t; runAt = at; }
+  }
+  private static final List<Entry> delayed = new ArrayList<>();
   public Handler(Looper l){}
   public boolean post(Runnable r){r.run();return true;}
-  public boolean postDelayed(Runnable r,long d){return true;}
+  public boolean postDelayed(Runnable r,long d){
+   synchronized(delayed){ delayed.add(new Entry(r, SystemClock.elapsedRealtime() + d)); }
+   return true;
+  }
+  public void removeCallbacks(Runnable r){
+   synchronized(delayed){
+    for(int i=delayed.size()-1;i>=0;i--) if(delayed.get(i).task==r) delayed.remove(i);
+   }
+  }
+  public static void runDue(){
+   long now = SystemClock.elapsedRealtime();
+   List<Runnable> due = new ArrayList<>();
+   synchronized(delayed){
+    for(int i=0;i<delayed.size();){
+     Entry e = delayed.get(i);
+     if(e.runAt <= now){ due.add(e.task); delayed.remove(i); }
+     else i++;
+    }
+   }
+   for(Runnable r : due) r.run();
+  }
+  public static void clearDelayed(){ synchronized(delayed){ delayed.clear(); } }
  }''',
+ 'android/os/Process.java': '''package android.os;
+ public class Process { public static int myUid(){ return 1012345; } }''',
  'android/os/UserManager.java': '''package android.os;
  public class UserManager { public boolean unlocked=true; public boolean isUserUnlocked(){return unlocked;} }''',
  'android/os/PowerManager.java': '''package android.os;
@@ -261,6 +290,7 @@ android_stubs={
    return null;
   }
   public void startActivity(Intent i){if(startActivityThrows)throw new SecurityException("blocked");startedActivities.add(i);startedReqCodes.add(-1);}
+  public java.io.File getNoBackupFilesDir(){return new java.io.File(System.getProperty("fixture.dir", "."));}
   public ComponentName startService(Intent i){return null;}
   public ComponentName startForegroundService(Intent i){return null;}
   public boolean stopService(Intent i){return true;}
@@ -269,6 +299,10 @@ android_stubs={
  import android.content.*;
  public class Activity extends Context {
   public static final int RESULT_OK=-1,RESULT_CANCELED=0;
+  public boolean windowFocus=true,finishing,destroyed;
+  public boolean hasWindowFocus(){return windowFocus;}
+  public boolean isFinishing(){return finishing;}
+  public boolean isDestroyed(){return destroyed;}
   public void startActivityForResult(Intent i,int req){if(startActivityThrows)throw new SecurityException("blocked");startedActivities.add(i);startedReqCodes.add(req);}
   public android.view.Window getWindow(){return null;}
   public android.content.res.Resources getResources(){return null;}
@@ -280,12 +314,12 @@ for rel,content in android_stubs.items():
 prod_names=[
     'HomeSetupPolicy.java','HomeDeviceGuide.java','HomeShellSetup.java','HomePressTracker.java',
     'HomeSetup.java','HomeSetupSnapshot.java','SystemIntegration.java','DefaultHomePanel.java',
-    'BootReceiver.java','StatusSnapshot.java','TaskBridgeClient.java',
+    'LocalHomeAuthorizer.java','BootReceiver.java','StatusSnapshot.java','TaskBridgeClient.java',
 ]
 flow_files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/n for n in prod_names]
 flow_files += [ROOT/'app/src/main/java/io/nayuki/qrcodegen'/n for n in ['BitBuffer.java','DataTooLongException.java','QrSegment.java','QrCode.java']]
 flow_files += [ROOT/'scripts/HomeFlowChecks.java']
 flow_cp=os.pathsep.join([str(flow),str(json_jar),str(ANDROID)])
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-cp',flow_cp,'-d',str(flow),*[str(p) for p in flow_files]],check=True)
-result=subprocess.run([str(executable(JDK/'bin','java')),'-cp',flow_cp,'com.pilipala.tvhome.HomeFlowChecks'],check=True,capture_output=True,text=True,timeout=30)
+result=subprocess.run([str(executable(JDK/'bin','java')),f'-Dfixture.dir={flow}','-cp',flow_cp,'com.pilipala.tvhome.HomeFlowChecks'],check=True,capture_output=True,text=True,timeout=30)
 (flow/'result.txt').write_text(result.stdout,encoding='utf8');print(result.stdout)

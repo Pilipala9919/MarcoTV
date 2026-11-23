@@ -14,6 +14,9 @@ final class DefaultHomePanel {
     boolean pickerPending;
     boolean pickerCancelled;
     boolean compatibilityPending;
+    private boolean pickerAliasRecorded;
+    private int pickerPriorAlias;
+    private String pickerPriorHome = "";
     private boolean returnToHelp;
     private boolean bootResetOffered;
     private boolean compatResetOffered;
@@ -64,22 +67,45 @@ final class DefaultHomePanel {
         }
     }
     void verification(){
+        boolean autoBoot=HomeSetup.canIdentifyBootAutomatically(host)||HomeSetup.hasCurrentRoundBootArrival(host);
+        String bootBtn=autoBoot?"我已重启，确认开机效果":"记录人工重启观察（系统无启动标识）";
         host.showDialog(new TvDialog.Builder(host).setPageId("home_verification").setTitle("检查使用效果")
                 .setMessage(HomeSetup.summary(host)+"\n\n先检查 Home，再在方便时重启电视。开关屏幕不算重启。")
-                .setItems(new String[]{"检查 Home 返回","我已重启，确认开机效果","刷新当前状态"},(d,w)->{
+                .setItems(new String[]{"检查 Home 返回",bootBtn,"刷新当前状态"},(d,w)->{
                     if(w==0){HomeSetup.armHomeTest(host);host.exitMenus();host.toast("请打开另一个应用，再按一次 Home；90 秒内返回可记录结果。");}
-                    else if(w==1){HomeSetup.confirmBoot(host);if(!HomeSetup.prefs(host).contains("setup_boot_confirmed"))host.toast("还没有记录到实际重启返回；方便时重启电视后再来确认。");verification();}
+                    else if(w==1){
+                        if(autoBoot){
+                            HomeSetup.confirmBoot(host);
+                            if(!HomeSetup.prefs(host).contains("setup_boot_confirmed"))host.toast("还没有记录到实际重启返回；方便时重启电视后再来确认。");
+                        }else{
+                            if(HomeSetup.recordManualBootObservation(host))host.toast("已记录人工重启观察（系统缺少启动标识，未经自动关联）。");
+                            else host.toast("当前状态暂不能记录人工重启观察；请先确认桌面设置已生效。");
+                        }
+                        verification();
+                    }
                     else verification();
                 }).setNegativeButton("返回",null).create());
     }
     void onPickerResult(int resultCode){
         if(pickerPending&&resultCode!=Activity.RESULT_OK)pickerCancelled=true;
     }
+    private void restorePickerAliasIfNeeded(){
+        if(pickerAliasRecorded&&!SystemIntegration.homeIsOurs(host)){
+            SystemIntegration.setHomeAliasState(host,pickerPriorAlias);
+        }
+        pickerAliasRecorded=false;
+        pickerPriorHome="";
+    }
     void request(){
         if(BuildEdition.RESTRICTED){compatibility();return;}
         cancelPending();
         pendingEpoch=host.menuEpoch;
-        HomeSetup.begin(host);
+        // Record prior alias & current HOME before enabling HomeActivity so a cancelled
+        // picker restores the exact prior alias and never unpauses or wipes existing evidence.
+        pickerPriorAlias=SystemIntegration.homeAliasState(host);
+        pickerAliasRecorded=true;
+        pickerPriorHome=SystemIntegration.currentExplicitOtherHome(host);
+        SystemIntegration.enableHome(host,true);
         if(Build.VERSION.SDK_INT>=29)try{
             Object roles=host.getSystemService("role");
             if(roles!=null){
@@ -106,6 +132,7 @@ final class DefaultHomePanel {
         }catch(RuntimeException ignored){
             pending=false;pickerPending=false;
         }
+        restorePickerAliasIfNeeded();
         pickerNextOptions(false);
     }
     private void pickerNextOptions(boolean cancelled){
@@ -178,19 +205,30 @@ final class DefaultHomePanel {
             boolean wasCancelled=pickerCancelled;
             boolean wasCompat=compatibilityPending;
             boolean wasHelp=returnToHelp;
+            String priorHome=pickerPriorHome;
             pending=false;
             pickerPending=false;
             pickerCancelled=false;
             compatibilityPending=false;
             returnToHelp=false;
             if(wasCompat)HomeSetup.finishCompatibilityConsent(host);
+            if(wasPicker){
+                if(SystemIntegration.homeIsOurs(host)){
+                    pickerAliasRecorded=false;
+                    pickerPriorHome="";
+                    SystemIntegration.adoptExplicitTrackedHome(host,priorHome);
+                    HomeSetup.begin(host);
+                    HomeSetup.acceptNative(host);
+                }else{
+                    restorePickerAliasIfNeeded();
+                }
+            }
             HomeSetup.reconcile(host);
             host.handler.post(()->{
                 if(host.foreground&&host.menuEpoch==pendingEpoch){
                     if(wasHelp)help();
                     else if(wasPicker){
                         if(SystemIntegration.homeIsOurs(host)){
-                            HomeSetup.acceptNative(host);
                             verification();
                         }else pickerNextOptions(wasCancelled);
                     }else if(wasCompat){
@@ -316,7 +354,9 @@ final class DefaultHomePanel {
         LocalHomeAuthorizer.Result callback=result->{
             if(authorizer!=active||!host.foreground||!host.isPage("home_local_authorize"))return;
             HomeSetupPolicy.Route route=HomeSetup.route(host);
+            boolean restoreIncomplete=restore&&HomeSetup.prefs(host).getBoolean(HomeSetupSnapshot.PREFIX+"saved",false);
             HomeDeviceGuide.Issue issue=active.issue()!=HomeDeviceGuide.Issue.NONE?active.issue():
+                    restoreIncomplete?HomeDeviceGuide.Issue.SYSTEM:
                     !restore&&route!=HomeSetupPolicy.Route.NATIVE_READY&&route!=HomeSetupPolicy.Route.COMPAT_READY
                             ?HomeDeviceGuide.Issue.SYSTEM:HomeDeviceGuide.Issue.NONE;
             host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("home_local_result").setTitle(restore?"恢复结果":"自动设置结果")
@@ -347,12 +387,14 @@ final class DefaultHomePanel {
     }
     void cancelPending(){
         boolean wasCompat=compatibilityPending;
+        boolean wasPicker=pickerPending;
         pending=false;
         pickerPending=false;
         pickerCancelled=false;
         compatibilityPending=false;
         returnToHelp=false;
         guideReturn.cancel();
+        if(wasPicker)restorePickerAliasIfNeeded();
         if(wasCompat)HomeSetup.finishCompatibilityConsent(host);
     }
     void destroy(){

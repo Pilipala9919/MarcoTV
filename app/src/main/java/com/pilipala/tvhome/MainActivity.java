@@ -73,6 +73,14 @@ public final class MainActivity extends Activity {
     HomeView home;
     WallpaperLibrary wallpaperLibrary;
     boolean foreground;
+    final HomeSetup.ArrivalGate arrivalGate = new HomeSetup.ArrivalGate();
+    private boolean isPanelWindowFocused() {
+        return panels != null && panels.isShowing() && panels.getWindow() != null
+                && panels.getWindow().getDecorView().hasWindowFocus();
+    }
+    boolean isDesktopVisible() {
+        return arrivalGate.isDesktopVisible(hasWindowFocus(), isPanelWindowFocused(), isFinishing(), isDestroyed());
+    }
     private boolean receiverRegistered;
     final IdleController screensaver = new IdleController(this);
     void idleChanged(boolean idle) {
@@ -115,7 +123,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         normalizeViewportMetrics();
         HomeSetup.finishCompatibilityConsent(this);
-        HomeSetup.observeHomeIntent(this, getIntent(), getIntent().getBooleanExtra("recent_apps", false), state != null);
+        arrivalGate.onCreateIntent(getIntent(), getIntent().getBooleanExtra("recent_apps", false), state != null);
         SystemIntegration.clearStandbyWakeReturn(this);
         HomeSetup.markCompatResetIfInterrupted(this);
         Diagnostics.init(this);
@@ -232,7 +240,9 @@ public final class MainActivity extends Activity {
         super.onResume();
         normalizeViewportMetrics();
         foreground = true;
+        if (defaultHome != null && defaultHome.compatibilityPending) HomeSetup.finishCompatibilityConsent(this);
         HomeSetup.reconcile(this);
+        arrivalGate.onResume(this, hasWindowFocus(), isPanelWindowFocused(), isFinishing(), isDestroyed());
         Diagnostics.foreground(true);
         fullscreen();
         TaskBridgeClient.sync(this);
@@ -268,11 +278,17 @@ public final class MainActivity extends Activity {
         FeedbackPanel.maybeOffer(this);
     }
 
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        arrivalGate.onWindowFocusChanged(this, hasFocus, isPanelWindowFocused(), isFinishing(), isDestroyed());
+    }
+
     @Override protected void onPause() {
         if(phone!=null)phone.clearPreview();
         if(updates!=null)updates.pause();
         if(network!=null)network.pause();
         foreground = false;
+        arrivalGate.onPause();
         syncLiveWallpaper();
         if(cast!=null)cast.pause();
         Diagnostics.foreground(false);
@@ -300,6 +316,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        arrivalGate.onDestroy();
         if(defaultHome!=null)defaultHome.destroy();
         if(cast!=null)cast.destroy();
         if(stage!=null)stage.liveWallpaper.destroy();
@@ -332,7 +349,7 @@ public final class MainActivity extends Activity {
         if(!intent.getBooleanExtra("home_press_handled",false)&&intent.hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())recent=homePressTracker.press(SystemClock.elapsedRealtime(),
                 preferences.getInt("recent_double_ms",400));
         else if(!intent.hasCategory(Intent.CATEGORY_HOME))homePressTracker.reset();
-        HomeSetup.observeHomeIntent(this, intent, recent, false);
+        arrivalGate.onNewIntent(intent, recent);
         recents.close();
         if(cast!=null&&cast.isPlaying())cast.stopPlayback();
         closeMenus();
