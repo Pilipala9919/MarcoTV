@@ -66,6 +66,7 @@ scripts/*
 CLAUDE.md
 
 !scripts/HomeSetupChecks.java
+!scripts/HomeFlowChecks.java
 !scripts/LocalAdbWireChecks.java
 !scripts/HomeSetupDeviceChecks.java
 !scripts/test_home_setup.py

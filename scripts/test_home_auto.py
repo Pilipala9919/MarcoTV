@@ -46,6 +46,7 @@ android={
  public ComponentName(String p,String n){pkg=p;name=n.startsWith(".")?p+n:n;}
  public ComponentName(Context c,String n){this(c.getPackageName(),n);}
  public String getPackageName(){return pkg;}
+ public String getClassName(){return name;}
  public static ComponentName unflattenFromString(String s){if(s==null||!s.contains("/"))return null;String[] p=s.split("/",2);return new ComponentName(p[0],p[1]);}
  public boolean equals(Object o){return o instanceof ComponentName&&pkg.equals(((ComponentName)o).pkg)&&name.equals(((ComponentName)o).name);}
  public int hashCode(){return (pkg+name).hashCode();}}''',

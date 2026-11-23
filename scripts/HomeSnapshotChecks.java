@@ -56,6 +56,14 @@ public final class HomeSnapshotChecks {
         check("prior_pause_reason_preserved",HomeSetup.p.getBoolean("setup_paused",false)&&HomeSetup.p.getString("setup_pause_reason","").equals("before"));
         reset();SystemIntegration.current="com.vendor/com.vendor.Home";
         check("component_short_and_long_forms_match",HomeSetupSnapshot.matches(c,"com.vendor/.Home"));
+        reset();
+        ResolveInfo settingsHome=new ResolveInfo();settingsHome.activityInfo=new ActivityInfo();
+        settingsHome.activityInfo.packageName="com.android.settings";settingsHome.activityInfo.name="com.android.settings.FallbackHome";
+        settingsHome.activityInfo.enabled=true;settingsHome.activityInfo.exported=true;settingsHome.activityInfo.applicationInfo=new ApplicationInfo();settingsHome.activityInfo.applicationInfo.enabled=true;
+        c.pm.homes.add(settingsHome);
+        SystemIntegration.current="com.android.settings/.FallbackHome";
+        HomeSetupSnapshot.capture(c);
+        check("settings_fallback_home_is_not_restore_target",HomeSetupSnapshot.target(c).isEmpty());
         System.out.println("OK "+passed+" recovery snapshot checks (in-memory Android services)");
     }
 }

@@ -44,7 +44,7 @@ def check():
     info=(ROOT/'app/src/main/java/com/pilipala/tvhome/ProjectInfo.java').read_text(encoding='utf-8')
     if f'VERSION="{version}"' not in info:errors.append('Version mismatch')
     for name in ['README.md','docs/安装说明.md','docs/使用说明.md','docs/常见问题.md','docs/构建说明.md','docs/隐私说明.md','docs/各品牌电视设置入口.md']:
-        if version not in '\n'.join((ROOT/name).read_text(encoding='utf-8').splitlines()[2:10]):errors.append('Document version mismatch: '+name)
+        if version not in '\n'.join((ROOT/name).read_text(encoding='utf-8').splitlines()[2:15]):errors.append('Document version mismatch: '+name)
     validation=json.loads((ROOT/'docs/release-validation.json').read_text(encoding='utf-8'))
     if validation.get('version')!=version:errors.append('Validation summary version mismatch')
     for source,destination in [('licenses/QR-Code-generator-MIT.txt','QR-Code-generator-MIT.txt'),('LICENSE','GPL-3.0-only.txt'),('NOTICE','NOTICE'),('licenses/Material-Icons-Apache-2.0.txt','Material-Icons-Apache-2.0.txt')]:

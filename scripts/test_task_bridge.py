@@ -45,6 +45,18 @@ ps_api23 = (
     'shell     17574 1     1523480 48204 SyS_epoll_ 00000000 S marcotv-task-bridge\n'
     'shell     17800 17799 5600   1200  00000000 00000000 R ps\n'
 )
+ps_mitv4_header_only = 'USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n'
+ps_valid_without_bridge = (
+    'USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n'
+    'root      1     0     1420   804   SyS_epoll_ 00000000 S /init\n'
+    'system    921   1     98760  14200 SyS_epoll_ 00000000 S system_server\n'
+)
+ps_similar_name = (
+    'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
+    'root             1     0   12345   2345 SyS_epoll_wait      0 S init\n'
+    'shell        18888     1 1345678  45678 0                   0 S marcotv-task-br\n'
+    'shell        18889     1 1345678  45678 0                   0 S com.pilipala.tvhome.TaskBridgeServerFake\n'
+)
 ps_api30 = (
     'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
     'root             1     0   12345   2345 SyS_epoll_wait      0 S init\n'
@@ -73,12 +85,101 @@ dumpsys_multiuser = (
 )
 
 assert not bridge.has_ps_header("bad pid '-A'")
-assert bridge.has_ps_header(ps_api23)
-assert bridge.has_ps_header(ps_api30)
-assert bridge.has_ps_header(ps_busybox)
+assert bridge.has_ps_header(ps_mitv4_header_only)
+assert not bridge.has_valid_ps_listing(ps_mitv4_header_only)
+assert not bridge.has_valid_ps_listing('')
+assert not bridge.has_valid_ps_listing("bad pid '-A'")
+assert not bridge.has_valid_ps_listing(ps_mitv4_header_only + 'not a pid row\n')
+assert bridge.has_valid_ps_listing(ps_valid_without_bridge)
+assert bridge.has_ps_header(ps_api23) and bridge.has_valid_ps_listing(ps_api23)
+assert bridge.has_ps_header(ps_api30) and bridge.has_valid_ps_listing(ps_api30)
+assert bridge.has_ps_header(ps_busybox) and bridge.has_valid_ps_listing(ps_busybox)
+assert bridge.parse_bridge_pids(ps_mitv4_header_only) == []
+assert bridge.parse_bridge_pids(ps_valid_without_bridge) == []
 assert bridge.parse_bridge_pids(ps_api23) == ['17574']
 assert bridge.parse_bridge_pids(ps_api30) == ['18887']
 assert bridge.parse_bridge_pids(ps_busybox) == ['4321']
+assert bridge.parse_bridge_pids(ps_similar_name) == ['18888']
+assert bridge.is_bridge_cmdline('marcotv-task-bridge\x00')
+assert bridge.is_bridge_cmdline('app_process /system/bin com.pilipala.tvhome.TaskBridgeServer 10059 0')
+assert not bridge.is_bridge_cmdline('marcotv-task-bridge-other')
+assert not bridge.is_bridge_cmdline('app_process /system/bin com.pilipala.tvhome.TaskBridgeServerFake 10059 0')
+
+# Case 1: MiTV4 Android 6.0.1 — ps -A exits 0 with header only, plain ps has real rows.
+mitv4_calls = []
+def fake_mitv4_try(*cmd):
+    mitv4_calls.append(cmd)
+    if cmd == ('ps', '-A'):
+        return ps_mitv4_header_only
+    if cmd == ('ps',):
+        return ps_api23
+    if cmd == ('cat', '/proc/17574/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_mitv4_try, sleep_fn=lambda _: None, attempts=4)
+assert status == 'started' and pids == ['17574']
+assert ('ps', '-A') in mitv4_calls and ('ps',) in mitv4_calls
+
+# Case 2: Valid ps -A listing with normal system processes and no task bridge -> no fallback, reports not_running.
+valid_no_bridge_calls = []
+def fake_valid_no_bridge(*cmd):
+    valid_no_bridge_calls.append(cmd)
+    if cmd == ('ps', '-A'):
+        return ps_valid_without_bridge
+    raise AssertionError(f'Should accept valid ps -A without fallback: {cmd}')
+
+assert bridge.stop_existing_bridges(fake_valid_no_bridge, lambda *_: '') is False
+status, pids = bridge.verify_bridge_started(fake_valid_no_bridge, sleep_fn=lambda _: None, attempts=3)
+assert status == 'not_running' and pids == []
+assert ('ps',) not in valid_no_bridge_calls
+
+# Case 3: Both ps -A and ps unusable (header-only / noise) -> reports unverifiable, never definite started/not_running.
+def fake_both_unusable(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_mitv4_header_only
+    if cmd == ('ps',):
+        return ''
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+unverifiable_stop = False
+try:
+    bridge.stop_existing_bridges(fake_both_unusable, lambda *_: '')
+except bridge.ProcessListUnavailableError as exc:
+    unverifiable_stop = '无法验证进程列表' in str(exc)
+assert unverifiable_stop
+status, pids = bridge.verify_bridge_started(fake_both_unusable, sleep_fn=lambda _: None, attempts=3)
+assert status == 'unverifiable' and pids == []
+
+# Case 4: Similar process name with wrong cmdline identity -> rejected for both stop and start verification.
+def fake_similar_wrong_id(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_similar_name
+    if cmd == ('cat', '/proc/18888/cmdline'):
+        return 'marcotv-task-bridge-other\x00'
+    return ''
+
+similar_rejected = False
+try:
+    bridge.stop_existing_bridges(fake_similar_wrong_id, lambda *_: '')
+except RuntimeError as exc:
+    similar_rejected = 'Unexpected process' in str(exc)
+assert similar_rejected
+status, pids = bridge.verify_bridge_started(fake_similar_wrong_id, sleep_fn=lambda _: None, attempts=3)
+assert status == 'not_running' and pids == []
+
+# Case 5: Service starts (seen once) then exits before consecutive poll -> not_running.
+exiting_poll = {'n': 0}
+def fake_exiting_bridge(*cmd):
+    if cmd == ('ps', '-A'):
+        exiting_poll['n'] += 1
+        return ps_api30 if exiting_poll['n'] == 1 else ps_valid_without_bridge
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+status, pids = bridge.verify_bridge_started(fake_exiting_bridge, sleep_fn=lambda _: None, attempts=4)
+assert status == 'not_running' and pids == []
 
 # Simulate Android 6.0.1 (MiTV4): ps -A fails, am get-current-user unsupported, pm -U unsupported, pm path --user 0 empty.
 calls = []

@@ -37,13 +37,19 @@ final class HomeSetupSnapshot {
     static boolean eligible(Context c, String value) {
         if (!HomeShellSetup.validComponent(value)) return false;
         ComponentName name = ComponentName.unflattenFromString(value);
-        if (name == null || name.getPackageName().equals(c.getPackageName()) || name.getPackageName().equals("android")) return false;
+        if (name == null || name.getPackageName().equals(c.getPackageName())
+                || name.getPackageName().equals("android")
+                || name.getPackageName().equals("com.android.settings")
+                || name.getPackageName().equals("com.android.tv.settings")
+                || name.getClassName().endsWith("EmptyStubActivity")
+                || name.getClassName().endsWith("FallbackHome")
+                || name.getClassName().endsWith("ResolverActivity")) return false;
         try {
             List<ResolveInfo> homes = c.getPackageManager().queryIntentActivities(
                     new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0);
             for (ResolveInfo r : homes) {
                 ActivityInfo a = r.activityInfo;
-                if (a != null && a.enabled && a.exported && a.applicationInfo.enabled
+                if (a != null && a.enabled && a.exported && a.applicationInfo != null && a.applicationInfo.enabled
                         && name.equals(new ComponentName(a.packageName, a.name))) return true;
             }
         } catch (RuntimeException ignored) { }
@@ -67,8 +73,16 @@ final class HomeSetupSnapshot {
         }
         SharedPreferences.Editor e = p.edit();
         for (String flag : FLAGS) e.putBoolean(flag, p.getBoolean(PREFIX + flag, false));
-        e.remove("setup_accessibility_pending").remove("setup_home_seen").remove("setup_home_deadline")
-                .remove("setup_boot_observed").remove("setup_boot_confirmed")
+        e.remove("setup_accessibility_pending").remove("setup_home_seen").remove("setup_home_source")
+                .remove("setup_home_deadline").remove("setup_home_started").remove("setup_home_session")
+                .remove("setup_home_boot").remove("setup_home_boot_id")
+                .remove("setup_boot_observed").remove("setup_boot_state").remove("setup_boot_source")
+                .remove("setup_boot_observed_time").remove("setup_boot_observed_boot_id")
+                .remove("setup_boot_confirmed").remove("setup_boot_confirmed_source").remove("setup_boot_confirmed_time")
+                .remove("boot_req_token").remove("boot_req_state").remove("boot_req_boot")
+                .remove("boot_req_boot_id").remove("boot_req_elapsed").remove("boot_req_deadline").remove("boot_req_time")
+                .remove("pending_home_token").remove("pending_home_source").remove("pending_home_boot")
+                .remove("pending_home_started").remove("pending_home_deadline")
                 .putString("setup_pause_reason", p.getString(PREFIX + "reason", ""));
         if (!e.commit()) return false;
         if (!BuildEdition.RESTRICTED && p.contains(PREFIX + "alias")) {

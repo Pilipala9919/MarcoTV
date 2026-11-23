@@ -528,6 +528,7 @@ final class RecentApps {
         host.showDialog(progress);
         host.taskCommands.execute(()->{
             String failure=null;
+            String successToast="任务辅助服务已连接";
             try(LocalAdbWire wire=new LocalAdbWire()){
                 activeWire[0]=wire;
                 java.io.File folder=new java.io.File(host.getNoBackupFilesDir(),"home-setup");
@@ -536,7 +537,7 @@ final class RecentApps {
                 if(cancelled[0])return;
                 HomeShellSetup shell=new HomeShellSetup(wire::shell,android.os.Process.myUid()/100000);
                 shell.authenticate();
-                shell.startTaskBridge(host.getApplicationInfo().sourceDir,android.os.Process.myUid());
+                HomeShellSetup.ProcessListStatus psStatus=shell.startTaskBridge(host.getApplicationInfo().sourceDir,android.os.Process.myUid());
                 boolean connected=false;
                 for(int i=0;i<35&&!cancelled[0];i++){
                     Thread.sleep(200);
@@ -547,20 +548,26 @@ final class RecentApps {
                         }
                     }catch(Exception waiting){}
                 }
-                if(!connected)failure="启动命令已发送，但服务尚未响应。请稍后选择「重新检测连接」查看。";
-                else Diagnostics.event("TASK_BRIDGE_LOCAL_STARTED");
+                if(!connected){
+                    failure=psStatus==HomeShellSetup.ProcessListStatus.UNVERIFIABLE
+                            ?"无法验证进程列表，且服务握手尚未响应。请稍后选择「重新检测连接」或在状态中心确认实际状态。"
+                            :"启动命令已发送，但服务握手尚未响应。请稍后选择「重新检测连接」查看。";
+                }else{
+                    if(psStatus==HomeShellSetup.ProcessListStatus.UNVERIFIABLE)successToast="任务辅助服务已连接（进程列表无法验证，握手已确认）";
+                    Diagnostics.event("TASK_BRIDGE_LOCAL_STARTED");
+                }
             }catch(Exception e){
                 failure="未能通过本机调试启动任务服务（"+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage())+"）。\n请确认电视已开启网络调试（5555 端口），或使用电脑启动工具。";
                 Diagnostics.event("TASK_BRIDGE_LOCAL_START_FAILED");
             }finally{
                 activeWire[0]=null;
             }
-            final String err=failure;
+            final String err=failure,okToast=successToast;
             host.handler.post(()->{
                 if(cancelled[0]||host.isDestroyed()||!host.isPage("task_bridge_reconnect"))return;
                 if(err==null){
                     host.exitMenus();
-                    host.toast("任务辅助服务已启动");
+                    host.toast(okToast);
                     load();
                 }else{
                     host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("task_bridge_reconnect_result")

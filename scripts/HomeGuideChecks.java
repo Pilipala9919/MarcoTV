@@ -20,6 +20,13 @@ public final class HomeGuideChecks {
         check("sony_generic",HomeDeviceGuide.find("Sony","").evidence.contains("通用"));
         check("tcl_community_label",HomeDeviceGuide.find("tcl","").evidence.contains("尚未核实"));
         check("hisense_no_factory_mutation",HomeDeviceGuide.find("hisense","").steps.contains("不需要修改工厂模式"));
+        String genericSteps=HomeDeviceGuide.find(null,null).steps;
+        check("pairing_only_points_to_accessibility_or_platform_tools",
+                genericSteps.contains("辅助功能")&&genericSteps.contains("Android Platform Tools")
+                &&!genericSteps.contains("请使用手机／电脑助手路线"));
+        String connExplain=HomeDeviceGuide.explanation(HomeDeviceGuide.Issue.CONNECTION);
+        check("connection_failure_does_not_claim_pairing_only",
+                connExplain.contains("不能仅凭连接失败判定只支持配对码")&&connExplain.contains("Android Platform Tools"));
         for(HomeDeviceGuide.Issue issue:HomeDeviceGuide.Issue.values())
             check("issue_message_"+issue,HomeDeviceGuide.explanation(issue).length()>10);
         HomeDeviceGuide.ReturnGate gate=new HomeDeviceGuide.ReturnGate();

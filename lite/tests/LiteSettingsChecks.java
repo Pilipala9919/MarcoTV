@@ -49,6 +49,29 @@ public final class LiteSettingsChecks {
                 &&"cover-a.jpg".equals(LiteSettings.coverFileName("image:cover-a.jpg"))
                 &&LiteSettings.coverFileName("image:../secret.jpg")==null
                 &&LiteSettings.focusScale(12)==1.12f);
+        int once=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","android","com.android.internal.app.ResolverActivity",true);
+        check("lite_just_once_is_not_default_home",
+                once==LiteSettings.HOME_STATE_ONCE&&!LiteSettings.isDefaultHomeState(once)
+                &&LiteSettings.homeStateLabel(once).contains("尚未设为默认"));
+        int always=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","com.pilipala.tvhome.lite","com.pilipala.tvhome.LiteActivity",true);
+        check("lite_always_is_default_home",
+                always==LiteSettings.HOME_STATE_DEFAULT&&LiteSettings.isDefaultHomeState(always)
+                &&LiteSettings.homeStateLabel(always).contains("已生效"));
+        int reverted=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","com.mitv.tvhome","com.mitv.tvhome.MainActivity",true);
+        check("lite_reverted_to_oem_not_default_even_with_stale_home_intent",
+                reverted==LiteSettings.HOME_STATE_OTHER&&!LiteSettings.isDefaultHomeState(reverted)
+                &&LiteSettings.homeStateLabel(reverted).contains("尚未设为默认"));
+        int unset=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","android","com.android.internal.app.ResolverActivity",false);
+        int unsetNull=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","","",false);
+        int unsetFallback=LiteSettings.homeState(true,"com.pilipala.tvhome.lite","com.android.settings","com.android.settings.FallbackHome",false);
+        check("lite_no_explicit_default_shows_unconfirmed",
+                unset==LiteSettings.HOME_STATE_UNSET&&unsetNull==LiteSettings.HOME_STATE_UNSET&&unsetFallback==LiteSettings.HOME_STATE_UNSET
+                &&!LiteSettings.isDefaultHomeState(unset)
+                &&(LiteSettings.homeStateLabel(unset).contains("尚未设为默认")||LiteSettings.homeStateLabel(unset).contains("等待系统确认")));
+        int restricted=LiteSettings.homeState(false,"com.pilipala.tvhome.lite","com.pilipala.tvhome.lite","com.pilipala.tvhome.LiteActivity",true);
+        check("lite_restricted_never_claims_default_home",
+                restricted==LiteSettings.HOME_STATE_RESTRICTED&&!LiteSettings.isDefaultHomeState(restricted)
+                &&LiteSettings.homeStateLabel(restricted).contains("普通应用"));
         System.out.println("OK "+passed+" Lite settings checks");
     }
 }

@@ -65,6 +65,17 @@ final class HomeShellSetup {
                 || path.matches("/mnt/expand/[A-Za-z0-9_-]+/app/[A-Za-z0-9_./=+~-]+\\.apk"));
     }
 
+    enum ProcessListStatus { VERIFIED, UNVERIFIABLE }
+
+    static final class ProcessProbe {
+        final ProcessListStatus status;
+        final List<String> bridgePids;
+        ProcessProbe(ProcessListStatus status, List<String> bridgePids) {
+            this.status = status;
+            this.bridgePids = bridgePids;
+        }
+    }
+
     static boolean hasPsHeader(String output) {
         if (output == null) return false;
         int checked = 0;
@@ -75,6 +86,37 @@ final class HomeShellSetup {
             if (++checked >= 2) break;
         }
         return false;
+    }
+
+    static boolean hasValidPsListing(String output) {
+        if (output == null) return false;
+        int pidCol = -1;
+        int headerChecked = 0;
+        for (String raw : output.split("\\r?\\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            if (pidCol < 0) {
+                int headerCol = psPidColumn(line);
+                if (headerCol >= 0) {
+                    pidCol = headerCol;
+                    continue;
+                }
+                if (++headerChecked >= 2) return false;
+                continue;
+            }
+            String[] cols = line.split("\\s+");
+            if (cols.length > pidCol && isPositivePid(cols[pidCol])) return true;
+        }
+        return false;
+    }
+
+    private static boolean isPositivePid(String token) {
+        if (token == null || !token.matches("[0-9]+")) return false;
+        try {
+            return Long.parseLong(token) > 0L;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private static int psPidColumn(String line) {
@@ -91,41 +133,66 @@ final class HomeShellSetup {
         return pidIndex >= 0 && hasContext ? pidIndex : -1;
     }
 
+    static boolean isBridgeCmdline(String cmdline) {
+        if (cmdline == null) return false;
+        String cleaned = cmdline.replace('\0', ' ').trim();
+        if (cleaned.isEmpty()) return false;
+        if ("marcotv-task-bridge".equals(cleaned)) return true;
+        for (String token : cleaned.split("\\s+")) {
+            if ("com.pilipala.tvhome.TaskBridgeServer".equals(token)) return true;
+        }
+        return false;
+    }
+
     static List<String> parseBridgePids(String output) {
         Set<String> pids = new LinkedHashSet<>();
-        if (output == null) return new ArrayList<>();
+        if (!hasValidPsListing(output)) return new ArrayList<>();
         int pidCol = -1;
         for (String raw : output.split("\\r?\\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
             if (pidCol < 0) {
                 int headerCol = psPidColumn(line);
-                if (headerCol >= 0) {
-                    pidCol = headerCol;
-                    continue;
-                }
+                if (headerCol >= 0) pidCol = headerCol;
+                continue;
             }
             String[] cols = line.split("\\s+");
-            int col = pidCol >= 0 ? pidCol : 1;
-            if (cols.length <= col || !cols[col].matches("[0-9]+")) continue;
+            if (cols.length <= pidCol || !isPositivePid(cols[pidCol])) continue;
             String name = cols[cols.length - 1];
-            if ("marcotv-task-bridge".equals(name) || "marcotv-task-br".equals(name)
-                    || line.contains("com.pilipala.tvhome.TaskBridgeServer")) {
-                pids.add(cols[col]);
+            boolean matches = "marcotv-task-bridge".equals(name) || "marcotv-task-br".equals(name);
+            if (!matches) {
+                for (String token : cols) {
+                    if ("com.pilipala.tvhome.TaskBridgeServer".equals(token)) {
+                        matches = true;
+                        break;
+                    }
+                }
             }
+            if (matches) pids.add(cols[pidCol]);
         }
         return new ArrayList<>(pids);
     }
 
-    void startTaskBridge(String apkPath, int appUid) throws Exception {
+    ProcessProbe probeBridgeProcesses() throws Exception {
+        if (!authenticated) throw new IOException("Authorization required");
+        String ps = shell.run("ps -A 2>/dev/null || ps 2>/dev/null");
+        if (!hasValidPsListing(ps)) ps = shell.run("ps 2>/dev/null");
+        if (!hasValidPsListing(ps)) return new ProcessProbe(ProcessListStatus.UNVERIFIABLE, new ArrayList<>());
+        List<String> verified = new ArrayList<>();
+        for (String token : parseBridgePids(ps)) {
+            String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null");
+            if (isBridgeCmdline(cmdline)) verified.add(token);
+        }
+        return new ProcessProbe(ProcessListStatus.VERIFIED, verified);
+    }
+
+    ProcessListStatus startTaskBridge(String apkPath, int appUid) throws Exception {
         if (!authenticated) throw new IOException("Authorization required");
         if (!validApkPath(apkPath) || appUid <= 0) throw new IllegalArgumentException("Bridge arguments");
-        String ps = shell.run("ps -A 2>/dev/null || ps 2>/dev/null");
-        if (!hasPsHeader(ps)) ps = shell.run("ps 2>/dev/null");
+        ProcessProbe probe = probeBridgeProcesses();
         boolean stoppedOld = false;
-        for (String token : parseBridgePids(ps)) {
-            String cmdline = shell.run("tr '\\0' ' ' </proc/" + token + "/cmdline 2>/dev/null").replace('\0', ' ');
-            if (cmdline.contains("com.pilipala.tvhome.TaskBridgeServer") || cmdline.trim().equals("marcotv-task-bridge")) {
+        if (probe.status == ProcessListStatus.VERIFIED) {
+            for (String token : probe.bridgePids) {
                 shell.run("kill " + token + " 2>/dev/null");
                 stoppedOld = true;
             }
@@ -141,6 +208,7 @@ final class HomeShellSetup {
                 + "CLASSPATH='" + apkPath + "' setsid " + args + " & "
                 + "else CLASSPATH='" + apkPath + "' " + args + " & fi; "
                 + "sleep 0.2 2>/dev/null || sleep 1");
+        return probe.status;
     }
 
     static String brand(String manufacturer, String brand) {

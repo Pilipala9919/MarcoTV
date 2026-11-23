@@ -53,17 +53,17 @@ final class HomeDeviceGuide {
                 "第三方应用安装和默认桌面是两项能力。请在本机系统设置查找实际提供的开发人员选项与调试入口；未提供时可尝试辅助功能兼容。仅凭 HarmonyOS 版本不能确认 ADB 可用。",
                 "https://consumer.huawei.com/cn/support/content/zh-cn15773624/", "官方安装资料 · 不代表开放 ADB 或默认桌面");
         return new HomeDeviceGuide(family,
-                "设置 → 系统／设备偏好设置 → 关于 → Build／内部版本号，连续确认至开发者提示，再返回开发者选项查看调试开关。仅提供无线配对码时，请使用手机／电脑助手路线。",
+                "设置 → 系统／设备偏好设置 → 关于 → Build／内部版本号，连续确认至开发者提示，再返回开发者选项查看调试开关。若仅提供无线调试配对码，安装助手 1.0.1 暂不支持配对；请改用手动辅助功能（Home 兼容），或用电脑官方 Android Platform Tools（adb pair / adb connect）按完整说明操作。",
                 "https://developer.android.com/tools/adb", "Android 通用入口 · 以本机实际能力为准");
     }
 
     static String explanation(Issue issue) {
         switch(issue) {
-            case CONNECTION: return "尚未连接电视自身的网络调试，请先开启本机提供的调试开关。";
+            case CONNECTION: return "尚未连接电视本机普通网络调试（127.0.0.1:5555）。原因可能是调试开关未开、端口不同或系统仅提供无线配对码，不能仅凭连接失败判定只支持配对码；若仅提供配对码，请改用手动辅助功能或电脑 Android Platform Tools 配对。";
             case AUTHORIZATION: return "调试连接尚未授权，请在电视系统弹窗中选择允许。";
             case TIMEOUT: return "等待已结束。准备好调试开关和系统确认后，可以重新继续。";
             case SYSTEM: return "已连接调试，但配置尚未完成。请查看实际 Home 与服务状态，或尝试兼容方式。";
-            default: return "按本机提供的入口开启调试，再继续自动设置。";
+            default: return "按本机提供的入口开启普通网络调试，或直接使用手动辅助功能（Home 兼容）。";
         }
     }
 

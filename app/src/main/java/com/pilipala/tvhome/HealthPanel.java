@@ -30,8 +30,9 @@ final class HealthPanel {
     void status(){
         final int generation=++statusGeneration,epoch=host.menuEpoch;
         final String local=summary();
-        final String overview="默认桌面："+(SystemIntegration.homeIsOurs(host)?"Marco TV":"其他桌面")
-                +" · Home 服务"+(HomeKeyService.connected?"已连接":"未连接")
+        final String serviceLabel=HomeKeyService.connected?"已连接（已绑定）":HomeSetup.serviceEnabled(host)?"已允许未连接":"未连接";
+        final String overview="默认桌面："+(BuildEdition.RESTRICTED?"受限版（无 HOME）":SystemIntegration.homeIsOurs(host)?"Marco TV":"其他桌面")
+                +" · Home 服务"+serviceLabel
                 +"\n系统设置授权："+(SystemIntegration.authorized(host)?"已授权":"未授权")+" · 本页仅查询";
         statusDetail=local+"\n\n正在读取端口与任务服务状态…";
         showStatus(overview+"\n任务服务：读取中…");

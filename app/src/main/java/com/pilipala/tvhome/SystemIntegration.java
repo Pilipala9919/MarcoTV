@@ -99,39 +99,159 @@ final class SystemIntegration {
                 .hasAction(Intent.ACTION_MAIN)&&filters.get(i).hasCategory(Intent.CATEGORY_HOME)) return true;
         return false;
     }
-    static void rememberHome(Context context) {
-        if (prefs(context).contains("original_home")) return;
-        String home = currentHome(context);
-        ComponentName component = ComponentName.unflattenFromString(home);
-        if (component != null && !component.getPackageName().equals(context.getPackageName())
-                && !component.getPackageName().equals("android")
-                && !component.getPackageName().equals("com.android.settings")
-                && !component.getPackageName().equals("com.android.tv.settings")) {
-            prefs(context).edit().putString("original_home", home).apply();
-            return;
-        }
-        // When Android returns ResolverActivity ("android") because no default launcher was locked yet,
-        // discover the sole enabled system launcher if unambiguous so window/wake fallback still works.
+    static boolean isExcludedHomeComponent(Context context, ComponentName component) {
+        if (component == null) return true;
+        String pkg = component.getPackageName();
+        String cls = component.getClassName();
+        if (pkg == null || pkg.isEmpty()) return true;
+        if (pkg.equals(context.getPackageName())
+                || pkg.equals("android")
+                || pkg.equals("com.android.settings")
+                || pkg.equals("com.android.tv.settings")) return true;
+        return cls != null && (cls.endsWith("EmptyStubActivity")
+                || cls.endsWith("FallbackHome")
+                || cls.endsWith("ResolverActivity"));
+    }
+    static boolean isValidTrackedHome(Context context, String value) {
+        if (!HomeShellSetup.validComponent(value)) return false;
+        ComponentName target = ComponentName.unflattenFromString(value);
+        if (isExcludedHomeComponent(context, target)) return false;
         try {
             List<ResolveInfo> homes = context.getPackageManager().queryIntentActivities(
                     new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0);
+            if (homes == null) return false;
+            for (ResolveInfo r : homes) {
+                ActivityInfo a = r.activityInfo;
+                if (a != null && a.enabled && a.exported && a.applicationInfo != null && a.applicationInfo.enabled
+                        && target.equals(new ComponentName(a.packageName, a.name))) return true;
+            }
+        } catch (RuntimeException ignored) { }
+        return false;
+    }
+    private static String currentExplicitOtherHome(Context context) {
+        String home = currentHome(context);
+        return isValidTrackedHome(context, home) ? home : "";
+    }
+    private static String discoverUniqueOtherHome(Context context) {
+        try {
+            List<ResolveInfo> homes = context.getPackageManager().queryIntentActivities(
+                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0);
+            if (homes == null) return "";
             String candidate = "";
+            String candidatePkg = "";
             for (ResolveInfo r : homes) {
                 ActivityInfo a = r.activityInfo;
                 if (a == null || !a.enabled || !a.exported || a.applicationInfo == null || !a.applicationInfo.enabled) continue;
-                if ((a.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0) continue;
-                String pkg = a.packageName;
-                if (pkg.equals(context.getPackageName()) || pkg.equals("android")
-                        || pkg.equals("com.android.settings") || pkg.equals("com.android.tv.settings")) continue;
-                String flat = new ComponentName(pkg, a.name).flattenToString();
-                if (candidate.isEmpty()) candidate = flat;
-                else if (!ComponentName.unflattenFromString(candidate).getPackageName().equals(pkg)) {
-                    candidate = "";
-                    break;
+                ComponentName cn = new ComponentName(a.packageName, a.name);
+                if (isExcludedHomeComponent(context, cn)) continue;
+                String flat = cn.flattenToString();
+                if (candidate.isEmpty()) {
+                    candidate = flat;
+                    candidatePkg = a.packageName;
+                } else if (!candidatePkg.equals(a.packageName)) {
+                    return "";
                 }
             }
-            if (!candidate.isEmpty()) prefs(context).edit().putString("original_home", candidate).apply();
-        } catch (RuntimeException ignored) { }
+            return candidate;
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+    }
+    /** Passive read-only access to the validated compatibility target. Never mutates prefs. */
+    static String trackedHome(Context context) {
+        String saved = prefs(context).getString("original_home", "");
+        return isValidTrackedHome(context, saved) ? saved : "";
+    }
+    static boolean matchesTrackedHomePackage(Context context, String shown) {
+        if (shown == null || context.getPackageName().equals(shown)) return false;
+        String raw = prefs(context).getString("original_home", "");
+        ComponentName original = ComponentName.unflattenFromString(raw);
+        if (original == null || context.getPackageName().equals(original.getPackageName())) return false;
+        boolean candidateMatch = original.getPackageName().equals(shown)
+                || (original.getPackageName().equals("com.mitv.tvhome") && shown.equals("com.xiaomi.eetv.litehome"));
+        return candidateMatch && isValidTrackedHome(context, raw);
+    }
+    static boolean trackedHomeInvalid(Context context) {
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        if (!saved.isEmpty()) return !isValidTrackedHome(context, saved);
+        return p.contains("original_home_invalid");
+    }
+    static String trackedHomeInvalidName(Context context) {
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        if (!saved.isEmpty() && !isValidTrackedHome(context, saved)) return saved;
+        return p.getString("original_home_invalid", "");
+    }
+    /**
+     * First-time discovery and passive lifecycle maintenance.
+     * Never overwrites a still-valid stored target on normal app open or status refresh.
+     * Stops relying on an uninstalled/disabled target and syncs the bridge.
+     */
+    static void rememberHome(Context context) {
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        if (!saved.isEmpty()) {
+            if (isValidTrackedHome(context, saved)) return;
+            String replacement = discoverUniqueOtherHome(context);
+            SharedPreferences.Editor e = p.edit();
+            if (!replacement.isEmpty()) e.putString("original_home", replacement).remove("original_home_invalid");
+            else e.remove("original_home").putString("original_home_invalid", saved);
+            e.apply();
+            TaskBridgeClient.sync(context);
+            return;
+        }
+        if (p.contains("original_home_invalid")) return;
+        String candidate = currentExplicitOtherHome(context);
+        if (candidate.isEmpty()) candidate = discoverUniqueOtherHome(context);
+        if (!candidate.isEmpty()) {
+            p.edit().putString("original_home", candidate).remove("original_home_invalid").apply();
+            TaskBridgeClient.sync(context);
+        }
+    }
+    /**
+     * Explicit user enable / re-enable path, called BEFORE changing system HOME.
+     * Allows a real third-party launcher currently selected by the system; never guesses
+     * self, chooser, settings placeholder, disabled, or ambiguous candidates.
+     */
+    static String refreshTrackedHomeForSetup(Context context) {
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        String current = currentExplicitOtherHome(context);
+        if (!current.isEmpty()) {
+            boolean changed = !current.equals(saved) || p.contains("original_home_invalid");
+            if (changed) {
+                p.edit().putString("original_home", current).remove("original_home_invalid").apply();
+                TaskBridgeClient.sync(context);
+            }
+            return current;
+        }
+        if (!saved.isEmpty() && isValidTrackedHome(context, saved)) {
+            if (p.contains("original_home_invalid")) p.edit().remove("original_home_invalid").apply();
+            return saved;
+        }
+        String unique = discoverUniqueOtherHome(context);
+        if (!unique.isEmpty()) {
+            p.edit().putString("original_home", unique).remove("original_home_invalid").apply();
+            TaskBridgeClient.sync(context);
+            return unique;
+        }
+        if (!saved.isEmpty()) {
+            p.edit().remove("original_home").putString("original_home_invalid", saved).apply();
+            TaskBridgeClient.sync(context);
+        }
+        return "";
+    }
+    static void syncTrackedHomeAfterPackageChange(Context context) {
+        SharedPreferences p = prefs(context);
+        String saved = p.getString("original_home", "");
+        if (saved.isEmpty() || isValidTrackedHome(context, saved)) return;
+        String replacement = discoverUniqueOtherHome(context);
+        SharedPreferences.Editor e = p.edit();
+        if (!replacement.isEmpty()) e.putString("original_home", replacement).remove("original_home_invalid");
+        else e.remove("original_home").putString("original_home_invalid", saved);
+        e.apply();
+        TaskBridgeClient.sync(context);
     }
     static void refreshHomeService(Context context) {
         SharedPreferences p = prefs(context);
@@ -382,7 +502,7 @@ final class SystemIntegration {
     }
     private static void permissionHelp(Activity activity, DialogHost host) {
         host.show(new TvDialog.Builder(activity).setTitle("此功能需要系统允许")
-                .setMessage("ADB 自动恢复属于高级功能，需要一次系统授权。\n\n如果只想让 Home 回到 Marco TV，先使用「桌面启用」，标准桌面选择无需这项权限。\n\n需要高级功能时，可在更多设置方式中尝试本机增强设置，或用手机查看授权说明。")
+                .setMessage("ADB 自动恢复属于高级功能，需要一次系统授权。\n\n如果只想让 Home 回到 Marco TV，先使用「桌面启用」，标准桌面选择或手动辅助功能无需这项权限。\n\n需要高级功能时，可在更多设置方式中尝试本机普通网络调试（5555 端口）；仅提供无线配对码时，请在电脑使用官方 Android Platform Tools 按完整说明操作（安装助手 1.0.1 仅用于普通网络 ADB 安装和打开应用）。")
                 .setPositiveButton("打开桌面启用", (d,w)->((MainActivity)activity).defaultHome.show())
                 .setNeutralButton("手机查看向导", (d,w)->((MainActivity)activity).defaultHome.assistant())
                 .setNegativeButton("稍后", null).create());
@@ -436,7 +556,7 @@ final class SystemIntegration {
     }
     static void showDebugHelp(Activity activity, DialogHost host) {
         host.show(new TvDialog.Builder(activity).setTitle("调试与授权")
-                .setMessage("可在「桌面启用」中尝试一键设置。需要时在电视打开网络调试并允许连接；不支持本机授权的电视可使用手机或电脑助手。\n\n卸载应用或恢复出厂设置后可能需要重新授权。持续调试恢复需另行开启，端口能否恢复取决于电视固件。")
+                .setMessage("可在「桌面启用」中优先使用系统默认桌面选择或手动辅助功能（无需调试）。需要系统授权时，可在电视开启普通网络调试（5555 端口）并在本机尝试；若电视仅提供无线配对码，请改用手动辅助功能，或在电脑使用官方 Android Platform Tools（adb pair / adb connect）按完整说明操作。\n\n手机／Windows 安装助手 1.0.1 仅负责通过普通网络 ADB 安装和打开应用，不支持配对码。卸载应用或恢复出厂设置后可能需要重新授权；持续调试恢复需另行开启，端口能否恢复取决于电视固件。")
                 .setPositiveButton("查看授权方法", (dialog, button) -> permissionHelp(activity, host))
                 .setNegativeButton("返回", null).create());
     }
@@ -452,7 +572,7 @@ final class SystemIntegration {
                 "恢复设置前的桌面", "唤醒后恢复桌面：" + (activity.getSharedPreferences("home",0).getBoolean("recent_wake",true)?"已开启":"未开启"), "立即执行已启用的恢复", "调试与授权说明",
                 "Home 长按与原厂兼容"};
         host.show(new TvDialog.Builder(activity).setPageId("startup").setTitle("系统与启动")
-                .setMessage("当前默认桌面：" + (ownHome ? "Marco TV" : "厂商或其他桌面")
+                .setMessage("当前默认桌面：" + (BuildEdition.RESTRICTED ? "受限兼容版不含系统默认桌面声明" : ownHome ? "Marco TV" : "厂商或其他桌面")
                 + "\n唤醒恢复还需开启 Home 兼容并连接任务辅助服务；只打开偏好不代表已经生效。"
                 + (ownHome ? "" : "\n需要设置或修复时，选择「桌面启用与检查」，按本机检测结果继续。"))
                 .setOrder("startup","adb","status","home","boot","home_key","restore","wake","recover","help","home_gestures")

@@ -391,10 +391,33 @@ public final class LiteActivity extends Activity {
         return key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER
                 ||key==KeyEvent.KEYCODE_NUMPAD_ENTER||key==KeyEvent.KEYCODE_BUTTON_A;
     }
+    boolean declaresHome(){
+        try{
+            List<ResolveInfo> list=getPackageManager().queryIntentActivities(
+                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(getPackageName()),0);
+            return list!=null&&!list.isEmpty();
+        }catch(Exception ignored){
+            return false;
+        }
+    }
+    int defaultHomeState(){
+        boolean declares=declaresHome();
+        String resolvedPkg="",resolvedCls="";
+        try{
+            ResolveInfo r=getPackageManager().resolveActivity(
+                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addCategory(Intent.CATEGORY_DEFAULT),
+                    PackageManager.MATCH_DEFAULT_ONLY);
+            if(r!=null&&r.activityInfo!=null){
+                resolvedPkg=r.activityInfo.packageName;
+                resolvedCls=r.activityInfo.name;
+            }
+        }catch(Exception ignored){}
+        Intent current=getIntent();
+        boolean fromHome=current!=null&&Intent.ACTION_MAIN.equals(current.getAction())&&current.hasCategory(Intent.CATEGORY_HOME);
+        return LiteSettings.homeState(declares,getPackageName(),resolvedPkg,resolvedCls,fromHome);
+    }
     boolean isDefaultHome(){
-        if(getIntent()!=null&&getIntent().hasCategory(Intent.CATEGORY_HOME))return true;
-        ResolveInfo r=getPackageManager().resolveActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),PackageManager.MATCH_DEFAULT_ONLY);
-        return r!=null&&r.activityInfo!=null&&getPackageName().equals(r.activityInfo.packageName);
+        return LiteSettings.isDefaultHomeState(defaultHomeState());
     }
     void launch(App app){
         try{
@@ -412,6 +435,10 @@ public final class LiteActivity extends Activity {
         }
     }
     void openHomeSettings(){
+        if(!declaresHome()){
+            toast("受限版不含默认桌面入口，请直接从应用列表启动");
+            return;
+        }
         try{
             startActivity(new Intent("android.settings.HOME_SETTINGS"));
         }catch(Exception e){
@@ -1702,7 +1729,7 @@ public final class LiteActivity extends Activity {
                         "画面："+getWidth()+" × "+getHeight(),
                         "应用："+catalog.size()+" 个（收藏 "+favorites.size()+" · 隐藏 "+hiddenCount()+"）",
                         "壁纸："+wallName+" · 排序："+sortModeLabel()+" · 休眠："+LiteSettings.sleepLabel(host.sleepMinutes()),
-                        "默认桌面："+(isDefaultHome()?"当前已生效":"由电视系统决定"),
+                        "默认桌面："+LiteSettings.homeStateLabel(defaultHomeState()),
                         "云端视频壁纸 / 投屏 / 手机互联 / 最近任务：Lite 版未提供",
                         "安装说明：小米盒子若提示安装包异常请断网或 ADB 安装"
                 }:new String[]{

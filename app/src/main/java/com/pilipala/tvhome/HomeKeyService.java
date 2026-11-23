@@ -66,7 +66,7 @@ public final class HomeKeyService extends AccessibilityService {
         android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
         return inputGate.allow(power!=null&&power.isInteractive(),SystemClock.elapsedRealtime());
     }
-    private Intent homePressIntent(){
+    private Intent homePressIntent(String source){
         long now=SystemClock.elapsedRealtime();
         lastOpen=now;
         boolean twice=false;
@@ -77,7 +77,9 @@ public final class HomeKeyService extends AccessibilityService {
         }else{
             homePressTracker.reset();
         }
-        return SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",twice);
+        Intent intent=SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",twice);
+        if(!twice&&source!=null&&!source.isEmpty())intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,HomeSetup.issueHomeEvent(this,source));
+        return intent;
     }
     private boolean handlingHome;
     private boolean receiverRegistered;
@@ -91,11 +93,7 @@ public final class HomeKeyService extends AccessibilityService {
         return power!=null&&power.isInteractive();
     }
     private boolean isOriginalHomePackage(String shown){
-        if(shown==null||getPackageName().equals(shown))return false;
-        ComponentName original=ComponentName.unflattenFromString(SystemIntegration.prefs(this).getString("original_home",""));
-        if(original==null||getPackageName().equals(original.getPackageName()))return false;
-        return original.getPackageName().equals(shown)
-                ||(original.getPackageName().equals("com.mitv.tvhome")&&shown.equals("com.xiaomi.eetv.litehome"));
+        return SystemIntegration.matchesTrackedHomePackage(this,shown);
     }
     private static boolean isWakeSystemOverlay(String pkg){
         return "com.android.systemui".equals(pkg)||"com.xiaomi.mitv.systemui".equals(pkg)||"android".equals(pkg);
@@ -130,6 +128,7 @@ public final class HomeKeyService extends AccessibilityService {
                 nativeHome(),HomeSetup.unlocked(this),
                 canRedirect()&&now>=suppressUntil,otherSeen,originalSeen||standbyReturn))return;
         try{
+            HomeSetup.noteStandbyWake(this);
             startActivity(SystemIntegration.homeIntent(this).putExtra("wake_recovery",true));
             Diagnostics.event("HOME_WAKE_RECOVERY");
             Log.i("MarcoTVSystem","HOME wake recovery");
@@ -148,10 +147,12 @@ public final class HomeKeyService extends AccessibilityService {
                 handler.removeCallbacks(fallback);
                 handler.removeCallbacks(wakeCheck);
                 if(on){
+                    HomeSetup.noteStandbyWake(c);
                     wakeOriginalSeen=now-lastOriginalHomeAt<=1500;
                     wakeOtherAppSeen=false;
                     scheduleWakeCheck(900);
                 }else{
+                    HomeSetup.noteStandbyWake(c);
                     wasOriginalHomeBeforeSleep=isOriginalHomePackage(lastActivePackage);
                     wakeOriginalSeen=false;
                     wakeOtherAppSeen=false;
@@ -171,11 +172,12 @@ public final class HomeKeyService extends AccessibilityService {
             if(SystemClock.elapsedRealtime()-lastDirect<200)return;
             handler.removeCallbacks(fallback);
             try {
-                startActivity(homePressIntent());
+                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_BROADCAST));
                 Diagnostics.event("HOME_BROADCAST_HANDLED");
                 Log.i("MarcoTVSystem", "HOME broadcast handled");
             }
             catch (RuntimeException e) {
+                HomeSetup.clearPendingHomeEvent(c);
                 Log.w("MarcoTVSystem", "Home broadcast unavailable", e);
             }
         }
@@ -211,11 +213,13 @@ public final class HomeKeyService extends AccessibilityService {
         if (!canRedirect()||nativeHome()||SystemClock.elapsedRealtime()<suppressUntil||!SystemIntegration.prefs(this)
                 .getBoolean("home_compat", false)) return;
         try {
-            startActivity(SystemIntegration.homeIntent(this));
+            String token = HomeSetup.issueHomeEvent(this, HomeSetup.SOURCE_WINDOW_FALLBACK);
+            startActivity(SystemIntegration.homeIntent(this).putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token));
             Diagnostics.event("HOME_WINDOW_FALLBACK");
             Log.i("MarcoTVSystem", "HOME window fallback");
         }
         catch (RuntimeException e) {
+            HomeSetup.clearPendingHomeEvent(this);
             Log.w("MarcoTVSystem", "Home redirection failed", e);
         }
     };
@@ -256,10 +260,11 @@ public final class HomeKeyService extends AccessibilityService {
         if(consumed&&!held&&!event.isCanceled()){
             lastDirect=SystemClock.elapsedRealtime();
             try{
-                startActivity(homePressIntent());
+                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_KEY));
                 Diagnostics.event("HOME_DIRECT_HANDLED");
             }
             catch(RuntimeException e){
+                HomeSetup.clearPendingHomeEvent(this);
                 Log.w("MarcoTVSystem","Direct HOME failed",e);
             }
         }

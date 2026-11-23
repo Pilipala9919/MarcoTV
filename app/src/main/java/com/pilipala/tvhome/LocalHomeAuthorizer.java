@@ -91,7 +91,7 @@ final class LocalHomeAuthorizer {
                 else if (issue == HomeDeviceGuide.Issue.NONE) issue = HomeDeviceGuide.Issue.SYSTEM;
                 result = (restore ? "桌面恢复尚未完成。\n" : "自动设置未完成。\n")
                         + HomeDeviceGuide.explanation(issue);
-                result += "\n已执行的步骤可能保留，请查看当前状态或恢复设置。普通网络调试仅支持本机 5555 端口，暂不支持配对码。";
+                result += "\n已执行的步骤可能保留，请查看当前状态或恢复设置。连接失败不足以判定电视仅支持配对码；普通网络调试仅支持本机 5555 端口，若确认仅提供无线配对码，请改用手动辅助功能或电脑 Android Platform Tools。";
                 Diagnostics.event(restore ? "HOME_AUTO_RESTORE_INCOMPLETE" : "HOME_AUTO_SETUP_INCOMPLETE");
                 // A previously granted settings permission survives ADB being switched off.
                 // Only an explicit, still-live setup may use it; timeout/cancel never does.

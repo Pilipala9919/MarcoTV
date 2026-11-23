@@ -167,6 +167,98 @@ public final class HomeAutoChecks {
         check("bridge_ps_parses_busybox_pid_column",
                 Collections.singletonList("9001").equals(HomeShellSetup.parseBridgePids(
                         "  PID USER       VSZ STAT COMMAND\n    1 root      1420 S    /init\n 9001 shell    48204 S    marcotv-task-br\n")));
+        String mitv4HeaderOnly = "USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n";
+        String validNoBridge = mitv4HeaderOnly
+                + "root      1     0     1420   804   SyS_epoll_ 00000000 S /init\n"
+                + "system    921   1     98760  14200 SyS_epoll_ 00000000 S system_server\n";
+        check("mitv4_header_only_rejected_as_valid_listing",
+                HomeShellSetup.hasPsHeader(mitv4HeaderOnly) && !HomeShellSetup.hasValidPsListing(mitv4HeaderOnly)
+                && HomeShellSetup.parseBridgePids(mitv4HeaderOnly).isEmpty());
+        check("valid_system_process_list_without_bridge_accepted",
+                HomeShellSetup.hasValidPsListing(validNoBridge) && HomeShellSetup.parseBridgePids(validNoBridge).isEmpty());
+        check("similar_cmdline_identity_rejected",
+                HomeShellSetup.isBridgeCmdline("marcotv-task-bridge\0")
+                && HomeShellSetup.isBridgeCmdline("app_process /system/bin com.pilipala.tvhome.TaskBridgeServer 10059 0")
+                && !HomeShellSetup.isBridgeCmdline("marcotv-task-bridge-other")
+                && !HomeShellSetup.isBridgeCmdline("app_process /system/bin com.pilipala.tvhome.TaskBridgeServerFake 10059 0"));
+        List<String> mitv4Cmds = new ArrayList<>();
+        HomeShellSetup mitv4Shell = new HomeShellSetup(cmd -> {
+            mitv4Cmds.add(cmd);
+            if (cmd.equals("id -u")) return "2000";
+            if (cmd.startsWith("ps -A ")) return mitv4HeaderOnly;
+            if (cmd.equals("ps 2>/dev/null")) return validNoBridge
+                    + "shell     17574 1     1523480 48204 SyS_epoll_ 00000000 S marcotv-task-bridge\n";
+            if (cmd.startsWith("tr ") && cmd.contains("/proc/17574/")) return "marcotv-task-bridge";
+            return "";
+        }, 0);
+        mitv4Shell.authenticate();
+        HomeShellSetup.ProcessListStatus mitv4Status = mitv4Shell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk", 10059);
+        check("mitv4_header_only_falls_back_to_plain_ps",
+                mitv4Status == HomeShellSetup.ProcessListStatus.VERIFIED
+                && mitv4Cmds.contains("ps 2>/dev/null")
+                && mitv4Cmds.contains("kill 17574 2>/dev/null"));
+        List<String> validEmptyCmds = new ArrayList<>();
+        HomeShellSetup validNoBridgeShell = new HomeShellSetup(cmd -> {
+            validEmptyCmds.add(cmd);
+            if (cmd.equals("id -u")) return "2000";
+            if (cmd.startsWith("ps -A ")) return validNoBridge;
+            return "";
+        }, 0);
+        validNoBridgeShell.authenticate();
+        HomeShellSetup.ProcessListStatus emptyStatus = validNoBridgeShell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk", 10059);
+        check("valid_list_without_bridge_does_not_fallback_or_kill",
+                emptyStatus == HomeShellSetup.ProcessListStatus.VERIFIED
+                && !validEmptyCmds.contains("ps 2>/dev/null")
+                && validEmptyCmds.stream().noneMatch(c -> c.startsWith("kill ")));
+        List<String> unusableCmds = new ArrayList<>();
+        HomeShellSetup unusableShell = new HomeShellSetup(cmd -> {
+            unusableCmds.add(cmd);
+            if (cmd.equals("id -u")) return "2000";
+            if (cmd.startsWith("ps -A ")) return mitv4HeaderOnly;
+            if (cmd.equals("ps 2>/dev/null")) return "";
+            return "";
+        }, 0);
+        unusableShell.authenticate();
+        HomeShellSetup.ProcessListStatus unusableStatus = unusableShell.startTaskBridge("/data/app/com.pilipala.tvhome-1/base.apk", 10059);
+        check("both_ps_unusable_reports_unverifiable",
+                unusableStatus == HomeShellSetup.ProcessListStatus.UNVERIFIABLE
+                && unusableCmds.contains("ps 2>/dev/null")
+                && unusableCmds.stream().noneMatch(c -> c.startsWith("kill ")));
+        List<String> fakeNameCmds = new ArrayList<>();
+        HomeShellSetup fakeNameShell = new HomeShellSetup(cmd -> {
+            fakeNameCmds.add(cmd);
+            if (cmd.equals("id -u")) return "2000";
+            if (cmd.startsWith("ps -A ")) return mitv4HeaderOnly
+                    + "root 1 0 1420 804 0 0 S /init\n"
+                    + "shell 18888 1 1523480 48204 0 0 S marcotv-task-br\n"
+                    + "shell 18889 1 1523480 48204 0 0 S com.pilipala.tvhome.TaskBridgeServerFake\n";
+            if (cmd.startsWith("tr ") && cmd.contains("/proc/18888/")) return "marcotv-task-bridge-other";
+            return "";
+        }, 0);
+        fakeNameShell.authenticate();
+        HomeShellSetup.ProcessProbe fakeProbe = fakeNameShell.probeBridgeProcesses();
+        check("similar_name_wrong_identity_never_matched_or_killed",
+                fakeProbe.status == HomeShellSetup.ProcessListStatus.VERIFIED
+                && fakeProbe.bridgePids.isEmpty()
+                && fakeNameCmds.stream().noneMatch(c -> c.startsWith("kill ")));
+        int[] exitPoll = {0};
+        HomeShellSetup exitingShell = new HomeShellSetup(cmd -> {
+            if (cmd.equals("id -u")) return "2000";
+            if (cmd.startsWith("ps -A ")) {
+                exitPoll[0]++;
+                return exitPoll[0] == 1
+                        ? validNoBridge + "shell 19999 1 1523480 48204 0 0 S marcotv-task-bridge\n"
+                        : validNoBridge;
+            }
+            if (cmd.startsWith("tr ") && cmd.contains("/proc/19999/")) return "marcotv-task-bridge";
+            return "";
+        }, 0);
+        exitingShell.authenticate();
+        HomeShellSetup.ProcessProbe firstPoll = exitingShell.probeBridgeProcesses();
+        HomeShellSetup.ProcessProbe secondPoll = exitingShell.probeBridgeProcesses();
+        check("service_exiting_after_start_not_seen_on_recheck",
+                firstPoll.status == HomeShellSetup.ProcessListStatus.VERIFIED && firstPoll.bridgePids.equals(Collections.singletonList("19999"))
+                && secondPoll.status == HomeShellSetup.ProcessListStatus.VERIFIED && secondPoll.bridgePids.isEmpty());
         System.out.println("OK "+passed+" automatic HOME execution checks (simulated firmware, not device proof)");
     }
 }

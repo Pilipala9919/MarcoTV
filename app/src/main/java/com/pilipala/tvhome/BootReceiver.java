@@ -9,12 +9,14 @@ import android.util.Log;
 
 public final class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
+        if (intent == null) return;
         String action = intent.getAction();
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
         SystemIntegration.prefs(context).edit().putString("last_boot_action", action)
                 .putLong("last_boot_time", System.currentTimeMillis()).apply();
+        HomeSetup.onBootBroadcast(context, action);
         Diagnostics.event("BOOT_RECOVERY_REQUESTED");
         boolean nativeReset = false;
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
@@ -31,10 +33,13 @@ public final class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) SystemIntegration.refreshHomeService(context);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && (nativeReset || HomeSetup.shouldOpenAfterBoot(context, true))) {
+            String token = HomeSetup.beginBootRecoveryRequest(context);
             try {
-                context.startActivity(SystemIntegration.homeIntent(context).putExtra("setup_boot_return", true));
+                context.startActivity(SystemIntegration.homeIntent(context)
+                        .putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token));
             }
             catch (RuntimeException e) {
+                HomeSetup.markBootRecoveryLaunchDenied(context);
                 Log.w("MarcoTVSystem", "Boot activity unavailable", e);
             }
         }

@@ -14,11 +14,20 @@ final class StatusSnapshot {
     static String local(Context c){
         SharedPreferences p=SystemIntegration.prefs(c);
         boolean adb=Settings.Global.getInt(c.getContentResolver(),Settings.Global.ADB_ENABLED,0)==1;
-        return "默认桌面："+(SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面")
+        String currentHome=SystemIntegration.currentHome(c);
+        String tracked=SystemIntegration.trackedHome(c);
+        String trackedLine=SystemIntegration.trackedHomeInvalid(c)
+                ?"已失效（"+SystemIntegration.trackedHomeInvalidName(c)+"），无可靠替代，已停止窗口回拉"
+                :tracked.isEmpty()?"未记录":tracked;
+        String confirmed=HomeSetup.bootConfirmationStatus(c);
+        return "原生默认桌面："+(BuildEdition.RESTRICTED?"受限兼容版不含 HOME 声明":SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面（"+(currentHome.isEmpty()?"未指定":currentHome)+"）")
                 +"\n系统设置授权："+(SystemIntegration.authorized(c)?"已授权":"未授权")
-                +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务"+(HomeKeyService.connected?"已连接":"未连接")
+                +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务："+HomeSetup.serviceStatusLabel(c)
+                +"\n兼容回拉目标："+trackedLine
+                +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
                 +"\nHome 原厂按键："+(p.getBoolean("home_native_keys",false)?"放行":"Marco 处理")+" / 长按："+p.getString("home_long_action","system")
-                +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启（待开机实测）":"未开启")
+                +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)
+                +(confirmed.isEmpty()?"":"\n开机人工确认："+confirmed)
                 +"\nADB 自动恢复："+SystemIntegration.adbRestoreLabel(c)+" / 调试开关"+(adb?"已打开":"已关闭")
                 +"\n恢复服务："+(RecoveryService.running?"运行中":"未运行")
                 +"\n最近恢复检查："+HealthPanel.date(p.getLong("last_check",0))

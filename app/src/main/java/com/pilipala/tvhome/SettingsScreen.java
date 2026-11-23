@@ -611,11 +611,14 @@ final class SettingsScreen extends LinearLayout {
                 } else if (HomeKeyService.connected) {
                     text = "● Home 兼容已连接";
                     fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
+                } else if (HomeSetup.serviceEnabled(host)) {
+                    text = "● Home 服务未绑定";
+                    fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
                 } else if (HomeSetup.paused(host)) {
                     text = "● 已暂停接管";
                     fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
                 } else {
-                    text = "● 原厂桌面";
+                    text = BuildEdition.RESTRICTED ? "● 受限兼容版" : "● 原厂桌面";
                 }
                 break;
             case SettingsTaxonomy.NETWORK:
@@ -694,8 +697,9 @@ final class SettingsScreen extends LinearLayout {
             case "default_home":
                 if (SystemIntegration.homeIsOurs(host)) return "Marco TV 默认";
                 if (HomeKeyService.connected) return "Home 兼容已就绪";
+                if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
                 if (HomeSetup.paused(host)) return "已暂停";
-                return "未启用";
+                return BuildEdition.RESTRICTED ? "受限兼容 · 未启用" : "未启用";
             case "home_gestures": {
                 if (sys.getBoolean("home_native_keys", false)) return "原厂按键";
                 String a = sys.getString("home_long_action", "system");

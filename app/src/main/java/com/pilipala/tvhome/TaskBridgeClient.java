@@ -24,7 +24,11 @@ final class TaskBridgeClient {
             service=null;
         }
     }
-    private static final java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"Marco-bridge-sync");
+        t.setDaemon(true);
+        return t;
+    });
     static void sync(Context c){
         Context app=c.getApplicationContext();
         worker.execute(()->{
@@ -58,11 +62,15 @@ final class TaskBridgeClient {
     static JSONObject task(String action,int id)throws Exception{
         return call(new JSONObject().put("action",action).put("id",id));
     }
+    static String configuredHomePackage(Context context){
+        ComponentName original=ComponentName.unflattenFromString(SystemIntegration.trackedHome(context));
+        return original==null?"":original.getPackageName();
+    }
     static JSONObject configure(Context context)throws Exception{
-        ComponentName original=ComponentName.unflattenFromString(SystemIntegration.prefs(context).getString("original_home",""));
+        String homePkg=configuredHomePackage(context);
         boolean wakePref=!HomeSetup.unlocked(context)||context.getSharedPreferences("home",0).getBoolean("recent_wake",true);
-        boolean enabled=SystemIntegration.prefs(context).getBoolean("home_compat",false)&&wakePref;
-        call(new JSONObject().put("action","configure").put("wake",enabled).put("home",original==null?"":original.getPackageName()));
+        boolean enabled=SystemIntegration.prefs(context).getBoolean("home_compat",false)&&wakePref&&!homePkg.isEmpty();
+        call(new JSONObject().put("action","configure").put("wake",enabled).put("home",homePkg));
         return request("status");
     }
 }

@@ -90,7 +90,8 @@ public final class HomeSetupDeviceChecks extends Instrumentation {
                 HomeSetup.observeHomeIntent(host,new Intent().setClass(host,MainActivity.class));
                 check("normal_launch_does_not_pass_home_test",!p.contains("setup_home_seen"));
                 HomeSetup.observeHomeIntent(host,new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
-                check("home_evidence_requires_available_boot_counter",p.contains("setup_home_seen")== (HomeSetup.bootCount(host)>=0));
+                check("home_evidence_verifies_within_same_session_with_source",
+                        p.contains("setup_home_seen")&&HomeSetup.SOURCE_SYSTEM_HOME.equals(p.getString("setup_home_source","")));
                 p.edit().remove("setup_home_seen").putLong("setup_home_deadline",0).commit();
                 HomeSetup.observeHomeIntent(host,new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
                 check("expired_test_does_not_pass",!p.contains("setup_home_seen"));

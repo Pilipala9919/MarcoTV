@@ -26,6 +26,17 @@ for(const sys of ['android','unknown','other'])for(const dev of ['windows','andr
 for(const sys of ['unknown','other'])assert(!c.homeRoute(sys).download);
 const home=c.homeRoute('android');assert(home.docs&&!home.download&&home.steps.length===4);
 assert(home.limit.includes('0.21.2')&&home.limit.includes('不自动授权'));
+const homeText=home.steps.join('\n')+'\n'+home.limit;
+assert(homeText.includes('辅助功能')&&homeText.includes('Android Platform Tools')&&homeText.includes('adb pair'));
+assert(!homeText.includes('查看助手说明'));
+for(const dev of ['windows','android','iphone','other']){
+ const pair=c.route('android',dev,'pair');
+ assert(!pair.download,'pairing-only TV must not offer 1.0.1 installer download');
+ assert(pair.docs,'pairing-only TV must link full Platform Tools pairing docs');
+ const pairText=pair.intro+'\n'+pair.steps.join('\n')+'\n'+pair.limit;
+ assert(pairText.includes('Android Platform Tools')&&pairText.includes('adb pair')&&pairText.includes('adb connect'));
+ assert(pairText.includes('不支持无线配对码')||pairText.includes('请勿使用 1.0.1 安装助手尝试配对'));
+}
 element('system').value='android';c.render();
 assert.equal(element('routeTitle').textContent,home.title);
 assert.equal(element('steps').children.length,4);

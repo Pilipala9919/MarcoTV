@@ -106,6 +106,7 @@ public final class MainActivity extends Activity {
     private final BroadcastReceiver packageChanges = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent.getData() != null) ArtworkCache.invalidatePackage(intent.getData().getSchemeSpecificPart());
+            SystemIntegration.syncTrackedHomeAfterPackageChange(MainActivity.this);
             loadApplications();
         }
     };
@@ -114,7 +115,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         normalizeViewportMetrics();
         HomeSetup.finishCompatibilityConsent(this);
-        HomeSetup.observeHomeIntent(this, getIntent());
+        HomeSetup.observeHomeIntent(this, getIntent(), getIntent().getBooleanExtra("recent_apps", false), state != null);
         SystemIntegration.clearStandbyWakeReturn(this);
         HomeSetup.markCompatResetIfInterrupted(this);
         Diagnostics.init(this);
@@ -327,11 +328,11 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        HomeSetup.observeHomeIntent(this, intent);
         boolean recent=intent.getBooleanExtra("recent_apps",false);
         if(!intent.getBooleanExtra("home_press_handled",false)&&intent.hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())recent=homePressTracker.press(SystemClock.elapsedRealtime(),
                 preferences.getInt("recent_double_ms",400));
         else if(!intent.hasCategory(Intent.CATEGORY_HOME))homePressTracker.reset();
+        HomeSetup.observeHomeIntent(this, intent, recent, false);
         recents.close();
         if(cast!=null&&cast.isPlaying())cast.stopPlayback();
         closeMenus();
@@ -418,6 +419,7 @@ public final class MainActivity extends Activity {
         return dialogs.isPage(id);
     }
     void closeMenus(){
+        if(defaultHome!=null)defaultHome.cancelPending();
         if(backups!=null)backups.cancel();
         if(network!=null)network.cancelPending();
         menuEpoch++;
@@ -445,6 +447,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if(request==812&&defaultHome!=null){defaultHome.onPickerResult(result);return;}
         if(updates!=null&&updates.result(request))return;
         if (files.result(request,result,data)) return;
         if (network.onActivityResult(request)) return;

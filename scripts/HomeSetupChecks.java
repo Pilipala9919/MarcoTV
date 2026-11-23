@@ -16,17 +16,50 @@ public final class HomeSetupChecks {
         check("manual_accessibility_without_adb",HomeSetupPolicy.route(false,false,false,false,false,true)==HomeSetupPolicy.Route.ACCESSIBILITY);
         check("blocked_standard_routes_use_enhanced_help",HomeSetupPolicy.route(false,false,false,false,false,false)==HomeSetupPolicy.Route.ENHANCED);
         check("disabled_service_not_ready",HomeSetupPolicy.route(false,false,false,true,false,false)==HomeSetupPolicy.Route.ENHANCED);
+        check("start_action_routes_accessibility_to_compatibility",
+                HomeSetupPolicy.startAction(HomeSetupPolicy.Route.ACCESSIBILITY)==HomeSetupPolicy.StartAction.COMPATIBILITY);
+        check("start_action_routes_enhanced_to_local_authorization",
+                HomeSetupPolicy.startAction(HomeSetupPolicy.Route.ENHANCED)==HomeSetupPolicy.StartAction.LOCAL_AUTHORIZATION);
+        check("paused_resume_reroutes_to_picker",
+                HomeSetupPolicy.effectiveStartRoute(HomeSetupPolicy.Route.PAUSED,false,true,false,false,true)==HomeSetupPolicy.Route.SYSTEM_PICKER);
+        check("paused_resume_reroutes_to_accessibility",
+                HomeSetupPolicy.effectiveStartRoute(HomeSetupPolicy.Route.PAUSED,false,false,false,false,true)==HomeSetupPolicy.Route.ACCESSIBILITY);
+        check("paused_resume_reroutes_to_native_ready",
+                HomeSetupPolicy.effectiveStartRoute(HomeSetupPolicy.Route.PAUSED,true,true,false,false,true)==HomeSetupPolicy.Route.NATIVE_READY);
         for (int flags=0;flags<64;flags++) {
             boolean requested=(flags&1)!=0,paused=(flags&2)!=0,nativeHome=(flags&4)!=0,compat=(flags&8)!=0,service=(flags&16)!=0,unlocked=(flags&32)!=0;
             check("boot_combination_"+flags,HomeSetupPolicy.bootFallback(requested,paused,nativeHome,compat,service,unlocked)
                     ==(requested&&!paused&&!nativeHome&&compat&&service&&unlocked));
         }
-        check("home_arrival_in_window",HomeSetupPolicy.homeEvidence(true,3,3,90000,20000,true));
-        check("ordinary_app_launch_not_home",!HomeSetupPolicy.homeEvidence(true,3,3,90000,20000,false));
-        check("expired_home_test",!HomeSetupPolicy.homeEvidence(true,3,3,90000,90001,true));
-        check("home_test_does_not_survive_reboot",!HomeSetupPolicy.homeEvidence(true,3,4,90000,20000,true));
-        check("unknown_boot_cannot_verify",!HomeSetupPolicy.homeEvidence(true,-1,-1,90000,20000,true));
-        check("unarmed_home_not_verified",!HomeSetupPolicy.homeEvidence(false,3,3,90000,20000,true));
+        check("home_arrival_in_window",HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("window_fallback_counts_in_home_test",HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.WINDOW_FALLBACK));
+        check("compat_key_counts_in_home_test",HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.COMPAT_KEY));
+        check("compat_broadcast_counts_in_home_test",HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.COMPAT_BROADCAST));
+        check("ordinary_app_launch_not_home",!HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.NONE));
+        check("expired_home_test",!HomeSetupPolicy.homeEvidence(true,3,3,10000,100000,100001,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("home_test_does_not_survive_reboot",!HomeSetupPolicy.homeEvidence(true,3,4,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("api23_missing_boot_count_verifies_in_session",HomeSetupPolicy.homeEvidence(true,-1,-1,10000,100000,25000,true,HomeSetupPolicy.HomeReturnSource.COMPAT_KEY));
+        check("api23_invalidated_session_cannot_verify",!HomeSetupPolicy.homeEvidence(true,-1,-1,10000,100000,25000,false,HomeSetupPolicy.HomeReturnSource.COMPAT_KEY));
+        check("api23_monotonic_regression_cannot_verify",!HomeSetupPolicy.homeEvidence(true,-1,-1,50000,140000,10000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("mixed_known_and_unknown_boot_cannot_verify",
+                !HomeSetupPolicy.homeEvidence(true,-1,4,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME)
+                &&!HomeSetupPolicy.homeEvidence(true,3,-1,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("unarmed_home_not_verified",!HomeSetupPolicy.homeEvidence(false,3,3,10000,100000,20000,true,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME));
+        check("boot_recovery_requires_pending_request",
+                HomeSetupPolicy.bootRecoveryEvidence(true,false,true,3,4,4,5000,65000,12000)
+                &&!HomeSetupPolicy.bootRecoveryEvidence(true,false,false,3,4,4,5000,65000,12000));
+        check("boot_recovery_works_on_api23_with_valid_request",
+                HomeSetupPolicy.bootRecoveryEvidence(true,false,true,-1,-1,-1,5000,65000,12000));
+        check("boot_recovery_rejects_same_boot_or_expired",
+                !HomeSetupPolicy.bootRecoveryEvidence(true,false,true,3,3,3,5000,65000,12000)
+                &&!HomeSetupPolicy.bootRecoveryEvidence(true,false,true,3,4,4,5000,65000,65001));
+        check("native_boot_observation_only_for_first_native_home",
+                HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,false,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.COMPAT_KEY,false,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.WINDOW_FALLBACK,false,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,true,false)
+                &&!HomeSetupPolicy.nativeBootObservation(true,false,true,3,4,15000,HomeSetupPolicy.HomeReturnSource.SYSTEM_HOME,false,true));
         check("new_boot_arrival_recordable",HomeSetupPolicy.bootEvidence(3,4,10000,true));
         check("same_boot_not_reboot",!HomeSetupPolicy.bootEvidence(3,3,10000,true));
         check("manual_launch_not_auto_boot",!HomeSetupPolicy.bootEvidence(3,4,10000,false));

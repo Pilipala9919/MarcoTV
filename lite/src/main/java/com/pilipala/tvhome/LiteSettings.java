@@ -5,6 +5,11 @@ package com.pilipala.tvhome;
 /** Small, API-independent schema shared by editor, backup validation and tests. */
 final class LiteSettings {
     static final String VERSION="0.3.0";
+    static final int HOME_STATE_DEFAULT=0;
+    static final int HOME_STATE_ONCE=1;
+    static final int HOME_STATE_UNSET=2;
+    static final int HOME_STATE_OTHER=3;
+    static final int HOME_STATE_RESTRICTED=4;
     static final int CORE_COUNT=11;
     static final float CARD_GAP=30f;
     static final float SHELF_START_X=112f;
@@ -141,5 +146,28 @@ final class LiteSettings {
         String name=cover.substring(6);
         if(name.length()==0||name.indexOf('/')>=0||name.indexOf('\\')>=0||name.indexOf("..")>=0)return null;
         return name;
+    }
+    static int homeState(boolean declaresHome,String ownPackage,String resolvedPackage,String resolvedClass,boolean launchedWithHomeIntent){
+        if(!declaresHome||ownPackage==null||ownPackage.length()==0)return HOME_STATE_RESTRICTED;
+        boolean placeholder=resolvedPackage==null||resolvedPackage.length()==0
+                ||"android".equals(resolvedPackage)
+                ||"com.android.settings".equals(resolvedPackage)
+                ||"com.android.tv.settings".equals(resolvedPackage)
+                ||(resolvedClass!=null&&(resolvedClass.endsWith("ResolverActivity")
+                ||resolvedClass.endsWith("FallbackHome")
+                ||resolvedClass.endsWith("EmptyStubActivity")));
+        if(!placeholder&&ownPackage.equals(resolvedPackage))return HOME_STATE_DEFAULT;
+        if(!placeholder)return HOME_STATE_OTHER;
+        return launchedWithHomeIntent?HOME_STATE_ONCE:HOME_STATE_UNSET;
+    }
+    static boolean isDefaultHomeState(int state){
+        return state==HOME_STATE_DEFAULT;
+    }
+    static String homeStateLabel(int state){
+        if(state==HOME_STATE_DEFAULT)return "当前已生效";
+        if(state==HOME_STATE_ONCE)return "仅此次打开（尚未设为默认）";
+        if(state==HOME_STATE_UNSET)return "尚未设为默认（等待系统确认）";
+        if(state==HOME_STATE_RESTRICTED)return "普通应用模式（受限版不含默认桌面）";
+        return "尚未设为默认（当前为原厂或其他桌面）";
     }
 }
