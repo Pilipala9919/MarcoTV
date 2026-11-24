@@ -50,6 +50,7 @@ public final class HomeKeyServiceChecks {
         HomeSetup.resetProcessSessionForTest();
         SystemIntegration.resetRebindStateForTest();
         Settings.Secure.failNextPutStrings = 0;
+        Settings.Secure.failNextPutInts = 0;
         Diagnostics.events.clear();
         Settings.Global.ints.clear();
         Settings.Secure.ints.clear();
@@ -524,6 +525,143 @@ public final class HomeKeyServiceChecks {
                 && Diagnostics.events.contains("HOME_SERVICE_REBOUND")
                 && "已连接并应用模式".equals(SystemIntegration.rebindStatusLabel(rebindSvc)));
         rebindSvc.onDestroy();
+
+        // Round 5 P2 #3 on real HomeKeyService: old connection stays bound past write-back (delayed onUnbind);
+        // MUST NOT complete rebind until a NEW connection arrives AND readback confirms the selected guard mode!
+        HomeKeyService oldSvc = freshService();
+        oldSvc.secureAuthorized = true;
+        oldSvc.sysPrefs.edit().putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        oldSvc.onServiceConnected();
+        long oldConnGen = HomeKeyService.connectionGeneration;
+        Diagnostics.events.clear();
+        SystemIntegration.refreshHomeService(oldSvc);
+        // Old instance does NOT receive onUnbind() until AFTER service list is written back at +310ms!
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("r5_p2_real_old_connection_cannot_complete_rebind_on_writeback",
+                HomeSetup.serviceEnabled(oldSvc)
+                && HomeKeyService.connected
+                && HomeKeyService.connectionGeneration == oldConnGen
+                && oldSvc.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(oldSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && !SystemIntegration.isGuardModeReady(oldSvc)
+                && "已写回、等待连接".equals(SystemIntegration.rebindStatusLabel(oldSvc))
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_AWAITING_CONNECT")
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        // Delayed unbind of old instance arrives AFTER write-back.
+        oldSvc.onUnbind(new Intent());
+        check("r5_p2_real_delayed_unbind_keeps_written_state",
+                !HomeKeyService.connected
+                && oldSvc.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(oldSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+
+        // New instance 1 connects, but getServiceInfo() readback returns null -> MUST NOT complete!
+        HomeKeyService newNullReadback = new HomeKeyService();
+        newNullReadback.sysPrefs = oldSvc.sysPrefs;
+        newNullReadback.homePrefs = oldSvc.homePrefs;
+        newNullReadback.pm = oldSvc.pm;
+        newNullReadback.secureAuthorized = true;
+        newNullReadback.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        newNullReadback.nullServiceInfoAfterSet = true;
+        newNullReadback.onServiceConnected();
+        check("r5_p2_real_null_readback_cannot_complete_rebind",
+                HomeKeyService.connected
+                && !HomeKeyService.isGuardModeApplied(newNullReadback)
+                && newNullReadback.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(newNullReadback.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        newNullReadback.onUnbind(new Intent());
+        newNullReadback.onDestroy();
+
+        // New instance 2 connects, but setServiceInfo is ignored so readback still has stale key filter -> MUST NOT complete!
+        HomeKeyService newStaleFlags = new HomeKeyService();
+        newStaleFlags.sysPrefs = oldSvc.sysPrefs;
+        newStaleFlags.homePrefs = oldSvc.homePrefs;
+        newStaleFlags.pm = oldSvc.pm;
+        newStaleFlags.secureAuthorized = true;
+        newStaleFlags.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        newStaleFlags.ignoreSetServiceInfo = true;
+        newStaleFlags.onServiceConnected();
+        check("r5_p2_real_mismatched_readback_cannot_complete_rebind",
+                HomeKeyService.connected
+                && HomeKeyService.runtimeKeyFilterRequested
+                && !HomeKeyService.isGuardModeApplied(newStaleFlags)
+                && newStaleFlags.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(newStaleFlags.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        newStaleFlags.onUnbind(new Intent());
+        newStaleFlags.onDestroy();
+
+        // New instance 3 connects cleanly and readback verifies WINDOW_PULLBACK (no key filter) -> completes!
+        HomeKeyService newOkSvc = new HomeKeyService();
+        newOkSvc.sysPrefs = oldSvc.sysPrefs;
+        newOkSvc.homePrefs = oldSvc.homePrefs;
+        newOkSvc.pm = oldSvc.pm;
+        newOkSvc.secureAuthorized = true;
+        newOkSvc.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        newOkSvc.onServiceConnected();
+        check("r5_p2_real_new_connect_with_verified_readback_completes_rebind",
+                HomeKeyService.connected
+                && HomeKeyService.connectionGeneration > oldConnGen
+                && HomeKeyService.isGuardModeApplied(newOkSvc)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && newOkSvc.serviceInfo.flags == 1
+                && newOkSvc.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && newOkSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && SystemIntegration.isGuardModeReady(newOkSvc)
+                && "已连接并应用模式".equals(SystemIntegration.rebindStatusLabel(newOkSvc))
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        // Late destroy/unbind on the dead old instance MUST NOT clobber the active new instance or compat_service_active!
+        oldSvc.onUnbind(new Intent());
+        oldSvc.onDestroy();
+        check("r5_p2_real_late_old_unbind_destroy_never_clobbers_new_instance",
+                HomeKeyService.connected
+                && HomeKeyService.isGuardModeApplied(newOkSvc)
+                && newOkSvc.sysPrefs.getBoolean("compat_service_active", false));
+        newOkSvc.onDestroy();
+
+        // Round 5 P2 #2 on real HomeKeyService: process dies BEFORE onUnbind() during rebind ->
+        // real startup order (markCompatResetIfInterrupted -> refreshHomeService -> reconcile) recovers cleanly!
+        HomeKeyService preUnbindSvc = freshService();
+        preUnbindSvc.secureAuthorized = true;
+        preUnbindSvc.sysPrefs.edit().putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        preUnbindSvc.onServiceConnected();
+        SystemIntegration.refreshHomeService(preUnbindSvc);
+        // Simulate abrupt process death BEFORE onUnbind() runs (compat_service_active stays true).
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.connected = false;
+        HomeKeyService.runtimeModeApplied = false;
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        HomeKeyService.runtimeFlags = 0;
+        Diagnostics.events.clear();
+        check("r5_p2_real_pre_unbind_exit_has_active_marker_on_disk",
+                preUnbindSvc.sysPrefs.getBoolean("compat_service_active", false)
+                && !HomeSetup.serviceEnabled(preUnbindSvc));
+        boolean markedReset = HomeSetup.markCompatResetIfInterrupted(preUnbindSvc);
+        SystemIntegration.refreshHomeService(preUnbindSvc);
+        HomeSetup.reconcile(preUnbindSvc);
+        check("r5_p2_real_pre_unbind_exit_startup_order_restores_without_false_reset",
+                !markedReset
+                && !HomeSetup.compatResetPending(preUnbindSvc)
+                && !HomeSetup.paused(preUnbindSvc)
+                && preUnbindSvc.sysPrefs.getBoolean("home_compat", false)
+                && preUnbindSvc.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(preUnbindSvc)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(preUnbindSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && preUnbindSvc.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService restartedSvc = new HomeKeyService();
+        restartedSvc.sysPrefs = preUnbindSvc.sysPrefs;
+        restartedSvc.homePrefs = preUnbindSvc.homePrefs;
+        restartedSvc.pm = preUnbindSvc.pm;
+        restartedSvc.secureAuthorized = true;
+        restartedSvc.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        restartedSvc.onServiceConnected();
+        check("r5_p2_real_pre_unbind_exit_completes_on_new_service_connected",
+                HomeKeyService.connected
+                && restartedSvc.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        restartedSvc.onDestroy();
 
         service.onDestroy();
         check("destroy_cleans_up_state", !HomeKeyService.connected && !HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeModeApplied);

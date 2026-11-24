@@ -134,8 +134,9 @@ android_stubs={
    public static final Map<String,Integer> ints=new HashMap<>();
    public static final Map<String,String> strings=new HashMap<>();
    public static int failNextPutStrings;
+   public static int failNextPutInts;
    public static int getInt(ContentResolver r,String k,int d){return ints.containsKey(k)?ints.get(k):d;}
-   public static boolean putInt(ContentResolver r,String k,int v){ints.put(k,v);return true;}
+   public static boolean putInt(ContentResolver r,String k,int v){if(failNextPutInts>0){failNextPutInts--;return false;}ints.put(k,v);return true;}
    public static String getString(ContentResolver r,String k){return strings.get(k);}
    public static boolean putString(ContentResolver r,String k,String v){if(failNextPutStrings>0){failNextPutStrings--;return false;}strings.put(k,v);return true;}
   }
@@ -385,8 +386,21 @@ public abstract class AccessibilityService extends Context {
  public static final int GLOBAL_ACTION_RECENTS=3;
  public AccessibilityServiceInfo serviceInfo=new AccessibilityServiceInfo();
  public boolean globalActionResult=true;
- public final AccessibilityServiceInfo getServiceInfo(){return serviceInfo;}
- public final void setServiceInfo(AccessibilityServiceInfo info){serviceInfo=info;}
+ public boolean ignoreSetServiceInfo,nullServiceInfoAfterSet;
+ private boolean setCalled;
+ public void resetSetTracking(){setCalled=false;}
+ public final AccessibilityServiceInfo getServiceInfo(){
+  if((nullServiceInfoAfterSet&&setCalled)||serviceInfo==null)return null;
+  AccessibilityServiceInfo copy=new AccessibilityServiceInfo();
+  copy.flags=serviceInfo.flags;
+  copy.capabilities=serviceInfo.capabilities;
+  return copy;
+ }
+ public final void setServiceInfo(AccessibilityServiceInfo info){
+  setCalled=true;
+  if(ignoreSetServiceInfo)return;
+  serviceInfo=info;
+ }
  public final boolean performGlobalAction(int action){return globalActionResult;}
  protected void onServiceConnected(){}
  protected boolean onKeyEvent(KeyEvent event){return false;}

@@ -311,6 +311,7 @@ final class HomeSetup {
     static boolean markCompatResetIfInterrupted(Context c) {
         SharedPreferences p = prefs(c);
         if (p.getBoolean("setup_compat_reset_pending", false)) return false;
+        if (SystemIntegration.isOwnRebindInProgress(c)) return false;
         if (!HomeSetupPolicy.compatResetAfterStop(unlocked(c), paused(c),
                 p.getBoolean("home_compat", false), p.getBoolean("setup_accessibility_pending", false),
                 p.getBoolean("compat_seen_present", false), p.getBoolean("compat_service_active", false),

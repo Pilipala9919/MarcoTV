@@ -308,11 +308,40 @@ final class SystemIntegration {
         e.apply();
         TaskBridgeClient.sync(context);
     }
+    private static void persistRebindActualSnapshot(Context context) {
+        String actualServices = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        int actualEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        prefs(context).edit()
+                .putString(PREF_REBIND_STATE, REBIND_STATE_REMOVED)
+                .putString(PREF_REBIND_EXPECTED_SERVICES, actualServices == null ? "" : actualServices)
+                .putInt(PREF_REBIND_EXPECTED_ENABLED, actualEnabled)
+                .commit();
+    }
+    private static boolean ownServiceListed(Context context) {
+        String raw = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        for (String s : services(raw)) if (own(s)) return true;
+        return false;
+    }
+    static void resumePendingHomeServiceRebind(Context context) {
+        String state = prefs(context).getString(PREF_REBIND_STATE, "");
+        if (REBIND_STATE_REMOVED.equals(state) || REBIND_STATE_WRITTEN.equals(state)) {
+            refreshHomeService(context);
+        }
+    }
     static void refreshHomeService(Context context) {
         HomeKeyService.syncRuntimeKeyFilter(context);
         SharedPreferences p = prefs(context);
         String rebindState = p.getString(PREF_REBIND_STATE, "");
         if (REBIND_STATE_REMOVED.equals(rebindState)) {
+            if (HomeSetup.serviceEnabled(context)) {
+                rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+                p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
+                        .remove(PREF_REBIND_EXPECTED_SERVICES)
+                        .remove(PREF_REBIND_EXPECTED_ENABLED)
+                        .commit();
+                markHomeServiceRebindConnected(context);
+                return;
+            }
             if (isOwnRebindInProgress(context)) {
                 if (android.os.SystemClock.elapsedRealtime() < rebindUntil) return;
                 completeHomeServiceRebind(context, 0);
@@ -340,15 +369,19 @@ final class SystemIntegration {
         String expectedServices = join(current);
         int expectedEnabled = current.isEmpty() ? 0 : 1;
         try {
+            rebindMinGeneration = HomeKeyService.connectionGeneration;
             p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_REMOVED)
                     .putString(PREF_REBIND_EXPECTED_SERVICES, expectedServices)
                     .putInt(PREF_REBIND_EXPECTED_ENABLED, expectedEnabled)
                     .commit();
-            boolean removed = writeServices(context, current);
-            if (!removed || HomeSetup.serviceEnabled(context)) {
+            writeServices(context, current);
+            if (HomeSetup.serviceEnabled(context)) {
                 clearPersistedRebind(context);
                 return;
             }
+            // Record the exact snapshot left on disk so even a partial write (service list updated,
+            // global accessibility switch write rejected) remains recognizable and recoverable.
+            persistRebindActualSnapshot(context);
             rebindUntil = android.os.SystemClock.elapsedRealtime() + 250;
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> completeHomeServiceRebind(context, 0), 300);
@@ -371,6 +404,8 @@ final class SystemIntegration {
             respectExternalHomeServiceOff(context, true);
             return;
         }
+        // Any connection that existed BEFORE we write the service back is stale and cannot finish this round.
+        rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
         recover(context);
         if (HomeSetup.serviceEnabled(context)) {
             p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
@@ -385,12 +420,20 @@ final class SystemIntegration {
             return;
         }
         if (attempt < 2 && authorized(context) && matchesPersistedRebindRemoved(context)) {
+            rebindUntil = android.os.SystemClock.elapsedRealtime() + 250;
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> completeHomeServiceRebind(context, attempt + 1), 300);
         } else {
-            // Keep persisted "removed" marker so user's home_compat/boot_home survive retries or restart.
+            // Keep persisted "removed" marker (with actual partial-write snapshot if any) so user's
+            // home_compat/boot_home survive retries or restart.
             Diagnostics.event("HOME_SERVICE_REBIND_FAILED");
         }
+    }
+    static boolean isGuardModeReady(Context context) {
+        String state = prefs(context).getString(PREF_REBIND_STATE, "");
+        if (REBIND_STATE_REMOVED.equals(state)) return false;
+        if (REBIND_STATE_WRITTEN.equals(state)) return HomeKeyService.isGuardModeApplied(context, rebindMinGeneration);
+        return HomeKeyService.isGuardModeApplied(context);
     }
     static boolean markHomeServiceRebindConnected(Context context) {
         SharedPreferences p = prefs(context);
@@ -398,7 +441,8 @@ final class SystemIntegration {
         if (!REBIND_STATE_WRITTEN.equals(state) && !REBIND_STATE_REMOVED.equals(state)) return false;
         if (HomeSetup.paused(context) || !p.getBoolean("home_compat", false)
                 || !HomeSetup.serviceEnabled(context)
-                || !HomeKeyService.isGuardModeApplied(context)) return false;
+                || !HomeKeyService.isGuardModeApplied(context, rebindMinGeneration)) return false;
+        rebindMinGeneration = 0;
         p.edit().putInt("home_filter_revision", HOME_FILTER_REVISION)
                 .remove(PREF_REBIND_STATE)
                 .remove(PREF_REBIND_EXPECTED_SERVICES)
@@ -412,7 +456,7 @@ final class SystemIntegration {
         SharedPreferences p = prefs(context);
         String state = p.getString(PREF_REBIND_STATE, "");
         if (REBIND_STATE_REMOVED.equals(state)) return "升级重绑中（待写回启用列表）";
-        if (REBIND_STATE_WRITTEN.equals(state) && !HomeKeyService.isGuardModeApplied(context)) {
+        if (REBIND_STATE_WRITTEN.equals(state) && !HomeKeyService.isGuardModeApplied(context, rebindMinGeneration)) {
             return "已写回、等待连接";
         }
         if (HomeKeyService.isGuardModeApplied(context)) return "已连接并应用模式";
@@ -446,13 +490,16 @@ final class SystemIntegration {
     private static volatile String writtenServices;
     private static volatile int writtenEnabled = -1;
     private static volatile long rebindUntil;
+    private static volatile long rebindMinGeneration;
     static void resetRebindStateForTest() {
         writtenServices = null;
         writtenEnabled = -1;
         rebindUntil = 0;
+        rebindMinGeneration = 0;
     }
     static void clearPersistedRebind(Context context) {
         rebindUntil = 0;
+        rebindMinGeneration = 0;
         if (context == null) return;
         SharedPreferences p = prefs(context);
         if (p.contains(PREF_REBIND_STATE) || p.contains(PREF_REBIND_EXPECTED_SERVICES)
@@ -508,13 +555,14 @@ final class SystemIntegration {
         if (!servicesOk) return false;
         writtenServices = next;
         boolean enabledOk = currentEnabled == enabled;
+        int afterEnabled = currentEnabled;
         if (!enabledOk) {
             boolean putOk = Settings.Secure.putInt(
                     context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, enabled);
-            int afterEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+            afterEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
             enabledOk = putOk && afterEnabled == enabled;
         }
-        if (enabledOk) writtenEnabled = enabled;
+        writtenEnabled = afterEnabled;
         return enabledOk;
     }
     static boolean removeOwnHomeService(Context context) {
@@ -552,14 +600,27 @@ final class SystemIntegration {
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
                     wanted.add(OWN_SERVICE);
                 }
+                boolean rebindRemoved = REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""));
+                if (rebindRemoved) {
+                    rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+                }
                 writeServices(context, wanted);
                 boolean restoredNow = HomeSetup.serviceEnabled(context);
-                p.edit().putBoolean("compat_seen_present", restoredNow).apply();
-                if (restoredNow && REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""))) {
-                    p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
-                            .remove(PREF_REBIND_EXPECTED_SERVICES)
-                            .remove(PREF_REBIND_EXPECTED_ENABLED)
-                            .commit();
+                if (restoredNow || !rebindRemoved) {
+                    p.edit().putBoolean("compat_seen_present", restoredNow).apply();
+                }
+                if (rebindRemoved) {
+                    if (restoredNow) {
+                        p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
+                                .remove(PREF_REBIND_EXPECTED_SERVICES)
+                                .remove(PREF_REBIND_EXPECTED_ENABLED)
+                                .commit();
+                    } else if (ownServiceListed(context)) {
+                        // Partial write on restore: service list updated with Marco, but global
+                        // ACCESSIBILITY_ENABLED write failed. Record exact snapshot so rebind retries
+                        // and page re-entry preserve user settings and recover once putInt succeeds.
+                        persistRebindActualSnapshot(context);
+                    }
                 }
             }
             p.edit().remove("last_error").putLong("last_check", System.currentTimeMillis()).apply();
@@ -612,8 +673,15 @@ final class SystemIntegration {
             writeServices(context, wanted);
             boolean restored = HomeSetup.serviceEnabled(context);
             if (restored) {
-                p.edit().remove("setup_compat_reset_pending").remove("standby_wake_return")
-                        .putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。").apply();
+                SharedPreferences.Editor ed = p.edit().remove("setup_compat_reset_pending").remove("standby_wake_return")
+                        .putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。");
+                if (REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""))) {
+                    rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+                    ed.putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
+                            .remove(PREF_REBIND_EXPECTED_SERVICES)
+                            .remove(PREF_REBIND_EXPECTED_ENABLED);
+                }
+                ed.apply();
             }
             Diagnostics.event(restored ? "HOME_SERVICE_RESTORED_AFTER_BOOT" : "HOME_SERVICE_BOOT_RESTORE_REJECTED");
             return restored;
@@ -632,6 +700,7 @@ final class SystemIntegration {
      * AccessibilityManagerService.onHandleForceStop). Restores only our own entry.
      */
     static boolean restoreCompatAfterStandbyKill(Context context) {
+        if (isOwnRebindInProgress(context)) return false;
         SharedPreferences p = prefs(context);
         if (!HomeSetupPolicy.restoreCompatAfterStandby(authorized(context), HomeSetup.unlocked(context),
                 HomeSetup.paused(context), p.getBoolean("home_compat", false),
@@ -850,7 +919,7 @@ final class SystemIntegration {
         SharedPreferences p=prefs(activity);
         HomeSetupPolicy.GuardMode mode=guardMode(activity);
         String action=p.getString("home_long_action","system");
-        String runtime=HomeKeyService.isGuardModeApplied(activity)
+        String runtime=isGuardModeReady(activity)
                 ?(HomeKeyService.runtimeKeyFilterRequested?"服务已连接并应用所选模式 · 已请求按键过滤":"服务已连接并应用所选模式 · 未请求按键过滤")
                 :rebindStatusLabel(activity);
         host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("Home 按键与守护模式")

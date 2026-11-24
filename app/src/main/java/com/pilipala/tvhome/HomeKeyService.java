@@ -22,6 +22,8 @@ public final class HomeKeyService extends AccessibilityService {
     static volatile int runtimeFlags;
     static volatile boolean runtimeKeyFilterRequested;
     static volatile boolean runtimeModeApplied;
+    static volatile long connectionGeneration;
+    private static volatile long modeAppliedGeneration;
     private static HomeKeyService instance;
     private long suppressUntil;
     private boolean recentAppsSuppressed;
@@ -31,7 +33,10 @@ public final class HomeKeyService extends AccessibilityService {
         return SystemIntegration.guardMode(this);
     }
     static boolean isGuardModeApplied(Context context){
-        if(!connected||!runtimeModeApplied)return false;
+        return isGuardModeApplied(context,0L);
+    }
+    static boolean isGuardModeApplied(Context context,long afterGeneration){
+        if(!connected||!runtimeModeApplied||modeAppliedGeneration<=afterGeneration)return false;
         boolean compat=SystemIntegration.prefs(context).getBoolean("home_compat",false);
         boolean paused=HomeSetup.paused(context);
         boolean expected=HomeSetupPolicy.shouldRequestKeyFilter(compat,paused,SystemIntegration.guardMode(context));
@@ -39,7 +44,7 @@ public final class HomeKeyService extends AccessibilityService {
     }
     static void syncRuntimeKeyFilter(Context context){
         HomeKeyService service=instance;
-        if(service!=null)service.applyServiceFlags();
+        if(service!=null&&connected)service.applyServiceFlags();
     }
     private void applyServiceFlags(){
         HomeSetupPolicy.GuardMode mode=guardMode();
@@ -50,6 +55,7 @@ public final class HomeKeyService extends AccessibilityService {
             runtimeFlags=0;
             runtimeKeyFilterRequested=false;
             runtimeModeApplied=false;
+            modeAppliedGeneration=0;
             return;
         }
         int nextFlags=HomeSetupPolicy.applyKeyFilterFlag(
@@ -57,11 +63,19 @@ public final class HomeKeyService extends AccessibilityService {
         info.flags=nextFlags;
         setServiceInfo(info);
         AccessibilityServiceInfo applied=getServiceInfo();
-        int effectiveFlags=applied!=null?applied.flags:nextFlags;
+        if(applied==null){
+            runtimeFlags=0;
+            runtimeKeyFilterRequested=false;
+            runtimeModeApplied=false;
+            modeAppliedGeneration=0;
+            return;
+        }
+        int effectiveFlags=applied.flags;
         runtimeFlags=effectiveFlags;
         runtimeKeyFilterRequested=(effectiveFlags&AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS)!=0;
         boolean expectedFilter=HomeSetupPolicy.shouldRequestKeyFilter(compat,paused,mode);
         runtimeModeApplied=(runtimeKeyFilterRequested==expectedFilter);
+        modeAppliedGeneration=(connected&&runtimeModeApplied)?connectionGeneration:0;
         if(!expectedFilter)resetPress();
         if(connected&&runtimeModeApplied)SystemIntegration.markHomeServiceRebindConnected(this);
         Log.i("MarcoTVSystem","HOME service ready; mode="+mode.prefValue
@@ -69,7 +83,8 @@ public final class HomeKeyService extends AccessibilityService {
                 +"; paused="+paused
                 +"; keyFilter="+runtimeKeyFilterRequested
                 +"; modeApplied="+runtimeModeApplied
-                +"; capabilities="+(applied!=null?applied.getCapabilities():info.getCapabilities())
+                +"; gen="+connectionGeneration
+                +"; capabilities="+applied.getCapabilities()
                 +"; flags="+effectiveFlags);
     }
     static boolean openSystemRecents(){
@@ -279,6 +294,7 @@ public final class HomeKeyService extends AccessibilityService {
         }
     };
     @Override protected void onServiceConnected() {
+        connectionGeneration++;
         connected=true;
         instance=this;
         applyServiceFlags();
@@ -458,20 +474,26 @@ public final class HomeKeyService extends AccessibilityService {
         handler.postDelayed(fallback, delay);
     }
     @Override public boolean onUnbind(Intent intent) {
-        connected=false;
-        runtimeFlags=0;
-        runtimeKeyFilterRequested=false;
-        runtimeModeApplied=false;
-        markServiceStoppedCleanly();
+        if(instance==this){
+            connected=false;
+            runtimeFlags=0;
+            runtimeKeyFilterRequested=false;
+            runtimeModeApplied=false;
+            modeAppliedGeneration=0;
+            markServiceStoppedCleanly();
+        }
         return super.onUnbind(intent);
     }
     @Override public void onDestroy() {
-        connected=false;
-        runtimeFlags=0;
-        runtimeKeyFilterRequested=false;
-        runtimeModeApplied=false;
-        markServiceStoppedCleanly();
-        if(instance==this)instance=null;
+        if(instance==this){
+            connected=false;
+            runtimeFlags=0;
+            runtimeKeyFilterRequested=false;
+            runtimeModeApplied=false;
+            modeAppliedGeneration=0;
+            instance=null;
+            markServiceStoppedCleanly();
+        }
         handler.removeCallbacksAndMessages(null);
         if (receiverRegistered) unregisterReceiver(homeBroadcast);
         super.onDestroy();

@@ -241,6 +241,7 @@ public final class MainActivity extends Activity {
         foreground = true;
         HomeSetup.resolvePendingPicker(this);
         HomeSetup.finishCompatibilityConsent(this);
+        SystemIntegration.resumePendingHomeServiceRebind(this);
         HomeSetup.reconcile(this);
         arrivalGate.onResume(this, hasWindowFocus(), isPanelWindowFocused(), isFinishing(), isDestroyed());
         Diagnostics.foreground(true);
