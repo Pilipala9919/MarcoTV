@@ -326,6 +326,111 @@ except bridge.BridgeIdentityUnverifiableError as exc:
     unverifiable_id_stop = '发现候选进程' in str(exc) and '身份无法核实' in str(exc)
 assert unverifiable_id_stop
 
+# Case 16 (Follow-up #1): Mixed verified + unreadable candidate PIDs on --stop ->
+# kills ONLY verified PID, NEVER kills unreadable PID, and explicitly reports both PIDs separately!
+ps_mixed_candidates = (
+    'USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME\n'
+    'root             1     0   12345   2345 SyS_epoll_wait      0 S init\n'
+    'shell        18887     1 1345678  45678 0                   0 S marcotv-task-bridge\n'
+    'shell        18888     1 1345678  45678 0                   0 S marcotv-task-bridge\n'
+)
+mixed_killed = []
+def fake_mixed_stop_try(*cmd):
+    if cmd == ('ps', '-A'):
+        return ps_mixed_candidates
+    if cmd == ('cat', '/proc/18887/cmdline'):
+        return 'marcotv-task-bridge\x00'
+    if cmd == ('cat', '/proc/18888/cmdline'):
+        return 'cat: /proc/18888/cmdline: Permission denied'
+    raise AssertionError(f'Unexpected command: {cmd}')
+
+def fake_mixed_stop_checked(*cmd):
+    if cmd[0] == 'kill':
+        mixed_killed.append(cmd[1])
+        return ''
+    raise AssertionError(f'Unexpected checked command: {cmd}')
+
+mixed_stop_error = ''
+try:
+    bridge.stop_existing_bridges(fake_mixed_stop_try, fake_mixed_stop_checked)
+except bridge.BridgeIdentityUnverifiableError as exc:
+    mixed_stop_error = str(exc)
+assert mixed_killed == ['18887'], f'Must only kill verified PID 18887, got {mixed_killed}'
+assert '发出停止命令' in mixed_stop_error and '18887' in mixed_stop_error, mixed_stop_error
+assert '身份仍无法核实' in mixed_stop_error and '18888' in mixed_stop_error, mixed_stop_error
+assert 'Marco TV task bridge stopped' not in mixed_stop_error, mixed_stop_error
+
+# End-to-end real CLI entry test via mock ADB shim (cross-platform Windows/POSIX) for --stop.
+import os, pathlib, stat, sys, tempfile
+with tempfile.TemporaryDirectory() as tmp_dir:
+    tmp_path = pathlib.Path(tmp_dir)
+    kill_log = tmp_path / 'kills.txt'
+    mock_py = tmp_path / 'mock_adb.py'
+    mock_py.write_text(
+        'import pathlib, sys\n'
+        'args = sys.argv[1:]\n'
+        'mode = pathlib.Path(sys.argv[0]).with_name("mode.txt").read_text(encoding="utf-8").strip()\n'
+        'cmd = args[args.index("shell") + 1:] if "shell" in args else []\n'
+        'if cmd == ["ps", "-A"]:\n'
+        '    print("USER           PID  PPID     VSZ    RSS WCHAN            ADDR S NAME")\n'
+        '    print("root             1     0   12345   2345 SyS_epoll_wait      0 S init")\n'
+        '    if mode in ("mixed", "verified_only"):\n'
+        '        print("shell        18887     1 1345678  45678 0                   0 S marcotv-task-bridge")\n'
+        '    if mode == "mixed":\n'
+        '        print("shell        18888     1 1345678  45678 0                   0 S marcotv-task-bridge")\n'
+        'elif cmd == ["cat", "/proc/18887/cmdline"]:\n'
+        '    sys.stdout.write("marcotv-task-bridge\\0")\n'
+        'elif cmd == ["cat", "/proc/18888/cmdline"]:\n'
+        '    sys.stderr.write("cat: /proc/18888/cmdline: Permission denied\\n")\n'
+        '    sys.exit(1)\n'
+        'elif len(cmd) == 2 and cmd[0] == "kill":\n'
+        '    with open(pathlib.Path(sys.argv[0]).with_name("kills.txt"), "a", encoding="utf-8") as fh:\n'
+        '        fh.write(cmd[1] + "\\n")\n',
+        encoding='utf-8',
+    )
+    if os.name == 'nt':
+        mock_adb = tmp_path / 'mock_adb.cmd'
+        mock_adb.write_text(f'@echo off\r\n"{sys.executable}" "{mock_py}" %*\r\n', encoding='utf-8')
+    else:
+        mock_adb = tmp_path / 'mock_adb.sh'
+        mock_adb.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{mock_py}" "$@"\n', encoding='utf-8')
+        mock_adb.chmod(mock_adb.stat().st_mode | stat.S_IEXEC)
+
+    # 16a: mixed verified + unreadable candidate PIDs -> only 18887 killed, non-zero exit, reports both PIDs distinctly.
+    (tmp_path / 'mode.txt').write_text('mixed', encoding='utf-8')
+    cli_mixed = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts/start_task_bridge.py'), '--adb', str(mock_adb), '--serial', 'mock-tv', '--stop'],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+    )
+    combined_mixed = (cli_mixed.stdout or '') + '\n' + (cli_mixed.stderr or '')
+    assert cli_mixed.returncode != 0, f'Expected non-zero exit on mixed --stop, got {combined_mixed}'
+    assert kill_log.read_text(encoding='utf-8').splitlines() == ['18887']
+    assert '发出停止命令' in combined_mixed and '18887' in combined_mixed, combined_mixed
+    assert '身份仍无法核实' in combined_mixed and '18888' in combined_mixed, combined_mixed
+    assert 'Marco TV task bridge stopped' not in combined_mixed, combined_mixed
+
+    # 16b: verified-only candidate PID -> 18887 killed, exit 0, reports PID 18887 stopped.
+    kill_log.unlink()
+    (tmp_path / 'mode.txt').write_text('verified_only', encoding='utf-8')
+    cli_ok = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts/start_task_bridge.py'), '--adb', str(mock_adb), '--serial', 'mock-tv', '--stop'],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+    )
+    assert cli_ok.returncode == 0, cli_ok.stderr
+    assert kill_log.read_text(encoding='utf-8').splitlines() == ['18887']
+    assert 'Marco TV task bridge stopped (PID 18887).' in cli_ok.stdout, cli_ok.stdout
+
+    # 16c: no bridge running -> nothing killed, exit 0, reports stopped.
+    kill_log.unlink()
+    (tmp_path / 'mode.txt').write_text('none', encoding='utf-8')
+    cli_none = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts/start_task_bridge.py'), '--adb', str(mock_adb), '--serial', 'mock-tv', '--stop'],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+    )
+    assert cli_none.returncode == 0, cli_none.stderr
+    assert not kill_log.exists()
+    assert 'Marco TV task bridge stopped.' in cli_none.stdout, cli_none.stdout
+
 # Verify distinct user-facing messages for all 5 outcomes.
 assert 'started (PID 18887)' in bridge.format_verify_outcome('started', ['18887'])
 assert '已观察到进程' in bridge.format_verify_outcome('unconfirmed', ['18887']) and '稳定性尚未确认' in bridge.format_verify_outcome('unconfirmed', ['18887'])

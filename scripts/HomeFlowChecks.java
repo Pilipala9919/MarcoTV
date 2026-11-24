@@ -1887,6 +1887,39 @@ public final class HomeFlowChecks {
         check("r4_4b_api23_legacy_native_first_boot_id_only_sets_baseline",
                 "api23-legacy-native-first".equals(host.sysPrefs.getString("setup_boot_armed_boot_id", ""))
                 && !host.sysPrefs.contains("setup_boot_state"));
+
+        // Follow-up #2: When Marco is already native default HOME and not paused,
+        // manually turning OFF "开机打开 Marco TV" (boot_home) MUST survive routine reconcile()
+        // (returning to desktop / onResume) AND clicking "检查使用效果", while resuming from pause
+        // still turns boot_home back ON on initial re-acceptance.
+        host = freshEnv();
+        host.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        HomeSetup.begin(host);
+        HomeSetup.acceptNative(host);
+        check("followup2_initial_native_accept_enables_boot_home",
+                host.sysPrefs.getBoolean("setup_native_seen", false)
+                && host.sysPrefs.getBoolean("boot_home", false));
+        // User manually toggles "开机打开 Marco TV" OFF in Settings.
+        host.sysPrefs.edit().putBoolean("boot_home", false).apply();
+        // Routine foreground return triggers MainActivity.onResume() -> HomeSetup.reconcile().
+        host.simulateOnPause();
+        host.simulateOnResume(true);
+        HomeSetup.reconcile(host);
+        check("followup2_routine_reconcile_preserves_user_disabled_boot_home",
+                host.sysPrefs.getBoolean("setup_native_seen", false)
+                && !host.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.paused(host));
+        // Opening "检查使用效果" via DefaultHomePanel.start() when already ready also preserves boot_home=false.
+        host.defaultHome.start();
+        check("followup2_verification_button_preserves_user_disabled_boot_home",
+                !host.sysPrefs.getBoolean("boot_home", true));
+        // Explicitly pausing and resuming via "继续一键设置" runs begin() + acceptNative() -> re-enables boot_home=true.
+        HomeSetup.pause(host, "manual");
+        host.defaultHome.start();
+        check("followup2_resume_from_pause_re_enables_boot_home",
+                !HomeSetup.paused(host)
+                && host.sysPrefs.getBoolean("setup_native_seen", false)
+                && host.sysPrefs.getBoolean("boot_home", false));
     }
 
     public static void main(String[] args) throws Exception {

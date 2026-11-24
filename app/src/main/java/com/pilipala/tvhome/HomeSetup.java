@@ -371,8 +371,11 @@ final class HomeSetup {
         return false;
     }
     static void acceptNative(Context c) {
-        if (!prefs(c).getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
-        prefs(c).edit().putBoolean("setup_native_seen", true).putBoolean("boot_home", true).apply();
+        SharedPreferences p = prefs(c);
+        if (!p.getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
+        // Preserve user-toggled boot_home choice during routine checks once native HOME was already accepted.
+        if (p.getBoolean("setup_native_seen", false)) return;
+        p.edit().putBoolean("setup_native_seen", true).putBoolean("boot_home", true).apply();
     }
     /** Programmatic/authorized compatibility entry where service recovery runs immediately. */
     static void requestCompatibility(Context c) {

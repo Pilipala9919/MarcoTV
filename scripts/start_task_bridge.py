@@ -204,17 +204,33 @@ def find_verified_bridge_pids(shell_try,strict=False):
     return matched,verified
 
 
-def stop_existing_bridges(shell_try,shell):
+def format_stop_outcome(stopped_pids,unverified_pids):
+    if stopped_pids and unverified_pids:
+        return ('已向以下已核实任务桥进程发出停止命令（PID '+','.join(stopped_pids)
+                +'）；以下候选进程身份仍无法核实，未执行终止（PID '+','.join(unverified_pids)+'）。')
+    if unverified_pids:
+        return '发现候选进程（PID '+','.join(unverified_pids)+'），身份无法核实（无法读取 /proc/<pid>/cmdline），未执行终止。'
+    if stopped_pids:
+        return 'Marco TV task bridge stopped (PID '+','.join(stopped_pids)+').'
+    return 'Marco TV task bridge stopped.'
+
+
+def stop_existing_bridges_detail(shell_try,shell):
     pids,unverified,verified=probe_bridge_candidates(shell_try,strict=True)
     if not verified:
         raise ProcessListUnavailableError('无法验证进程列表：ps -A 与 ps 均未返回有效的 PID 数据行，无法确认现有任务桥状态。')
-    if unverified and not pids:
-        raise BridgeIdentityUnverifiableError('发现候选进程（PID '+','.join(unverified)+'），身份无法核实（无法读取 /proc/<pid>/cmdline），未执行终止。')
-    stopped=False
+    stopped_pids=[]
     for pid in pids:
         shell('kill',pid)
-        stopped=True
-    return stopped
+        stopped_pids.append(pid)
+    return stopped_pids,list(unverified)
+
+
+def stop_existing_bridges(shell_try,shell):
+    stopped_pids,unverified=stop_existing_bridges_detail(shell_try,shell)
+    if unverified:
+        raise BridgeIdentityUnverifiableError(format_stop_outcome(stopped_pids,unverified))
+    return bool(stopped_pids)
 
 
 class BridgeStabilityUnconfirmedError(RuntimeError):
@@ -294,14 +310,16 @@ def main():
     def shell(*command):return _run_adb_shell(base,command,True)
     def shell_try(*command):return _run_adb_shell(base,command,False)
     # Only stop processes whose complete argv identifies our fixed bridge entrypoint.
-    stopped=False
+    stopped_pids=[];unverified_pids=[]
     try:
-        stopped=stop_existing_bridges(shell_try,shell)
+        stopped_pids,unverified_pids=stop_existing_bridges_detail(shell_try,shell)
     except ProcessListUnavailableError:
         if args.stop:
             raise ProcessListUnavailableError('无法验证进程列表：ps -A 与 ps 均未返回有效的 PID 数据行，无法确认任务桥是否已停止。')
-    if args.stop:print('Marco TV task bridge stopped.');return
-    if stopped:time.sleep(.3)
+    if unverified_pids:
+        raise BridgeIdentityUnverifiableError(format_stop_outcome(stopped_pids,unverified_pids))
+    if args.stop:print(format_stop_outcome(stopped_pids,[]));return
+    if stopped_pids:time.sleep(.3)
     user=resolve_current_user(shell_try)
     if not user.isdigit():raise RuntimeError('Unable to identify current user')
     uid=resolve_package_uid(shell_try,user)
