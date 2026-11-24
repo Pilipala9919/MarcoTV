@@ -25,7 +25,9 @@ final class StatusSnapshot {
                 +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务："+HomeSetup.serviceStatusLabel(c)
                 +"\n兼容回拉目标："+trackedLine
                 +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
-                +"\nHome 原厂按键："+(p.getBoolean("home_native_keys",false)?"放行":"Marco 处理")+" / 长按："+p.getString("home_long_action","system")
+                +"\nHome 守护模式："+SystemIntegration.guardModeLabel(SystemIntegration.guardMode(c))
+                +" / 按键过滤："+(HomeKeyService.connected?(HomeKeyService.runtimeKeyFilterRequested?"已请求":"未请求"):"未绑定")
+                +"（flags="+HomeKeyService.runtimeFlags+"） / 长按："+p.getString("home_long_action","system")
                 +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)
                 +(confirmed.isEmpty()?"":"\n开机人工确认："+confirmed)
                 +"\nADB 自动恢复："+SystemIntegration.adbRestoreLabel(c)+" / 调试开关"+(adb?"已打开":"已关闭")

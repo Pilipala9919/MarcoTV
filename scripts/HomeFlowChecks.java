@@ -62,6 +62,9 @@ public final class HomeFlowChecks {
         HomeSetup.bootIdOverride = "boot-uuid-1";
         HomeSetup.resetProcessSessionForTest();
         HomeKeyService.connected = false;
+        HomeKeyService.runtimeFlags = 0;
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        HomeKeyService.syncCalls.set(0);
         RecoveryService.running = false;
         Diagnostics.events.clear();
         LocalAdbWire.reset();
@@ -1922,6 +1925,80 @@ public final class HomeFlowChecks {
                 && host.sysPrefs.getBoolean("boot_home", false));
     }
 
+    static void testGuardModeAndFilterRefresh() {
+        MainActivity host = freshEnv();
+        host.secureAuthorized = true;
+        host.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        check("guard_mode_default_is_window_pullback",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+
+        // Legacy home_native_keys=true without home_guard_mode migrates to NATIVE_KEYS_ONLY.
+        host.sysPrefs.edit().putBoolean("home_native_keys", true).commit();
+        check("guard_mode_legacy_native_migrates",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+
+        // Switching guard modes persists home_guard_mode, syncs legacy flag and live runtime filter.
+        HomeKeyService.connected = true;
+        SystemIntegration.setGuardMode(host, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        check("guard_mode_key_filter_persists_and_syncs",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.KEY_FILTER
+                && "key_filter".equals(host.sysPrefs.getString(SystemIntegration.PREF_GUARD_MODE, ""))
+                && !host.sysPrefs.getBoolean("home_native_keys", true)
+                && HomeKeyService.runtimeKeyFilterRequested
+                && HomeKeyService.runtimeFlags == 32
+                && StatusSnapshot.local(host).contains("直接拦截 Home 键（请求按键过滤）")
+                && StatusSnapshot.local(host).contains("按键过滤：已请求"));
+
+        SystemIntegration.setGuardMode(host, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        check("guard_mode_window_pullback_clears_runtime_filter",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                && "window".equals(host.sysPrefs.getString(SystemIntegration.PREF_GUARD_MODE, ""))
+                && !host.sysPrefs.getBoolean("home_native_keys", true)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && HomeKeyService.runtimeFlags == 0
+                && StatusSnapshot.local(host).contains("窗口回拉（不拦截按键）")
+                && StatusSnapshot.local(host).contains("按键过滤：未请求"));
+
+        // Rev-1 upgrade rebinds ONLY Marco while preserving XiaoAi and avoiding premature recover() race.
+        String xiaoAi = "com.xiaomi.voicecontrol/.VoiceAccessibilityService";
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        host.sysPrefs.edit().putInt("home_filter_revision", 1).commit();
+        int beforeSync = HomeKeyService.syncCalls.get();
+        SystemIntegration.refreshHomeService(host);
+        String duringRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("refresh_home_service_removes_only_own_and_preserves_xiaoai",
+                xiaoAi.equals(duringRebind)
+                && host.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && HomeKeyService.syncCalls.get() == beforeSync + 1);
+
+        // Premature recover() inside the 250ms unbind window must not immediately re-add Marco.
+        SystemClock.elapsed += 50;
+        SystemIntegration.recover(host);
+        check("refresh_home_service_prevents_premature_recover_race",
+                xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)));
+
+        // After 300ms delayed callback runs, Marco is restored while XiaoAi remains intact.
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        String afterRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("refresh_home_service_restores_own_while_preserving_xiaoai",
+                afterRebind != null && afterRebind.contains(xiaoAi) && afterRebind.contains(HomeSetup.SERVICE));
+
+        // Second refresh at current revision does not unbind again; paused user is untouched.
+        SystemIntegration.refreshHomeService(host);
+        check("refresh_home_service_noop_after_revision_current",
+                Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(HomeSetup.SERVICE));
+
+        HomeSetup.pause(host, "manual");
+        host.sysPrefs.edit().putInt("home_filter_revision", 0).commit();
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(host);
+        check("refresh_home_service_skips_when_paused",
+                (xiaoAi + ":" + HomeSetup.SERVICE).equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 0);
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
@@ -1929,13 +2006,29 @@ public final class HomeFlowChecks {
         testRound2Regressions();
         testRound3Counterexamples();
         testRound4EdgeCases();
+        testGuardModeAndFilterRefresh();
         System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3/4 regression checks");
         System.exit(0);
     }
 }
 
 class BuildEdition { static boolean RESTRICTED; }
-class HomeKeyService { static volatile boolean connected; }
+class HomeKeyService {
+    static volatile boolean connected;
+    static volatile int runtimeFlags;
+    static volatile boolean runtimeKeyFilterRequested;
+    static final AtomicInteger syncCalls = new AtomicInteger();
+    static void syncRuntimeKeyFilter(Context c) {
+        syncCalls.incrementAndGet();
+        if (!connected) {
+            runtimeFlags = 0;
+            runtimeKeyFilterRequested = false;
+            return;
+        }
+        runtimeFlags = HomeSetupPolicy.applyKeyFilterFlag(runtimeFlags, 32, SystemIntegration.guardMode(c));
+        runtimeKeyFilterRequested = (runtimeFlags & 32) != 0;
+    }
+}
 class RecoveryService { static volatile boolean running; }
 class AmbientIntegration { static void configure(Context c) { } }
 class Diagnostics { static final List<String> events = Collections.synchronizedList(new ArrayList<>()); static void event(String e) { events.add(e); } }

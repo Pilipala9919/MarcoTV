@@ -7,6 +7,38 @@ final class HomeSetupPolicy {
     enum Route { NATIVE_READY, SYSTEM_PICKER, COMPAT_READY, ACCESSIBILITY, ENHANCED, PAUSED }
     enum StartAction { VERIFY_NATIVE, VERIFY_COMPAT, REQUEST_PICKER, COMPATIBILITY, LOCAL_AUTHORIZATION }
     enum HomeReturnSource { NONE, SYSTEM_HOME, COMPAT_KEY, COMPAT_BROADCAST, WINDOW_FALLBACK }
+    enum GuardMode {
+        WINDOW_PULLBACK("window"),
+        KEY_FILTER("key_filter"),
+        NATIVE_KEYS_ONLY("native_only");
+
+        final String prefValue;
+        GuardMode(String prefValue) { this.prefValue = prefValue; }
+        boolean requestsKeyFilter() { return this == KEY_FILTER; }
+        boolean handlesDirectHomeKey() { return this == KEY_FILTER; }
+        boolean handlesWindowFallback() { return this != NATIVE_KEYS_ONLY; }
+        boolean handlesWakeFallback() { return this != NATIVE_KEYS_ONLY; }
+    }
+
+    /**
+     * Resolves the effective Home guard mode from persisted device-protected preferences.
+     *
+     * <p>Fresh installs and upgrades from versions without {@code home_guard_mode} default to
+     * {@link GuardMode#WINDOW_PULLBACK} (no key-event filtering) so Bluetooth remote volume and
+     * D-pad repeats stay native, while preserving an explicit legacy {@code home_native_keys=true}.
+     */
+    static GuardMode resolveGuardMode(String savedMode, boolean legacyNativeKeys) {
+        if (GuardMode.KEY_FILTER.prefValue.equals(savedMode)) return GuardMode.KEY_FILTER;
+        if (GuardMode.WINDOW_PULLBACK.prefValue.equals(savedMode)) return GuardMode.WINDOW_PULLBACK;
+        if (GuardMode.NATIVE_KEYS_ONLY.prefValue.equals(savedMode)) return GuardMode.NATIVE_KEYS_ONLY;
+        return legacyNativeKeys ? GuardMode.NATIVE_KEYS_ONLY : GuardMode.WINDOW_PULLBACK;
+    }
+
+    /** Applies only the key-event filtering flag bit according to the chosen guard mode. */
+    static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit, GuardMode mode) {
+        if (mode != null && mode.requestsKeyFilter()) return currentFlags | filterKeyEventsBit;
+        return currentFlags & ~filterKeyEventsBit;
+    }
 
     static Route route(boolean paused, boolean nativeHome, boolean picker, boolean compat,
                        boolean serviceEnabled, boolean accessibilityPage) {

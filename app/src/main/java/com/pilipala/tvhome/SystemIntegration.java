@@ -19,6 +19,28 @@ final class SystemIntegration {
     }
     private static final String TAG = "MarcoTVSystem";
     private static final String OWN_SERVICE = "com.pilipala.tvhome/.HomeKeyService";
+    static final String PREF_GUARD_MODE = "home_guard_mode";
+    static final int HOME_FILTER_REVISION = 2;
+
+    static HomeSetupPolicy.GuardMode guardMode(Context context) {
+        SharedPreferences p = prefs(context);
+        return HomeSetupPolicy.resolveGuardMode(
+                p.getString(PREF_GUARD_MODE, ""), p.getBoolean("home_native_keys", false));
+    }
+    static void setGuardMode(Context context, HomeSetupPolicy.GuardMode mode) {
+        HomeSetupPolicy.GuardMode target = mode == null ? HomeSetupPolicy.GuardMode.WINDOW_PULLBACK : mode;
+        prefs(context).edit()
+                .putString(PREF_GUARD_MODE, target.prefValue)
+                .putBoolean("home_native_keys", target == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
+                .commit();
+        HomeKeyService.syncRuntimeKeyFilter(context);
+        Diagnostics.event("HOME_GUARD_MODE_" + target.name());
+    }
+    static String guardModeLabel(HomeSetupPolicy.GuardMode mode) {
+        if (mode == HomeSetupPolicy.GuardMode.KEY_FILTER) return "直接拦截 Home 键（请求按键过滤）";
+        if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "仅保留原厂按键（不自动回拉）";
+        return "窗口回拉（不拦截按键）";
+    }
 
     static SharedPreferences prefs(Context context) {
         Context storage = Build.VERSION.SDK_INT >= 24 ? context.createDeviceProtectedStorageContext() : context;
@@ -282,16 +304,29 @@ final class SystemIntegration {
     }
     static void refreshHomeService(Context context) {
         SharedPreferences p = prefs(context);
-        if (p.getInt("home_filter_revision", 0) >= 1 || !p.getBoolean("home_compat", false) || !authorized(context)) return;
-        // Android 9 retains old accessibility metadata across an APK upgrade.
-        // Rebind only our service once; preserve every other enabled service.
+        if (p.getBoolean("home_compat", false) && !HomeSetup.paused(context)) {
+            HomeKeyService.syncRuntimeKeyFilter(context);
+        }
+        if (p.getInt("home_filter_revision", 0) >= HOME_FILTER_REVISION
+                || !p.getBoolean("home_compat", false)
+                || HomeSetup.paused(context)
+                || !authorized(context)
+                || !HomeSetup.serviceEnabled(context)) return;
+        // Android 9 retains old accessibility XML flags across an APK upgrade.
+        // Rebind only our service once so updated XML & runtime flags take effect while
+        // preserving XiaoAi and every other enabled accessibility service.
         Set<String> current = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
         for (String s : new ArrayList<>(current)) if (own(s)) current.remove(s);
         try {
+            rebindUntil = android.os.SystemClock.elapsedRealtime() + 250;
             writeServices(context, current);
-            p.edit().putInt("home_filter_revision", 1).apply();
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> recover(context), 300);
+            p.edit().putInt("home_filter_revision", HOME_FILTER_REVISION).apply();
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                rebindUntil = 0;
+                recover(context);
+            }, 300);
         } catch (RuntimeException e) {
+            rebindUntil = 0;
             Log.w(TAG, "Home key service refresh failed", e);
         }
     }
@@ -320,6 +355,7 @@ final class SystemIntegration {
     /** Last accessibility state written by Marco TV in this process, to tell our writes from the user's. */
     private static volatile String writtenServices;
     private static volatile int writtenEnabled = -1;
+    private static volatile long rebindUntil;
     private static void writeServices(Context context, Set<String> wanted) {
         String current = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         String next = join(wanted);
@@ -358,7 +394,8 @@ final class SystemIntegration {
                 Log.i(TAG, "Restored adb_enabled=1");
             }
             if (unlocked && !HomeSetup.paused(context) && p.getBoolean("home_compat", false)
-                    && !p.getBoolean("setup_compat_reset_pending", false)) {
+                    && !p.getBoolean("setup_compat_reset_pending", false)
+                    && android.os.SystemClock.elapsedRealtime() >= rebindUntil) {
                 Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
                 if (p.getBoolean("home_compat", false)) {
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
@@ -650,15 +687,27 @@ final class SystemIntegration {
     }
     static void homeGestures(Activity activity,DialogHost host){
         SharedPreferences p=prefs(activity);
-        boolean nativeKeys=p.getBoolean("home_native_keys",false);
+        HomeSetupPolicy.GuardMode mode=guardMode(activity);
         String action=p.getString("home_long_action","system");
-        host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("Home 按键")
-                .setMessage("短按返回桌面，双击可打开 Marco 最近任务。长按默认请求系统任务界面；厂商可能不支持。原厂模式会完整放行按键，短按可能经过原桌面，双击也可能受系统限制。")
-                .setItems(new String[]{"长按：系统最近任务"+(action.equals("system")?" ✓":""),"长按：Marco 最近任务"+(action.equals("marco")?" ✓":""),"长按：不执行操作"+(action.equals("none")?" ✓":""),
-                "保留原厂 Home 按键："+(nativeKeys?"已开启":"未开启"),"双击响应间隔"},(d,w)->{
-            if(w==4){((MainActivity)activity).navigator.personalization("recent_double_ms");return;}
-            if(w==3)p.edit().putBoolean("home_native_keys",!nativeKeys).apply();
-            else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w]).apply();
+        String runtime=HomeKeyService.connected
+                ?(HomeKeyService.runtimeKeyFilterRequested?"服务已绑定 · 已请求按键过滤":"服务已绑定 · 未请求按键过滤")
+                :"服务未绑定";
+        host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("Home 按键与守护模式")
+                .setMessage("当前守护模式："+guardModeLabel(mode)+"\n"+runtime
+                        +"\n\n「窗口回拉」不请求按键过滤，可保证蓝牙遥控器长按音量和方向键连续调节，同时复用原厂桌面窗口回拉与 Home 广播返回 Marco；若个别机型必须直接拦截 Home 键，可显式切换「直接拦截 Home 键」。")
+                .setItems(new String[]{
+                        "窗口回拉模式（不拦截按键，推荐）"+(mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK?" ✓":""),
+                        "直接拦截 Home 键（请求按键过滤）"+(mode==HomeSetupPolicy.GuardMode.KEY_FILTER?" ✓":""),
+                        "仅保留原厂按键（不自动回拉）"+(mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY?" ✓":""),
+                        "直接拦截长按：系统最近任务"+(action.equals("system")?" ✓":""),
+                        "直接拦截长按：Marco 最近任务"+(action.equals("marco")?" ✓":""),
+                        "直接拦截长按：不执行操作"+(action.equals("none")?" ✓":""),
+                        "双击响应间隔"},(d,w)->{
+            if(w==6){((MainActivity)activity).navigator.personalization("recent_double_ms");return;}
+            if(w==0)setGuardMode(activity,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+            else if(w==1)setGuardMode(activity,HomeSetupPolicy.GuardMode.KEY_FILTER);
+            else if(w==2)setGuardMode(activity,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+            else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w-3]).apply();
             homeGestures(activity,host);
         }).setNegativeButton("返回",null).create());
     }

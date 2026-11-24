@@ -323,3 +323,112 @@ flow_cp=os.pathsep.join([str(flow),str(json_jar),str(ANDROID)])
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-cp',flow_cp,'-d',str(flow),*[str(p) for p in flow_files]],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),f'-Dfixture.dir={flow}','-cp',flow_cp,'com.pilipala.tvhome.HomeFlowChecks'],check=True,capture_output=True,text=True,timeout=30)
 (flow/'result.txt').write_text(result.stdout,encoding='utf8');print(result.stdout)
+
+# Verify accessibility service XML never enables key filtering by default while keeping opt-in capability.
+xml_text=(ROOT/'app/src/main/res/xml/home_accessibility.xml').read_text(encoding='utf8')
+assert 'flagRequestFilterKeyEvents' not in xml_text, 'home_accessibility.xml must not enable flagRequestFilterKeyEvents by default'
+assert 'android:canRequestFilterKeyEvents="true"' in xml_text, 'home_accessibility.xml must keep canRequestFilterKeyEvents for explicit opt-in'
+assert 'typeWindowStateChanged' in xml_text, 'home_accessibility.xml must keep typeWindowStateChanged for OEM window pullback'
+print('PASS home_accessibility_xml_defaults_without_key_filter')
+
+# Real HomeKeyService runtime flag & mode checks against in-memory Android accessibility doubles.
+svc=ROOT/'build/home-key-service-tests';svc.mkdir(parents=True,exist_ok=True)
+svc_stubs=dict(android_stubs)
+svc_stubs['android/os/Handler.java']=svc_stubs['android/os/Handler.java'].replace(
+ 'public static void clearDelayed(){ synchronized(delayed){ delayed.clear(); } }',
+ 'public void removeCallbacksAndMessages(Object token){ clearDelayed(); }\n'
+ '  public static void clearDelayed(){ synchronized(delayed){ delayed.clear(); } }'
+)
+svc_stubs['android/content/IntentFilter.java']='''package android.content;
+import java.util.*;
+public class IntentFilter {
+ public final Set<String> actions=new HashSet<>(), categories=new HashSet<>();
+ public IntentFilter(){}
+ public IntentFilter(String a){actions.add(a);}
+ public void addAction(String a){actions.add(a);}
+ public boolean hasAction(String a){return actions.contains(a);}
+ public boolean hasCategory(String c){return categories.contains(c);}
+}'''
+svc_stubs['android/content/Intent.java']=svc_stubs['android/content/Intent.java'].replace(
+ 'public static final String CATEGORY_DEFAULT="android.intent.category.DEFAULT";',
+ 'public static final String CATEGORY_DEFAULT="android.intent.category.DEFAULT";\n'
+ '  public static final String ACTION_CLOSE_SYSTEM_DIALOGS="android.intent.action.CLOSE_SYSTEM_DIALOGS";\n'
+ '  public static final String ACTION_SCREEN_OFF="android.intent.action.SCREEN_OFF";\n'
+ '  public static final String ACTION_SCREEN_ON="android.intent.action.SCREEN_ON";'
+)
+svc_stubs['android/content/Context.java']=svc_stubs['android/content/Context.java'].replace(
+ 'public final List<Integer> startedReqCodes=new ArrayList<>();',
+ 'public final List<Integer> startedReqCodes=new ArrayList<>();\n'
+ '  public final List<BroadcastReceiver> registeredReceivers=new ArrayList<>();\n'
+ '  public Intent registerReceiver(BroadcastReceiver r,IntentFilter f){registeredReceivers.add(r);return null;}\n'
+ '  public void unregisterReceiver(BroadcastReceiver r){registeredReceivers.remove(r);}\n'
+ '  public void dispatchBroadcast(Intent i){for(BroadcastReceiver r:new ArrayList<>(registeredReceivers))r.onReceive(this,i);}'
+)
+svc_stubs['android/accessibilityservice/AccessibilityServiceInfo.java']='''package android.accessibilityservice;
+public class AccessibilityServiceInfo {
+ public static final int FLAG_REQUEST_FILTER_KEY_EVENTS=32;
+ public int flags;
+ public int capabilities;
+ public int getCapabilities(){return capabilities;}
+}'''
+svc_stubs['android/accessibilityservice/AccessibilityService.java']='''package android.accessibilityservice;
+import android.content.*;
+import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityEvent;
+public abstract class AccessibilityService extends Context {
+ public static final int GLOBAL_ACTION_RECENTS=3;
+ public AccessibilityServiceInfo serviceInfo=new AccessibilityServiceInfo();
+ public boolean globalActionResult=true;
+ public final AccessibilityServiceInfo getServiceInfo(){return serviceInfo;}
+ public final void setServiceInfo(AccessibilityServiceInfo info){serviceInfo=info;}
+ public final boolean performGlobalAction(int action){return globalActionResult;}
+ protected void onServiceConnected(){}
+ protected boolean onKeyEvent(KeyEvent event){return false;}
+ public abstract void onAccessibilityEvent(AccessibilityEvent event);
+ public abstract void onInterrupt();
+ public boolean onUnbind(Intent intent){return false;}
+ public void onDestroy(){}
+}'''
+svc_stubs['android/view/accessibility/AccessibilityEvent.java']='''package android.view.accessibility;
+public class AccessibilityEvent {
+ public static final int TYPE_WINDOW_STATE_CHANGED=32;
+ private final int type; private final CharSequence pkg, cls;
+ public AccessibilityEvent(int t,CharSequence p,CharSequence c){type=t;pkg=p;cls=c;}
+ public int getEventType(){return type;}
+ public CharSequence getPackageName(){return pkg;}
+ public CharSequence getClassName(){return cls;}
+}'''
+svc_stubs['android/view/KeyEvent.java']='''package android.view;
+public class KeyEvent {
+ public static final int ACTION_DOWN=0,ACTION_UP=1;
+ public static final int KEYCODE_HOME=3,KEYCODE_DPAD_RIGHT=22,KEYCODE_VOLUME_UP=24,KEYCODE_VOLUME_DOWN=25,KEYCODE_POWER=26;
+ private final int action,code,repeat; private final boolean longPress,canceled;
+ public KeyEvent(int a,int c){this(a,c,0,false,false);}
+ public KeyEvent(int a,int c,int r,boolean l,boolean x){action=a;code=c;repeat=r;longPress=l;canceled=x;}
+ public int getAction(){return action;}
+ public int getKeyCode(){return code;}
+ public int getRepeatCount(){return repeat;}
+ public boolean isLongPress(){return longPress;}
+ public boolean isCanceled(){return canceled;}
+}'''
+svc_stubs['android/widget/Toast.java']='''package android.widget;
+import android.content.Context;
+public class Toast {
+ public static final int LENGTH_LONG=1;
+ public static Toast makeText(Context c,CharSequence t,int d){return new Toast();}
+ public void show(){}
+}'''
+svc_files=[]
+for rel,content in svc_stubs.items():
+    p=svc/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content,encoding='utf8');svc_files.append(p)
+svc_prod_names=[
+    'HomeSetupPolicy.java','HomeInputGate.java','HomePressTracker.java','HomeDeviceGuide.java',
+    'HomeShellSetup.java','HomeSetup.java','HomeSetupSnapshot.java','SystemIntegration.java',
+    'TaskBridgeClient.java','HomeKeyService.java',
+]
+svc_files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/n for n in svc_prod_names]
+svc_files += [ROOT/'scripts/HomeKeyServiceChecks.java']
+svc_cp=os.pathsep.join([str(svc),str(json_jar),str(ANDROID)])
+subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-cp',svc_cp,'-d',str(svc),*[str(p) for p in svc_files]],check=True)
+result=subprocess.run([str(executable(JDK/'bin','java')),f'-Dfixture.dir={svc}','-cp',svc_cp,'com.pilipala.tvhome.HomeKeyServiceChecks'],check=True,capture_output=True,text=True,timeout=30)
+(svc/'result.txt').write_text(result.stdout,encoding='utf8');print(result.stdout)

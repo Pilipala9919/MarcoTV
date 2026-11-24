@@ -701,9 +701,11 @@ final class SettingsScreen extends LinearLayout {
                 if (HomeSetup.paused(host)) return "已暂停";
                 return BuildEdition.RESTRICTED ? "受限兼容 · 未启用" : "未启用";
             case "home_gestures": {
-                if (sys.getBoolean("home_native_keys", false)) return "原厂按键";
+                HomeSetupPolicy.GuardMode mode = SystemIntegration.guardMode(host);
+                if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";
+                if (mode == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK) return "窗口回拉";
                 String a = sys.getString("home_long_action", "system");
-                return "marco".equals(a) ? "长按：Marco 任务" : "none".equals(a) ? "长按：无操作" : "长按：系统任务";
+                return "直接拦截 · " + ("marco".equals(a) ? "长按 Marco" : "none".equals(a) ? "长按无操作" : "长按系统任务");
             }
             case "restore_home":
                 return "切回原厂";

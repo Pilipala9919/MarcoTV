@@ -271,6 +271,12 @@ final class AppearanceDeviceChecks {
                     @Override public void startActivity(android.content.Intent intent){launch[0]=intent;}
                 };
                 Method attach=android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext",android.content.Context.class);attach.setAccessible(true);attach.invoke(service[0],context);
+                check.accept("default_window_mode_passes_home_and_volume",
+                        !service[0].onKeyEvent(new android.view.KeyEvent(0,3))
+                        &&!service[0].onKeyEvent(new android.view.KeyEvent(1,3))
+                        &&!service[0].onKeyEvent(new android.view.KeyEvent(0,24))
+                        &&launch[0]==null);
+                gesturePrefs.edit().putString("home_guard_mode","key_filter").commit();
                 check.accept("home_down_waits_for_release",service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&launch[0]==null);
                 service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_release_returns_desktop",launch[0]!=null&&!launch[0].getBooleanExtra("recent_apps",true));
                 service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(1,3));
@@ -281,9 +287,9 @@ final class AppearanceDeviceChecks {
             ui(inst,()->{
                 check.accept("home_hold_opens_configured_action",launch[0]!=null&&launch[0].getBooleanExtra("recent_apps",false));launch[0]=null;
                 service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_hold_release_does_not_launch_again",launch[0]==null);
-                gesturePrefs.edit().putBoolean("home_native_keys",true).commit();
+                gesturePrefs.edit().putString("home_guard_mode","native_only").putBoolean("home_native_keys",true).commit();
                 check.accept("native_mode_passes_home_down_and_up",!service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&!service[0].onKeyEvent(new android.view.KeyEvent(1,3)));
-                gesturePrefs.edit().putBoolean("home_native_keys",false).commit();
+                gesturePrefs.edit().putString("home_guard_mode","key_filter").putBoolean("home_native_keys",false).commit();
                 check.accept("non_home_navigation_passes_through",!service[0].onKeyEvent(new android.view.KeyEvent(0,21)));
                 service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(0,26));
             });Thread.sleep(720);
