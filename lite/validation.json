@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
-  "version_code": 5,
+  "version": "0.3.1",
+  "version_code": 6,
   "package": "com.pilipala.tvhome.lite",
   "compile_api": 14,
   "min_api": 14,
@@ -10,13 +10,14 @@
     "PreviewPreferences.java"
   ],
   "bytes": 362122,
-  "sha256": "ef9dcd7b039ce9b087daf337b1b568a60a72cec9d06cacbdd2c267166ba925ff",
+  "sha256": "0b2f959e4b10ad276961b1ed3a465466087615698940a53feadfa48fdfb0aed5",
   "restricted_bytes": 362122,
-  "restricted_sha256": "ffd996e90038dcb305ab37ee11f8516ecc55a2910c04eca5bb6a542c7dfec3b6",
+  "restricted_sha256": "01c766d4e292571957101eabd6fe4ef0912de242f98fb8cc0f79417d823738bb",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "physical_android4_tv_verified": false,
   "physical_android5_box_verified": false,
   "android9_tv_verification": {
+    "baseline_version": "0.3.0",
     "device_model": "Xiaomi MiTV-ASTP0",
     "android": "9",
     "installed_via": "adb install -r",
@@ -33,10 +34,11 @@
   "author": "Pilipala",
   "edition": "Lite",
   "status": "experimental",
-  "date": "2026-11-22",
-  "full_edition_latest": "0.21.2",
+  "date": "2026-11-24",
+  "full_edition_latest": "0.21.3",
   "local_checks": {
-    "layout_checks": 11,
+    "settings_checks": 16,
+    "runtime_default_home_checks": 6,
     "apk_checks": {
       "separate_package": true,
       "api14_manifest": true,
@@ -51,10 +53,11 @@
       "lite_wallpapers_only": true,
       "compressed_wallpapers_budget": true,
       "png_launcher_icons_bundled": true,
-      "valid_zip_extract_versions": true
+      "valid_zip_extract_versions": true,
+      "restricted_apk_no_home_declaration": true
     }
   },
-  "local_check_count": 25,
+  "local_check_count": 37,
   "api14_instrumentation_compile_only_passed": true,
   "api14_instrumentation_check_count": 55,
   "api14_runtime_baseline_version": "0.1.2",
@@ -66,7 +69,8 @@
   "not_verified": [
     "physical Android 4.x television",
     "Xiaomi Box 3c (Android 5.1) U-disk PackageInstaller runtime",
-    "Android 4.0.2 emulator runtime rerun for new 0.3.0 checks (55 checks compiled against API 14 stubs only; baseline runtime was 0.1.2)",
+    "Android 9 physical TV rerun for 0.3.1 (UI baseline was 0.3.0; 0.3.1 default-home 'Just once' fix verified via host LiteActivity runtime checks)",
+    "Android 4.0.2 emulator runtime rerun for 0.3.1 checks (55 checks compiled against API 14 stubs only; baseline runtime was 0.1.2)",
     "OEM Home button interception and default HOME selection",
     "physical remote key mapping and long press on Android 4.x/5.x",
     "power off/wake and OEM screensaver",

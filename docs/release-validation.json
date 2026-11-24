@@ -1,20 +1,22 @@
 {
-  "version": "0.21.2",
-  "version_code": 45,
-  "date": "2026-11-22",
+  "version": "0.21.3",
+  "version_code": 46,
+  "date": "2026-11-24",
   "author": "Pilipala",
   "release_channel": "stable",
-  "apk_sha256": "de8b801554413cfbbeb1a5ebd5b6ba686541ac0ab2176d0e10ce86593f200395",
-  "restricted_apk_sha256": "410d7ec65af21101ea333b722927cfab49b4d27820b38a1a3370d66748d4c672",
+  "apk_sha256": "2a92aacdcc633de894f51716972ad5fe5b2c15465088195c5ff3fb9174783a6e",
+  "restricted_apk_sha256": "2e87b5fbde62c23da97014663a6be213ac848dabd516163a77a0786562c50eb8",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
   "hardware_baseline": {
-    "version": "0.21.1",
-    "version_code": 44,
+    "version": "0.21.3-candidate-b7ef6b0",
+    "version_code": 45,
     "device_model": "Xiaomi MiTV-ASTP0",
     "android": "9",
-    "apk_sha256": "1d7dd5acf909558f671391b855e255c282d634667b8947d586a2b9f877050df9",
-    "task_bridge_api23_compat_fix": "0.21.2 host-verified via 18 cross-API reflection checks (API 23-35+ ActivityManagerNative.getDefault fallback across constructor/canRemove/publish, 2-arg getTasks flags=0, 2-arg removeTask fallback), start_task_bridge.py cross-Android shell probe simulation, and HomeShellSetup ps -A/ps fallback checks; physical Android 6.0-7.1 TV retest pending",
+    "firmware": "22.8.30.1385",
+    "apk_sha256": "dd33307feb8f8b95df73b6cb4aff516886f793a83167d4548edb888e14b15fa5",
+    "default_home_optimization_baseline": "On Xiaomi MiTV-ASTP0 (Android 9, 22.8.30.1385) with candidate b7ef6b0 standard APK (dd33307f...): system HOME remained com.mitv.tvhome/.MainActivityUserMode; ADB simulated Home from third-party app returned to Marco attributed as OEM window fallback; short standby (~25s) and ~3-min standby returned focus to Marco (~5.5s / ~6s); physical remote Home and D-pad were confirmed on-site; AC power-unplug cold boot round 696 auto-arrived at Marco without remote input (user did not observe first operable desktop, round 695 first showed OEM launcher with ADB initially off); caveats preserved: standby from Android TV Settings also returned to Marco (~5s), 37 HomeSetupDeviceChecks UI checks passed while full command exited 1 due to post-test DEAD accessibility binding (recovered after re-enabling compat in UI). Final 0.21.3 adds two small host-verified fixes (task bridge --stop mixed PID reporting and preserving user-disabled boot_home on native HOME routine checks) on top of b7ef6b0; final 0.21.3 APK was not separately re-installed on TV.",
+    "task_bridge_api23_compat_fix": "0.21.2-0.21.3 host-verified via 18 cross-API reflection checks (API 23-35+), MiTV4 header-only ps -A fallback to plain ps, cmdline identity states, and CLI --stop mixed verified/unreadable PID reporting; physical Android 6.0-7.1 TV retest pending",
     "packaging_compatibility_fix": "normalized PKZIP extract_version (10/20) across all APK entries, declared required=false for implied wifi/location/landscape features, switched label to @string/app_name, explicit v1/v2/v3 signing with min-sdk-version 23, and verified overwrite install on MiTV-ASTP0",
     "brand_unification_and_app_management": "verified official Purple Stacked Cards multi-density icons, API 26 adaptive icon, TV banners, animated 3-layer header & settings brand emblem, lilac/lavender focus accents, centralized App Management & Uninstall panel with 4-way filters, All Apps drawer long-press full menu, and direct desktop card uninstall on MiTV-ASTP0",
     "header_icons_and_per_card_customization": "verified 4-icon spring focus animations without 'by Pilipala' subtitle, widened downward card-row threshold, cached Gaussian blur shadows, per-card custom width/height/3D depth/radius with full-height 3D live preview on TV inputs & app cards, and phone QR cover upload flow on MiTV-ASTP0",
@@ -56,13 +58,14 @@
     "device_instrumentation_compile_only_apks": 7
   },
   "not_verified": [
-    "Android 6.0-7.1 (API 23-25) physical TV TaskBridge runtime and host/local launcher scripts (e.g. Xiaomi MiTV4 Android 6.0.1)",
-    "Android 10-14 physical TV TaskBridge Binder handshake and Adopted Storage runtime",
+    "final 0.21.3 APK overwrite install on MiTV-ASTP0 (hardware baseline is candidate b7ef6b0 dd33307f... prior to the two follow-up fixes)",
+    "active continuous video playback, live physical HDMI signal, overnight standby, and multi-round cold-boot endurance on MiTV-ASTP0",
+    "Android 6.0-7.1 (API 23-25) physical TV TaskBridge runtime and boot_id correlation (e.g. Xiaomi MiTV4 Android 6.0.1)",
+    "Android 10-14 physical TV native ROLE_HOME selection and TaskBridge Binder handshake",
     "other brands (TCL, Hisense, Skyworth, Sony, Huawei) and other SoC 4K 10-bit HEVC live wallpaper hardware decoders",
     "stable frame rate across devices",
     "restricted edition target firmware",
-    "Lite 0.3.0 physical Android 4.x / 5.1 TV hardware (including Xiaomi Box 3c)",
-    "long-term cold-reboot endurance across OEM updates"
+    "Lite 0.3.1 physical Android 4.x / 5.1 TV hardware (including Xiaomi Box 3c)"
   ],
   "screenshots": "Historical privacy-sanitized screenshots retain their original capture versions; no new private screenshots published."
 }

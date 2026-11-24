@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "edition": "standard",
-  "versionCode": 45,
-  "versionName": "0.21.2",
+  "versionCode": 46,
+  "versionName": "0.21.3",
   "minSdk": 23,
-  "size": 1559427,
-  "sha256": "de8b801554413cfbbeb1a5ebd5b6ba686541ac0ab2176d0e10ce86593f200395",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.2/MarcoTV-0.21.2.apk",
+  "size": 1579907,
+  "sha256": "2a92aacdcc633de894f51716972ad5fe5b2c15465088195c5ff3fb9174783a6e",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.21.3/MarcoTV-0.21.3.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.21.2 · Pilipala\n\n- Android 6.0–7.1（API 23–25）最近任务辅助服务兼容修复（Issue #7）：修复 TaskBridgeServer 在构造函数、canRemove() 与 publish() 三处直接调用 API 26 才引入的 ActivityManager.getService() 导致的启动崩溃，按 API 29+ / 26+ / 23–25 分层并回退 ActivityManagerNative.getDefault()；同步修正 2 参 getTasks(int, int) 标志位并补齐 2 参 removeTask 回退。\n- 老固件本机一键启动与 PC 启动脚本兼容修复：HomeShellSetup 与 scripts/start_task_bridge.py 移除对异常 pidof 的依赖，改为表头感知的 ps -A / ps 自动回退（兼容 toolbox / toybox / BusyBox）；补齐 am get-current-user、pm list packages -U（dumpsys package 多用户 UID）与 pm path 回退，并要求连续两次存活确认以防启动即崩溃产生假成功。\n- 完整保留 0.21.1 的规范 PKZIP 头 / 零隐式必需硬件特性 / v1+v2+v3 签名修复，以及 0.21.0 的全端 MarcoTV 紫韵叠卡品牌视觉统一与集中式「应用管理与卸载」体验。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含新增 18 项 API 23–35+ 任务桥反射与跨版本启动脚本检查）、网页安装向导 72 项路由校验与真机测试 APK 编译守卫已通过；小米 MiTV-ASTP0（Android 9）实机基线沿用 0.21.1（全量 250 项插桩基线沿用 0.17.0），本次 Android 6.0–7.1 任务桥修复尚待小米 MiTV4 等老系统真机实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.21.2-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.3.0（详见 lite-v0.3.0 发布页）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.2）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
+  "notes": "Marco TV 0.21.3 · Pilipala\n\n- 默认桌面启用分流与事务化取消保护：「一键启用 Marco TV」在电视无系统桌面选择页但开放辅助功能时直达免 ADB「Home 兼容」确认；仅支持无线配对码时应用与安装网页同步指引手动辅助功能或官方 Android Platform Tools 配对说明；系统选择器与辅助功能授权支持跨进程重建事务，取消（含进程重建后取消、已是默认桌面暂停后取消）完整保留原暂停状态、HOME 别名、独立「开机打开」开关及已有记录，原生默认桌面日常状态检查亦保留用户手动关闭「开机打开」的选择。\n- 准确区分默认桌面、按键返回、窗口回拉与按轮次开机到达：90 秒 Home 测试区分系统 HOME／兼容按键或广播／原桌面窗口回拉，双击打开最近任务不误判短按；开机恢复按启动轮次独立记录请求、拒绝与窗口实际可见获焦后的单次消费并去重重复广播；Android 6 缺 boot_count 时按可靠 boot_id 建基线并关联真实开机恢复，缺乏可靠标识时提供明确标注的人工观察入口。\n- 原桌面回拉目标跟踪与撤销快照分离：切换原厂桌面或重启用兼容时更新窗口与任务桥回拉目标，保留原始撤销快照并支持原桌面临时停用后重试恢复。\n- 任务桥 MiTV4 兼容与 --stop 提示修正：电脑端与电视端仅在 ps -A 表头 PID 列下含有效数字行时采信，否则回退普通 ps；电脑端细化进程运行与身份不可读状态，--stop 同时遇到已核实与身份不可读候选 PID 时仅停止前者并分别报告 PID。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含 144 项桌面流程回归、59 项自动流程与 23 项恢复快照校验、任务桥跨 API 反射及真实 CLI --stop 模拟）、网页安装向导 72 项路由校验与 7 个真机测试编译守卫已通过；小米 MiTV-ASTP0（Android 9，固件 22.8.30.1385）的实机验证基线来自同轮候选 b7ef6b0（已验证 ADB Home 原桌面窗口回拉、短待机与约 3 分钟待机回桌、现场实体遥控器 Home/方向键及第 696 轮零按键拔电冷启动自动到达 Marco；并保留第 695 轮先见小米桌面、从设置页待机回桌、37 项插桩退出码 1 及持续播片/真实 HDMI/过夜待机待测限制），最终 0.21.3 在此基础上仅叠加两项离线验证小改。其他小米型号、TCL、海信、索尼等品牌仍待实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.21.3-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.3.1（详见 lite-v0.3.1 发布页）。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.21.3）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
 }

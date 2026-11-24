@@ -4,13 +4,17 @@
   <img src="../docs/brand/tv-banner-dark.png" width="480" alt="Marco TV · MAKE IT YOUR HOME">
 </p>
 
-作者 **Pilipala** · **0.3.0 老电视兼容实验版** · [GPL-3.0-only](../LICENSE)
+作者 **Pilipala** · **0.3.1 老电视兼容实验版** · [GPL-3.0-only](../LICENSE)
 
 **本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。**
 
-面向 Android 4.0 起步的轻量桌面，独立于完整版安装和维护。本版继续使用真正的 Android API 14 桩库编译（Dalvik `dex 035`），无联网权限、无后台服务，同步启用 MarcoTV 官方 **紫调三层叠卡（Purple Stacked Cards）** 品牌视觉，并将完整版多项核心交互与自定义能力下放至约 **350 KiB** 的极简体积中。**尚无 Android 4.x / 5.1 老电视与小米盒子 3c 真机实测验证，暂作为实验版招募反馈。**
+面向 Android 4.0 起步的轻量桌面，独立于完整版安装和维护。本版继续使用真正的 Android API 14 桩库编译（Dalvik `dex 035`），无联网权限、无后台服务，同步启用 MarcoTV 官方 **紫调三层叠卡（Purple Stacked Cards）** 品牌视觉，并将完整版多项核心交互与自定义能力下放至约 **355 KiB** 的极简体积中。**尚无 Android 4.x / 5.1 老电视与小米盒子 3c 真机实测验证，暂作为实验版招募反馈。**
 
-## 0.3.0 更新
+## 0.3.1 更新
+
+- **修复系统选择器「仅此次」误报为默认桌面**：`LiteActivity` 改以系统当前实际 `HOME + DEFAULT` 解析结果判定默认桌面状态，明确区分「已设为默认」「仅本次临时打开」「由其他桌面接管」「尚未设为默认」与无 HOME 声明的受限版普通启动；保持纯 API 14、零联网权限、零后台服务与零辅助服务边界不变，并新增真实类运行时回归检查。
+
+## 0.3.0 更新（历史记录）
 
 - **统一官方品牌图标与视觉语言**：同步启用 MarcoTV 官方 **紫调三层叠卡** 4 套多密度 PNG 图标（完整保留 Android 4.0–15 与小米盒子 3c 安装兼容）、首页顶栏 `MARCO TV` 动态三层叠卡品牌徽标与薰衣草紫焦点/滑块点缀，并在卡片纯色封面首位新增「丁香紫」。
 - **全面下放正式版高兼容特性（纯 API 14 原生零依赖）**：
@@ -36,7 +40,7 @@
 
 ## 完整版特性兼容说明（哪些已同步 / 哪些不适合 Lite）
 
-| 能力 | Lite 0.3.0 状态 | 说明 |
+| 能力 | Lite 0.3.1 状态 | 说明 |
 | --- | --- | --- |
 | 顶栏官方紫韵叠卡动画标 + 矢量弹簧焦点动效 | **已兼容** | 3 枚纯 Canvas 矢量图标，关闭动效时零重绘 |
 | 收藏分组双行切换 + 拿起并移动拖拽排序 | **已兼容** | 方向键上下切换两行、左右实时换位并独立持久保存 |
@@ -58,7 +62,7 @@
 
 ## 版本怎么选
 
-| 项目 | Marco TV 完整版 0.21.2 | Marco TV Lite 0.3.0 |
+| 项目 | Marco TV 完整版 0.21.3 | Marco TV Lite 0.3.1 |
 | --- | --- | --- |
 | 最低系统声明 | Android 6.0 / API 23 | Android 4.0 / API 14，实验支持 |
 | 应用包名 | com.pilipala.tvhome | com.pilipala.tvhome.lite |
@@ -76,16 +80,16 @@ Lite 与完整版可以同时安装，设置分别保存。本版 APK 约 **354 
 ## 安装与首次试用（含小米盒子 3c 提示「检测安装包异常」排查）
 
 1. 在电视/盒子「关于／系统信息」核对实际 Android 版本。不是 Android 或不能安装 APK 的系统，不适用此版本。
-2. 下载 **`MarcoTV-Lite-0.3.0.apk`**（若固件限制第三方桌面 `HOME` 声明，可尝试无 `HOME` 声明的 **`MarcoTV-Lite-0.3.0-Restricted.apk`**）。普通完整版 APK 不能用于 Android 4.x / 5.x。
+2. 下载 **`MarcoTV-Lite-0.3.1.apk`**（若固件限制第三方桌面 `HOME` 声明，可尝试无 `HOME` 声明的 **`MarcoTV-Lite-0.3.1-Restricted.apk`**）。普通完整版 APK 不能用于 Android 4.x / 5.x。
 3. 在电视中允许未知来源安装，通过 U 盘、浏览器、厂商文件接收或电脑 ADB 安装。
 4. **若小米盒子 3c（Android 5.1）或小米电视在 U 盘安装时提示「检测安装包异常，无法安装」**：
-   - 请务必使用 `0.2.0` / `0.3.0` 及以上版本（已修复旧版 XML 图标为标准多密度 PNG 并规范 ZIP 打包）；
+   - 请务必使用 `0.2.0` / `0.3.1` 及以上版本（已修复旧版 XML 图标为标准多密度 PNG 并规范 ZIP 打包）；
    - 如仍被小米自带「高清播放器 / 应用安装器」拦截，通常是 MIUI TV 联网安全校验或第三方桌面拦截导致：请先开启「允许安装未知来源应用」，再**断开电视/盒子网络（关闭 Wi-Fi 或拔掉网线）后通过 U 盘安装**；
-   - 或开启「允许 ADB 调试」后用电脑/手机通过 `adb install -r MarcoTV-Lite-0.3.0.apk` 安装；也可以试用无 `HOME` 声明的 `MarcoTV-Lite-0.3.0-Restricted.apk`。
+   - 或开启「允许 ADB 调试」后用电脑/手机通过 `adb install -r MarcoTV-Lite-0.3.1.apk` 安装；也可以试用无 `HOME` 声明的 `MarcoTV-Lite-0.3.1-Restricted.apk`。
 5. 从原厂应用列表打开 **Marco TV Lite**，先检查卡片、应用启动、方向键、长按管理和返回键。
 6. 如系统允许选择默认桌面，可在「设置 → 设为默认桌面」或系统设置中选择 Lite。恢复时从系统设置改回原厂默认桌面，或卸载 Lite。
 
-开发者可用 `adb -s <设备序列号> install --no-streaming -r MarcoTV-Lite-0.3.0.apk` 安装。
+开发者可用 `adb -s <设备序列号> install --no-streaming -r MarcoTV-Lite-0.3.1.apk` 安装。
 
 ## 遥控器与设置
 
@@ -129,7 +133,7 @@ Lite 与完整版可以同时安装，设置分别保存。本版 APK 约 **354 
 
 ![Lite 桌面闲置时钟](docs/assets/lite-clock-api14.png)
 
-[完整验证记录](validation.json) 记录 `0.3.0` 的 APK 校验值、25 项本地检查（含 PNG 图标与规范 ZIP 头验证）、55 项 API 14 真实桩编译检查、小米 `MiTV-ASTP0`（Android 9）覆盖安装与界面实拍验证以及未验证范围。**Android 4.x / 5.1（含小米盒子 3c）老设备实体真机仍待反馈，欢迎通过 [GitHub Issues](https://github.com/Pilipala9919/MarcoTV/issues) 提交型号、系统版本和实测结果。**
+[完整验证记录](validation.json) 记录 `0.3.1` 的 APK 校验值、本地与默认桌面运行时检查、55 项 API 14 真实桩编译检查、小米 `MiTV-ASTP0`（Android 9）历史界面实拍基线以及未验证范围。**Android 4.x / 5.1（含小米盒子 3c）老设备实体真机仍待反馈，欢迎通过 [GitHub Issues](https://github.com/Pilipala9919/MarcoTV/issues) 提交型号、系统版本和实测结果。**
 
 ## 从源码构建
 
@@ -145,7 +149,7 @@ python scripts/test_lite.py
 python scripts/check_release.py
 ```
 
-产物为 `dist/MarcoTV-Lite-0.3.0.apk`、`dist/MarcoTV-Lite-0.3.0-Restricted.apk` 和同名 `.sha256` 文件。
+产物为 `dist/MarcoTV-Lite-0.3.1.apk`、`dist/MarcoTV-Lite-0.3.1-Restricted.apk` 和同名 `.sha256` 文件。
 
 ## 开源说明
 

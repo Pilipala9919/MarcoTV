@@ -4,7 +4,7 @@ package com.pilipala.tvhome;
 
 /** Small, API-independent schema shared by editor, backup validation and tests. */
 final class LiteSettings {
-    static final String VERSION="0.3.0";
+    static final String VERSION="0.3.1";
     static final int HOME_STATE_DEFAULT=0;
     static final int HOME_STATE_ONCE=1;
     static final int HOME_STATE_UNSET=2;
