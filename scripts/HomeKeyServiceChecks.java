@@ -48,6 +48,8 @@ public final class HomeKeyServiceChecks {
         Handler.clearDelayed();
         HomeSetup.bootIdOverride = "boot-uuid-1";
         HomeSetup.resetProcessSessionForTest();
+        SystemIntegration.resetRebindStateForTest();
+        Settings.Secure.failNextPutStrings = 0;
         Diagnostics.events.clear();
         Settings.Global.ints.clear();
         Settings.Secure.ints.clear();
@@ -170,13 +172,53 @@ public final class HomeKeyServiceChecks {
                 service.startedActivities.size() == 1
                 && !service.startedActivities.get(0).getBooleanExtra("recent_apps", true));
 
-        // Trailing "recentapps" emitted by an already-open OEM recents overlay while dismissing
-        // itself after "homekey" must not suppress our broadcast retry, AND broadcast retry must be
-        // attributed to COMPAT_BROADCAST / HOME_BROADCAST_RETRY (not HOME_WINDOW_FALLBACK).
+        // P2 #3B repro: open Assistant -> Home back to Marco -> 300ms later open System Recents ->
+        // Marco MUST NOT clobber the newly opened System Recents!
         Diagnostics.events.clear();
+        SystemClock.elapsed += 50;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed += 250;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.RecentsOverlay"));
+        SystemClock.elapsed += 120;
+        Handler.runDue();
+        check("p2_3b_assist_then_home_then_300ms_recents_never_clobbered",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK")
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY"));
+
+        // P2 #3B variant without intermediate Marco window event: assist -> homekey -> 300ms recentapps
+        // still honors the new System Recents (assist never arms dismissingRecentAppsUntil).
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "assist"));
+        SystemClock.elapsed += 100;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 300;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.RecentsOverlay"));
+        SystemClock.elapsed += 250;
+        Handler.runDue();
+        check("p2_3b_assist_then_home_then_300ms_recents_without_marco_event_never_clobbered",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK")
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY"));
+
+        // Exiting an already-open Recents overlay via Home ignores its closing "recentapps" echo (+30ms)
+        // while Marco hasn't regained focus yet, and attributes the safety-net retry to COMPAT_BROADCAST.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        SystemClock.elapsed += 100;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 30;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
-        SystemClock.elapsed += 140;
+        SystemClock.elapsed += 430;
         Handler.runDue();
         check("trailing_recentapps_after_homekey_still_runs_broadcast_retry",
                 service.startedActivities.size() == 2
@@ -184,16 +226,36 @@ public final class HomeKeyServiceChecks {
                 && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK")
                 && HomeSetup.SOURCE_COMPAT_BROADCAST.equals(service.sysPrefs.getString("pending_home_source", "")));
 
+        // Once Marco regains focus after exiting Recents, a fresh Recents 300ms later is honored!
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        SystemClock.elapsed += 100;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed += 250;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.RecentsOverlay"));
+        SystemClock.elapsed += 200;
+        Handler.runDue();
+        check("p2_3b_recents_home_marco_then_300ms_new_recents_never_clobbered",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+
         // Observed OEM launcher window after "homekey" cancels retry and runs true WINDOW_FALLBACK.
         service.startedActivities.clear();
         Diagnostics.events.clear();
-        SystemClock.elapsed += 1500;
+        SystemClock.elapsed += 15000;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 40;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
         Handler.runDue();
-        SystemClock.elapsed += 200;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         check("observed_oem_window_after_homekey_records_window_fallback_not_retry",
                 service.startedActivities.size() == 2
@@ -201,15 +263,54 @@ public final class HomeKeyServiceChecks {
                 && !Diagnostics.events.contains("HOME_BROADCAST_RETRY")
                 && HomeSetup.SOURCE_WINDOW_FALLBACK.equals(service.sysPrefs.getString("pending_home_source", "")));
 
-        // P2 #4 repro A: assistant app window taking foreground 50ms after "homekey" cancels 150ms retry.
+        // P2 #3A repro: OEM Launcher A -> Marco regains focus -> 40ms later OEM Launcher B appears ->
+        // MUST NOT drop the second pullback!
         service.startedActivities.clear();
         Diagnostics.events.clear();
-        SystemClock.elapsed += 1500;
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 10;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        Handler.runDue();
+        SystemClock.elapsed += 15;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed += 25; // total 40ms between Launcher A and Launcher B!
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.xiaomi.eetv.litehome", "com.xiaomi.eetv.litehome.Launcher"));
+        Handler.runDue();
+        check("p2_3a_oem_a_then_marco_then_40ms_oem_b_triggers_second_pullback",
+                service.startedActivities.size() == 3);
+
+        // P2 #3A variant: same OEM Launcher A -> Marco regains focus -> 40ms later OEM Launcher A again ->
+        // MUST pull back again because Marco already regained focus in between!
+        service.startedActivities.clear();
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 10;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        Handler.runDue();
+        SystemClock.elapsed += 20;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed += 20; // 40ms between first A and second A!
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        Handler.runDue();
+        check("p2_3a_oem_a_then_marco_then_40ms_oem_a_triggers_second_pullback",
+                service.startedActivities.size() == 3);
+
+        // P2 #4 repro A: assistant app window taking foreground 50ms after "homekey" cancels retry.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 50;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.xiaomi.voicecontrol", "com.xiaomi.voicecontrol.VoiceActivity"));
-        SystemClock.elapsed += 200;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         check("p2_4_assistant_app_window_at_50ms_cancels_broadcast_retry",
                 service.startedActivities.size() == 1
@@ -219,12 +320,12 @@ public final class HomeKeyServiceChecks {
         // P2 #4 repro B: system overlay assistant (SystemUI / MiTV SystemUI) at 50ms after "homekey" cancels retry.
         service.startedActivities.clear();
         Diagnostics.events.clear();
-        SystemClock.elapsed += 1500;
+        SystemClock.elapsed += 15000;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 50;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.xiaomi.mitv.systemui", "com.xiaomi.mitv.systemui.AssistantOverlay"));
-        SystemClock.elapsed += 200;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         check("p2_4_system_overlay_assistant_at_50ms_cancels_broadcast_retry",
                 service.startedActivities.size() == 1
@@ -234,11 +335,11 @@ public final class HomeKeyServiceChecks {
         // P2 #4 repro C: "assist" broadcast 50ms after "homekey" is NEVER ignored and cancels retry + suppresses pullback.
         service.startedActivities.clear();
         Diagnostics.events.clear();
-        SystemClock.elapsed += 1500;
+        SystemClock.elapsed += 15000;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 50;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "assist"));
-        SystemClock.elapsed += 150;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
@@ -256,7 +357,7 @@ public final class HomeKeyServiceChecks {
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 50;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
-        SystemClock.elapsed += 200;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         check("p2_4_fresh_recentapps_at_50ms_cancels_broadcast_retry",
                 service.startedActivities.size() == 1
@@ -269,7 +370,7 @@ public final class HomeKeyServiceChecks {
         SystemClock.elapsed += 50;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
-        SystemClock.elapsed += 200;
+        SystemClock.elapsed += 500;
         Handler.runDue();
         check("homekey_followup_cancelled_when_marco_settles", service.startedActivities.size() == 1);
 
@@ -391,8 +492,41 @@ public final class HomeKeyServiceChecks {
                 && !TaskBridgeClient.shouldEnableWake(service)
                 && service.startedActivities.isEmpty());
 
+        // P2 #2 repro on real HomeKeyService: upgrade rebind writes Marco back into Settings.Secure,
+        // stays "已写回、等待连接" with revision=1 until real onServiceConnected() applies guard mode.
+        HomeKeyService rebindSvc = freshService();
+        rebindSvc.secureAuthorized = true;
+        rebindSvc.sysPrefs.edit().putInt("home_filter_revision", 1).commit();
+        rebindSvc.onServiceConnected();
+        SystemIntegration.refreshHomeService(rebindSvc);
+        rebindSvc.onUnbind(new Intent());
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("p2_2_real_service_written_awaits_connect_before_marking_complete",
+                HomeSetup.serviceEnabled(rebindSvc)
+                && !HomeKeyService.connected
+                && !HomeKeyService.isGuardModeApplied(rebindSvc)
+                && rebindSvc.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(rebindSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_AWAITING_CONNECT")
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && "已写回、等待连接".equals(SystemIntegration.rebindStatusLabel(rebindSvc)));
+        rebindSvc.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        rebindSvc.onServiceConnected();
+        check("p2_2_real_service_connect_applies_mode_and_marks_rebind_complete",
+                HomeKeyService.connected
+                && HomeKeyService.isGuardModeApplied(rebindSvc)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && rebindSvc.serviceInfo.flags == 1
+                && rebindSvc.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && rebindSvc.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && "已连接并应用模式".equals(SystemIntegration.rebindStatusLabel(rebindSvc)));
+        rebindSvc.onDestroy();
+
         service.onDestroy();
-        check("destroy_cleans_up_state", !HomeKeyService.connected && !HomeKeyService.runtimeKeyFilterRequested);
+        check("destroy_cleans_up_state", !HomeKeyService.connected && !HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeModeApplied);
         System.out.println("OK " + passed + " HomeKeyService runtime guard mode checks");
         System.exit(0);
     }

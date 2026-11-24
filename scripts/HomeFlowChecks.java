@@ -66,6 +66,7 @@ public final class HomeFlowChecks {
         HomeKeyService.connected = false;
         HomeKeyService.runtimeFlags = 0;
         HomeKeyService.runtimeKeyFilterRequested = false;
+        HomeKeyService.runtimeModeApplied = false;
         HomeKeyService.syncCalls.set(0);
         RecoveryService.running = false;
         Diagnostics.events.clear();
@@ -1961,15 +1962,19 @@ public final class HomeFlowChecks {
                 && StatusSnapshot.local(host).contains("窗口回拉（不拦截按键）")
                 && StatusSnapshot.local(host).contains("按键过滤：未请求"));
 
-        // P1 #1 repro: upgrade unbinds Marco; 50ms later reconcile() runs (e.g. settings resume) and
-        // MUST recognize own rebind without pausing home_compat/boot_home; 310ms later Marco is restored
-        // and only THEN is home_filter_revision committed to HOME_FILTER_REVISION.
+        // P1 #1 + P2 #2 repro: upgrade unbinds Marco; 50ms later reconcile() runs (e.g. settings resume) and
+        // MUST recognize own rebind without pausing home_compat/boot_home; 310ms later Marco is written back
+        // (state="written", awaiting connect -> revision STILL 1); only AFTER HomeKeyService connects and
+        // applies the chosen guard mode is home_filter_revision committed to HOME_FILTER_REVISION.
         String xiaoAi = "com.xiaomi.voicecontrol/.VoiceAccessibilityService";
         Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
         Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
         host.sysPrefs.edit().putInt("home_filter_revision", 1).putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
         int beforeSync = HomeKeyService.syncCalls.get();
         SystemIntegration.refreshHomeService(host);
+        // Simulate Android unbinding the service when Marco removed itself from ENABLED_ACCESSIBILITY_SERVICES.
+        HomeKeyService.connected = false;
+        HomeKeyService.runtimeModeApplied = false;
         String duringRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         check("p1_1_upgrade_rebind_removes_only_own_and_defers_revision_commit",
                 xiaoAi.equals(duringRebind)
@@ -1988,24 +1993,46 @@ public final class HomeFlowChecks {
                 && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
                 && host.sysPrefs.getInt("home_filter_revision", 0) == 1);
 
-        // At +310ms: delayed rebind completes -> restores Marco + XiaoAi, keeps switches ON, commits revision=2.
+        // At +310ms: delayed rebind writes Marco back, but service has NOT connected yet ->
+        // MUST report "已写回、等待连接" and MUST NOT mark home_filter_revision complete yet!
+        Diagnostics.events.clear();
         SystemClock.elapsed += 260;
         Handler.runDue();
         String afterRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        check("p1_1_rebind_at_310ms_restores_service_switches_and_commits_revision",
+        check("p2_2_written_before_connect_awaits_binding_and_defers_revision",
                 !HomeSetup.paused(host)
                 && host.sysPrefs.getBoolean("home_compat", false)
                 && host.sysPrefs.getBoolean("boot_home", false)
                 && !SystemIntegration.isOwnRebindInProgress(host)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
                 && afterRebind != null && afterRebind.contains(xiaoAi) && afterRebind.contains(HomeSetup.SERVICE)
-                && host.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_AWAITING_CONNECT")
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && StatusSnapshot.local(host).contains("已写回、等待连接"));
+
+        // Calling refreshHomeService again while awaiting connect must NOT unbind again.
+        SystemIntegration.refreshHomeService(host);
+        check("p2_2_refresh_while_awaiting_connect_does_not_reunbind",
+                HomeSetup.serviceEnabled(host)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1);
+
+        // Once HomeKeyService connects and applies the chosen guard mode, revision=2 commits cleanly.
+        HomeKeyService.connected = true;
+        HomeKeyService.syncRuntimeKeyFilter(host);
+        check("p1_1_rebind_commits_revision_only_after_service_connects_and_applies_mode",
+                host.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && StatusSnapshot.local(host).contains("已连接并应用模式"));
 
         // Second refresh at current revision does not unbind again.
         SystemIntegration.refreshHomeService(host);
         check("refresh_home_service_noop_after_revision_current",
                 Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(HomeSetup.SERVICE));
 
-        // P1 #1b: transient restore failure retries automatically and only commits revision on confirmed success.
+        // P1 #1b: transient restore failure retries automatically and commits revision once connected.
         MainActivity retryHost = freshEnv();
         retryHost.secureAuthorized = true;
         retryHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
@@ -2025,12 +2052,50 @@ public final class HomeFlowChecks {
                 !HomeSetup.paused(retryHost) && retryHost.sysPrefs.getBoolean("home_compat", false));
         SystemClock.elapsed += 210;
         Handler.runDue();
-        check("p1_1b_retry_succeeds_and_commits_revision",
+        check("p1_1b_retry_writes_back_and_awaits_connect",
                 HomeSetup.serviceEnabled(retryHost)
                 && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
-                && retryHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+                && retryHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.connected = true;
+        HomeKeyService.syncRuntimeKeyFilter(retryHost);
+        check("p1_1b_retry_commits_revision_after_connect",
+                retryHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
 
-        // P1 #1c: exhausted retries leave revision uncommitted so future launches can retry.
+        // P1 #1f (process exit mid-rebind): temporary unbind -> process dies -> reopen app ->
+        // home_compat & boot_home MUST stay ON, service written back, revision committed on connect!
+        MainActivity crashHost = freshEnv();
+        crashHost.secureAuthorized = true;
+        crashHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(crashHost);
+        // Simulate process kill right after temporary unbind!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.connected = false;
+        HomeKeyService.runtimeModeApplied = false;
+        // Fresh process opens app: reconcile() then refreshHomeService()!
+        HomeSetup.reconcile(crashHost);
+        check("p1_1f_process_exit_reopen_reconcile_preserves_compat_and_boot",
+                !HomeSetup.paused(crashHost)
+                && crashHost.sysPrefs.getBoolean("home_compat", false)
+                && crashHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.isOwnRebindInProgress(crashHost));
+        SystemIntegration.refreshHomeService(crashHost);
+        check("p1_1f_process_exit_reopen_restores_service_and_awaits_connect",
+                !HomeSetup.paused(crashHost)
+                && crashHost.sysPrefs.getBoolean("home_compat", false)
+                && crashHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(crashHost)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && crashHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.connected = true;
+        HomeKeyService.syncRuntimeKeyFilter(crashHost);
+        check("p1_1f_process_exit_reopen_commits_revision_after_connect",
+                crashHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // P1 #1c (3 consecutive write-back failures -> writes recover -> app re-enters):
+        // preserves user's home_compat/boot_home, never marks revision done early, and finishes on re-entry!
         MainActivity failHost = freshEnv();
         failHost.secureAuthorized = true;
         failHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
@@ -2040,12 +2105,52 @@ public final class HomeFlowChecks {
         Settings.Secure.failNextPutStrings = 5;
         for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
         Settings.Secure.failNextPutStrings = 0;
-        check("p1_1c_exhausted_rebind_retries_never_mark_revision_done",
+        check("p1_1c_exhausted_rebind_retries_preserve_settings_and_never_mark_revision_done",
                 !HomeSetup.serviceEnabled(failHost)
+                && !HomeSetup.paused(failHost)
+                && failHost.sysPrefs.getBoolean("home_compat", false)
+                && failHost.sysPrefs.getBoolean("boot_home", false)
                 && failHost.sysPrefs.getInt("home_filter_revision", 0) == 1
                 && Diagnostics.events.contains("HOME_SERVICE_REBIND_FAILED"));
+        // Writes recover & user re-opens app (even after a process restart!):
+        SystemIntegration.resetRebindStateForTest();
+        HomeSetup.reconcile(failHost);
+        SystemIntegration.refreshHomeService(failHost);
+        check("p1_1c_reentry_after_writes_recover_preserves_settings_and_restores_service",
+                !HomeSetup.paused(failHost)
+                && failHost.sysPrefs.getBoolean("home_compat", false)
+                && failHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(failHost)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && failHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.connected = true;
+        HomeKeyService.syncRuntimeKeyFilter(failHost);
+        check("p1_1c_reentry_commits_revision_after_connect",
+                failHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
 
-        // P1 #1d: active user revocation during rebind (turning accessibility off externally) IS respected.
+        // P1 #1g (partial write path): Marco is the ONLY enabled accessibility service; system rejects
+        // putString("") -> global ACCESSIBILITY_ENABLED MUST stay 1 and not be shut off!
+        MainActivity partialHost = freshEnv();
+        partialHost.secureAuthorized = true;
+        partialHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        Settings.Secure.failNextPutStrings = 1;
+        SystemIntegration.refreshHomeService(partialHost);
+        check("p1_1g_rejected_service_list_update_never_disables_global_accessibility",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && partialHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && partialHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        Settings.Secure.failNextPutStrings = 1;
+        boolean removedWhenRejected = SystemIntegration.removeOwnHomeService(partialHost);
+        check("p1_1g_remove_own_rejected_never_disables_global_accessibility",
+                !removedWhenRejected
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)));
+
+        // P1 #1d: active user revocation during rebind (turning accessibility off externally) IS respected,
+        // and user revocation AFTER "written" state (before connect) is ALSO respected!
         MainActivity revokeHost = freshEnv();
         revokeHost.secureAuthorized = true;
         revokeHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
@@ -2063,6 +2168,23 @@ public final class HomeFlowChecks {
                 && !revokeHost.sysPrefs.getBoolean("boot_home", true)
                 && !HomeSetup.serviceEnabled(revokeHost)
                 && revokeHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+
+        MainActivity revokeWrittenHost = freshEnv();
+        revokeWrittenHost.secureAuthorized = true;
+        revokeWrittenHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(revokeWrittenHost);
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        // Now in "written" state (awaiting connect); user removes Marco externally.
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        HomeSetup.reconcile(revokeWrittenHost);
+        check("p1_1d_user_revocation_after_written_state_pauses_cleanly",
+                HomeSetup.paused(revokeWrittenHost)
+                && !revokeWrittenHost.sysPrefs.getBoolean("home_compat", true)
+                && !revokeWrittenHost.sysPrefs.getBoolean("boot_home", true)
+                && revokeWrittenHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
 
         // P1 #1e: paused user is untouched by refreshHomeService.
         HomeSetup.pause(host, "manual");
@@ -2151,18 +2273,29 @@ class HomeKeyService {
     static volatile boolean connected;
     static volatile int runtimeFlags;
     static volatile boolean runtimeKeyFilterRequested;
+    static volatile boolean runtimeModeApplied;
     static final AtomicInteger syncCalls = new AtomicInteger();
+    static boolean isGuardModeApplied(Context c) {
+        if (!connected || !runtimeModeApplied) return false;
+        boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
+        boolean expected = HomeSetupPolicy.shouldRequestKeyFilter(
+                compat, HomeSetup.paused(c), SystemIntegration.guardMode(c));
+        return runtimeKeyFilterRequested == expected;
+    }
     static void syncRuntimeKeyFilter(Context c) {
         syncCalls.incrementAndGet();
         if (!connected) {
             runtimeFlags = 0;
             runtimeKeyFilterRequested = false;
+            runtimeModeApplied = false;
             return;
         }
         boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
         runtimeFlags = HomeSetupPolicy.applyKeyFilterFlag(
                 runtimeFlags, 32, compat, HomeSetup.paused(c), SystemIntegration.guardMode(c));
         runtimeKeyFilterRequested = (runtimeFlags & 32) != 0;
+        runtimeModeApplied = true;
+        SystemIntegration.markHomeServiceRebindConnected(c);
     }
 }
 class RecoveryService { static volatile boolean running; }

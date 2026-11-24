@@ -26,6 +26,7 @@ final class StatusSnapshot {
                 +"\n兼容回拉目标："+trackedLine
                 +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
                 +"\nHome 守护模式："+SystemIntegration.guardModeLabel(SystemIntegration.guardMode(c))
+                +" / 状态："+SystemIntegration.rebindStatusLabel(c)
                 +" / 按键过滤："+(HomeKeyService.connected?(HomeKeyService.runtimeKeyFilterRequested?"已请求":"未请求"):"未绑定")
                 +"（flags="+HomeKeyService.runtimeFlags+"） / 长按："+p.getString("home_long_action","system")
                 +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)

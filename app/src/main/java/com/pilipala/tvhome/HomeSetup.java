@@ -417,7 +417,7 @@ final class HomeSetup {
         TaskBridgeClient.sync(c);
     }
     static void pause(Context c, String reason) {
-        SystemIntegration.cancelOwnRebind();
+        SystemIntegration.cancelOwnRebind(c);
         cancelPendingShortPress();
         prefs(c).edit().putBoolean("setup_paused", true).putString("setup_pause_reason", reason)
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
