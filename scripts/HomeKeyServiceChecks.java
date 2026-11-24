@@ -51,6 +51,7 @@ public final class HomeKeyServiceChecks {
         SystemIntegration.resetRebindStateForTest();
         Settings.Secure.failNextPutStrings = 0;
         Settings.Secure.failNextPutInts = 0;
+        Settings.Secure.throwNextPutInts = 0;
         Diagnostics.events.clear();
         Settings.Global.ints.clear();
         Settings.Secure.ints.clear();

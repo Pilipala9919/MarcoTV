@@ -64,6 +64,7 @@ public final class HomeFlowChecks {
         SystemIntegration.resetRebindStateForTest();
         Settings.Secure.failNextPutStrings = 0;
         Settings.Secure.failNextPutInts = 0;
+        Settings.Secure.throwNextPutInts = 0;
         HomeKeyService.resetForTest();
         RecoveryService.running = false;
         Diagnostics.events.clear();
@@ -2542,6 +2543,338 @@ public final class HomeFlowChecks {
                 && SystemIntegration.isGuardModeReady(staleConnHost)
                 && "已连接并应用模式".equals(SystemIntegration.rebindStatusLabel(staleConnHost))
                 && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+
+        // === Round 6 Final Upgrade Rebind Regressions ===
+        // 1A (P1 Boot - global switch off during REBIND_STATE_REMOVED): immediate reboot MUST preserve
+        // ACCESSIBILITY_ENABLED=0 and MUST NOT re-add Marco!
+        MainActivity bootOffHost = freshEnv();
+        bootOffHost.secureAuthorized = true;
+        bootOffHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putBoolean("compat_seen_present", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootOffHost);
+        SystemIntegration.refreshHomeService(bootOffHost);
+        // User turns global accessibility switch OFF in System Settings before rebind completes, then reboots!
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1a";
+        new BootReceiver().onReceive(bootOffHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_global_switch_off_during_removed_rebind",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootOffHost)
+                && HomeSetup.paused(bootOffHost)
+                && !bootOffHost.sysPrefs.getBoolean("home_compat", true)
+                && !bootOffHost.sysPrefs.getBoolean("boot_home", true)
+                && bootOffHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && bootOffHost.startedActivities.isEmpty());
+
+        // 1B (P1 Boot - Marco removed from list during REBIND_STATE_WRITTEN): immediate reboot MUST preserve
+        // system state without re-adding Marco or flipping global switch back to 1!
+        MainActivity bootWrittenRevoke = freshEnv();
+        bootWrittenRevoke.secureAuthorized = true;
+        bootWrittenRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootWrittenRevoke);
+        SystemIntegration.refreshHomeService(bootWrittenRevoke);
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("r6_p1_boot_written_precondition",
+                SystemIntegration.REBIND_STATE_WRITTEN.equals(bootWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        // User removes Marco and turns global switch OFF before new connection completes, then reboots!
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1b";
+        new BootReceiver().onReceive(bootWrittenRevoke, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_user_disable_during_written_rebind",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootWrittenRevoke)
+                && HomeSetup.paused(bootWrittenRevoke)
+                && !bootWrittenRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !bootWrittenRevoke.sysPrefs.getBoolean("boot_home", true)
+                && bootWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1C (P1 Boot - user removes Marco from partial-restore snapshot (Marco, 0) -> ("", 0) then reboots):
+        MainActivity bootPartialRevoke = freshEnv();
+        bootPartialRevoke.secureAuthorized = true;
+        bootPartialRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootPartialRevoke);
+        SystemIntegration.refreshHomeService(bootPartialRevoke);
+        Settings.Secure.failNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.failNextPutInts = 0;
+        // User removes Marco from list -> ("", 0), then reboots!
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 6);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1c";
+        new BootReceiver().onReceive(bootPartialRevoke, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_user_removal_from_partial_restore_snapshot",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && "".equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootPartialRevoke)
+                && HomeSetup.paused(bootPartialRevoke)
+                && !bootPartialRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !bootPartialRevoke.sysPrefs.getBoolean("boot_home", true));
+
+        // 1D (P1 Boot CONTROL GROUP - NO external change during REBIND_STATE_REMOVED -> immediate reboot):
+        // MUST restore Marco AND preserve XiaoAi!
+        MainActivity bootControlHost = freshEnv();
+        bootControlHost.secureAuthorized = true;
+        bootControlHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootControlHost);
+        SystemIntegration.refreshHomeService(bootControlHost);
+        // NO external change; immediate reboot mid-rebind!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 7);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1d";
+        new BootReceiver().onReceive(bootControlHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String bootControlServices = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("r6_p1_boot_control_without_external_change_restores_marco_and_preserves_xiaoai",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.serviceEnabled(bootControlHost)
+                && bootControlServices != null && bootControlServices.contains(xiaoAi) && bootControlServices.contains(HomeSetup.SERVICE)
+                && !HomeSetup.paused(bootControlHost)
+                && bootControlHost.sysPrefs.getBoolean("home_compat", false)
+                && bootControlHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(bootControlHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(bootControlHost);
+        check("r6_p1_boot_control_commits_revision_on_connect",
+                bootControlHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 1E (P1 Standby - global switch off during REBIND_STATE_REMOVED with compat_service_active=true retained):
+        MainActivity standbyOffHost = freshEnv();
+        standbyOffHost.secureAuthorized = true;
+        standbyOffHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyOffHost); // sets compat_service_active=true!
+        SystemIntegration.refreshHomeService(standbyOffHost);
+        // User turns global switch OFF before onUnbind; TV sleeps and standby recovery runs in fresh process!
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyOffHost.powerManager.interactive = false;
+        boolean standbyOffRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyOffHost);
+        check("r6_p1_standby_respects_global_switch_off_with_retained_active_marker",
+                !standbyOffRestored
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(standbyOffHost)
+                && HomeSetup.paused(standbyOffHost)
+                && !standbyOffHost.sysPrefs.getBoolean("home_compat", true)
+                && !standbyOffHost.sysPrefs.getBoolean("boot_home", true)
+                && standbyOffHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1F (P1 Standby - Marco removed from list during REBIND_STATE_WRITTEN with compat_service_active=true):
+        MainActivity standbyWrittenRevoke = freshEnv();
+        standbyWrittenRevoke.secureAuthorized = true;
+        standbyWrittenRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyWrittenRevoke);
+        SystemIntegration.refreshHomeService(standbyWrittenRevoke);
+        SystemClock.elapsed += 310;
+        Handler.runDue(); // now REBIND_STATE_WRITTEN while compat_service_active is still true
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyWrittenRevoke.powerManager.interactive = false;
+        boolean standbyWrittenRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyWrittenRevoke);
+        check("r6_p1_standby_respects_marco_removed_during_written_rebind",
+                !standbyWrittenRestored
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(standbyWrittenRevoke)
+                && HomeSetup.paused(standbyWrittenRevoke)
+                && !standbyWrittenRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !standbyWrittenRevoke.sysPrefs.getBoolean("boot_home", true)
+                && standbyWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1G (P1 Standby CONTROL GROUP - NO external change during REBIND_STATE_REMOVED with compat_service_active=true):
+        // MUST restore Marco AND preserve XiaoAi!
+        MainActivity standbyControlHost = freshEnv();
+        standbyControlHost.secureAuthorized = true;
+        standbyControlHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyControlHost);
+        SystemIntegration.refreshHomeService(standbyControlHost);
+        // NO external change; process restarts on standby while compat_service_active=true!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyControlHost.powerManager.interactive = false;
+        boolean standbyControlRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyControlHost);
+        String standbyControlServices = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("r6_p1_standby_control_without_external_change_restores_marco_and_preserves_xiaoai",
+                standbyControlRestored
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.serviceEnabled(standbyControlHost)
+                && standbyControlServices != null && standbyControlServices.contains(xiaoAi) && standbyControlServices.contains(HomeSetup.SERVICE)
+                && !HomeSetup.paused(standbyControlHost)
+                && standbyControlHost.sysPrefs.getBoolean("home_compat", false)
+                && standbyControlHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(standbyControlHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(standbyControlHost);
+        check("r6_p1_standby_control_commits_revision_on_connect",
+                standbyControlHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 1H (P1 Foreground direct recover/refresh check when external change occurred during rebind):
+        MainActivity fgExternalHost = freshEnv();
+        fgExternalHost.secureAuthorized = true;
+        fgExternalHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(fgExternalHost);
+        SystemIntegration.refreshHomeService(fgExternalHost);
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        SystemIntegration.refreshHomeService(fgExternalHost);
+        SystemIntegration.recover(fgExternalHost);
+        check("r6_p1_foreground_refresh_and_recover_respect_external_disable",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && HomeSetup.paused(fgExternalHost)
+                && !fgExternalHost.sysPrefs.getBoolean("home_compat", true)
+                && !fgExternalHost.sysPrefs.getBoolean("boot_home", true));
+
+        // 2A (P2 Removal direction - putString("") succeeds, putInt(0) throws SecurityException):
+        // Re-entering page preserves home_compat & boot_home and recovers cleanly!
+        MainActivity secExRemoveHost = freshEnv();
+        secExRemoveHost.secureAuthorized = true;
+        secExRemoveHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(secExRemoveHost);
+        Settings.Secure.throwNextPutInts = 1;
+        SystemIntegration.refreshHomeService(secExRemoveHost);
+        check("r6_p2_removal_security_exception_keeps_actual_snapshot_and_rebind",
+                !HomeSetup.serviceEnabled(secExRemoveHost)
+                && "".equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.isOwnRebindInProgress(secExRemoveHost));
+        SystemClock.elapsed += 50;
+        secExRemoveHost.simulateOnResume(true);
+        check("r6_p2_removal_security_exception_reentry_preserves_switches",
+                !HomeSetup.paused(secExRemoveHost)
+                && secExRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && secExRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        check("r6_p2_removal_security_exception_recovers_and_awaits_new_connect",
+                HomeSetup.serviceEnabled(secExRemoveHost)
+                && !HomeSetup.paused(secExRemoveHost)
+                && secExRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(secExRemoveHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateUnbind(secExRemoveHost);
+        HomeKeyService.simulateConnect(secExRemoveHost);
+        check("r6_p2_removal_security_exception_completes_on_new_connect",
+                secExRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 2B (P2 Restore direction - clean removal ("", 0), then restore putString(Marco) succeeds
+        // while putInt(1) throws SecurityException across retries -> disk is (Marco, 0)):
+        // Re-entering page preserves home_compat & boot_home, recovers once SecurityException clears,
+        // and still respects external user removal!
+        MainActivity secExRestoreHost = freshEnv();
+        secExRestoreHost.secureAuthorized = true;
+        secExRestoreHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(secExRestoreHost);
+        SystemIntegration.refreshHomeService(secExRestoreHost);
+        HomeKeyService.simulateUnbind(secExRestoreHost);
+        Settings.Secure.throwNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        check("r6_p2_restore_security_exception_records_partial_snapshot_and_keeps_switches",
+                HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && !HomeSetup.serviceEnabled(secExRestoreHost)
+                && !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.isOwnRebindInProgress(secExRestoreHost)
+                && Diagnostics.events.contains("SYSTEM_RECOVERY_FAILED")
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_FAILED"));
+        // Re-entering page while putInt still throws SecurityException preserves both switches!
+        secExRestoreHost.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_reentry_while_throwing_preserves_switches",
+                !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false));
+        // Once SecurityException stops and user re-enters page, service restores to (Marco, 1) and completes on connect!
+        Settings.Secure.throwNextPutInts = 0;
+        SystemClock.elapsed += 310;
+        secExRestoreHost.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_recovers_on_reentry_once_allowed",
+                !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(secExRestoreHost)
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(secExRestoreHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(secExRestoreHost);
+        check("r6_p2_restore_security_exception_completes_on_new_connect",
+                secExRestoreHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 2B-revoke: While stuck in (Marco, 0) after restore SecurityException, user removes Marco -> pauses on re-entry!
+        MainActivity secExRestoreRevoke = freshEnv();
+        secExRestoreRevoke.secureAuthorized = true;
+        secExRestoreRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(secExRestoreRevoke);
+        Settings.Secure.throwNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.throwNextPutInts = 0;
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        secExRestoreRevoke.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_user_revocation_pauses_cleanly",
+                HomeSetup.paused(secExRestoreRevoke)
+                && !secExRestoreRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !secExRestoreRevoke.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.serviceEnabled(secExRestoreRevoke));
     }
 
     public static void main(String[] args) throws Exception {

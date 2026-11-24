@@ -135,8 +135,9 @@ android_stubs={
    public static final Map<String,String> strings=new HashMap<>();
    public static int failNextPutStrings;
    public static int failNextPutInts;
+   public static int throwNextPutInts;
    public static int getInt(ContentResolver r,String k,int d){return ints.containsKey(k)?ints.get(k):d;}
-   public static boolean putInt(ContentResolver r,String k,int v){if(failNextPutInts>0){failNextPutInts--;return false;}ints.put(k,v);return true;}
+   public static boolean putInt(ContentResolver r,String k,int v){if(throwNextPutInts>0){throwNextPutInts--;throw new SecurityException("putInt blocked");}if(failNextPutInts>0){failNextPutInts--;return false;}ints.put(k,v);return true;}
    public static String getString(ContentResolver r,String k){return strings.get(k);}
    public static boolean putString(ContentResolver r,String k,String v){if(failNextPutStrings>0){failNextPutStrings--;return false;}strings.put(k,v);return true;}
   }

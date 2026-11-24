@@ -322,6 +322,72 @@ final class SystemIntegration {
         for (String s : services(raw)) if (own(s)) return true;
         return false;
     }
+    private enum RebindGate {
+        NONE, OWN_READY, OWN_WAIT, EXTERNAL_ABORT
+    }
+    private static void abortPendingRebindForExternalChange(Context context) {
+        clearPersistedRebind(context);
+        writtenServices = null;
+        writtenEnabled = -1;
+        respectExternalHomeServiceOff(context, false);
+    }
+    /**
+     * Unified migration-record gate shared by foreground, boot, and standby recovery paths
+     * before any write to Settings.Secure. Preserves external/user changes instead of re-enabling
+     * Marco or flipping ACCESSIBILITY_ENABLED back to 1.
+     */
+    private static RebindGate verifyPendingRebindBeforeWrite(Context context) {
+        SharedPreferences p = prefs(context);
+        String state = p.getString(PREF_REBIND_STATE, "");
+        if (state.isEmpty()) return RebindGate.NONE;
+        if (HomeSetup.paused(context) || !p.getBoolean("home_compat", false)) {
+            clearPersistedRebind(context);
+            return RebindGate.EXTERNAL_ABORT;
+        }
+        if (REBIND_STATE_REMOVED.equals(state)) {
+            if (HomeSetup.serviceEnabled(context)) {
+                rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+                p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
+                        .remove(PREF_REBIND_EXPECTED_SERVICES)
+                        .remove(PREF_REBIND_EXPECTED_ENABLED)
+                        .commit();
+                markHomeServiceRebindConnected(context);
+                return RebindGate.NONE;
+            }
+            if (!authorized(context) || !matchesPersistedRebindRemoved(context)) {
+                abortPendingRebindForExternalChange(context);
+                return RebindGate.EXTERNAL_ABORT;
+            }
+            return android.os.SystemClock.elapsedRealtime() < rebindUntil
+                    ? RebindGate.OWN_WAIT : RebindGate.OWN_READY;
+        }
+        if (REBIND_STATE_WRITTEN.equals(state)) {
+            if (HomeSetup.serviceEnabled(context)) return RebindGate.NONE;
+            abortPendingRebindForExternalChange(context);
+            return RebindGate.EXTERNAL_ABORT;
+        }
+        clearPersistedRebind(context);
+        return RebindGate.NONE;
+    }
+    private static void reconcileRebindStateAfterRestoreWrite(Context context, boolean rebindRemoved, boolean updateCompatSeen) {
+        SharedPreferences p = prefs(context);
+        boolean restoredNow = HomeSetup.serviceEnabled(context);
+        if (updateCompatSeen && (restoredNow || !rebindRemoved)) {
+            p.edit().putBoolean("compat_seen_present", restoredNow).apply();
+        }
+        if (!rebindRemoved) return;
+        if (restoredNow) {
+            p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
+                    .remove(PREF_REBIND_EXPECTED_SERVICES)
+                    .remove(PREF_REBIND_EXPECTED_ENABLED)
+                    .commit();
+        } else if (ownServiceListed(context)) {
+            // Partial write on restore (whether putInt returned false or threw SecurityException):
+            // service list contains Marco while global ACCESSIBILITY_ENABLED stayed 0. Record the
+            // actual on-disk snapshot so retries and page re-entry preserve user choices.
+            persistRebindActualSnapshot(context);
+        }
+    }
     static void resumePendingHomeServiceRebind(Context context) {
         String state = prefs(context).getString(PREF_REBIND_STATE, "");
         if (REBIND_STATE_REMOVED.equals(state) || REBIND_STATE_WRITTEN.equals(state)) {
@@ -332,27 +398,12 @@ final class SystemIntegration {
         HomeKeyService.syncRuntimeKeyFilter(context);
         SharedPreferences p = prefs(context);
         String rebindState = p.getString(PREF_REBIND_STATE, "");
-        if (REBIND_STATE_REMOVED.equals(rebindState)) {
-            if (HomeSetup.serviceEnabled(context)) {
-                rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
-                p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
-                        .remove(PREF_REBIND_EXPECTED_SERVICES)
-                        .remove(PREF_REBIND_EXPECTED_ENABLED)
-                        .commit();
-                markHomeServiceRebindConnected(context);
-                return;
-            }
-            if (isOwnRebindInProgress(context)) {
-                if (android.os.SystemClock.elapsedRealtime() < rebindUntil) return;
+        if (REBIND_STATE_REMOVED.equals(rebindState) || REBIND_STATE_WRITTEN.equals(rebindState)) {
+            RebindGate gate = verifyPendingRebindBeforeWrite(context);
+            if (gate == RebindGate.OWN_READY) {
                 completeHomeServiceRebind(context, 0);
-            }
-            return;
-        }
-        if (REBIND_STATE_WRITTEN.equals(rebindState)) {
-            if (HomeSetup.serviceEnabled(context)) {
+            } else if (gate == RebindGate.NONE && HomeSetup.serviceEnabled(context)) {
                 markHomeServiceRebindConnected(context);
-            } else {
-                clearPersistedRebind(context);
             }
             return;
         }
@@ -370,40 +421,35 @@ final class SystemIntegration {
         int expectedEnabled = current.isEmpty() ? 0 : 1;
         try {
             rebindMinGeneration = HomeKeyService.connectionGeneration;
-            p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_REMOVED)
+            p.edit().putBoolean("compat_seen_present", true)
+                    .putString(PREF_REBIND_STATE, REBIND_STATE_REMOVED)
                     .putString(PREF_REBIND_EXPECTED_SERVICES, expectedServices)
                     .putInt(PREF_REBIND_EXPECTED_ENABLED, expectedEnabled)
                     .commit();
             writeServices(context, current);
-            if (HomeSetup.serviceEnabled(context)) {
-                clearPersistedRebind(context);
-                return;
-            }
-            // Record the exact snapshot left on disk so even a partial write (service list updated,
-            // global accessibility switch write rejected) remains recognizable and recoverable.
-            persistRebindActualSnapshot(context);
-            rebindUntil = android.os.SystemClock.elapsedRealtime() + 250;
-            new android.os.Handler(android.os.Looper.getMainLooper())
-                    .postDelayed(() -> completeHomeServiceRebind(context, 0), 300);
         } catch (RuntimeException e) {
-            clearPersistedRebind(context);
-            Log.w(TAG, "Home key service refresh failed", e);
+            Log.w(TAG, "Home key service refresh write failed", e);
         }
+        if (HomeSetup.serviceEnabled(context)) {
+            clearPersistedRebind(context);
+            return;
+        }
+        // Record the exact snapshot left on disk so even a partial write (whether putInt returned
+        // false or threw SecurityException) remains recognizable and recoverable.
+        persistRebindActualSnapshot(context);
+        rebindUntil = android.os.SystemClock.elapsedRealtime() + 250;
+        new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(() -> completeHomeServiceRebind(context, 0), 300);
     }
     private static void completeHomeServiceRebind(Context context, int attempt) {
         SharedPreferences p = prefs(context);
         rebindUntil = 0;
         if (!REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""))) return;
-        if (HomeSetup.paused(context) || !p.getBoolean("home_compat", false)
-                || p.getBoolean("setup_compat_reset_pending", false)) {
+        if (p.getBoolean("setup_compat_reset_pending", false)) {
             clearPersistedRebind(context);
             return;
         }
-        if (!HomeSetup.serviceEnabled(context) && (!authorized(context) || !matchesPersistedRebindRemoved(context))) {
-            clearPersistedRebind(context);
-            respectExternalHomeServiceOff(context, true);
-            return;
-        }
+        if (verifyPendingRebindBeforeWrite(context) != RebindGate.OWN_READY) return;
         // Any connection that existed BEFORE we write the service back is stale and cannot finish this round.
         rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
         recover(context);
@@ -550,19 +596,30 @@ final class SystemIntegration {
             boolean putOk = Settings.Secure.putString(
                     context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, next);
             String after = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            servicesOk = putOk && next.equals(after == null ? "" : after);
+            String normalizedAfter = after == null ? "" : after;
+            servicesOk = putOk && next.equals(normalizedAfter);
+            if (!normalizedAfter.equals(normalizedCurrent)) {
+                writtenServices = normalizedAfter;
+                writtenEnabled = currentEnabled;
+            }
         }
         if (!servicesOk) return false;
         writtenServices = next;
         boolean enabledOk = currentEnabled == enabled;
         int afterEnabled = currentEnabled;
         if (!enabledOk) {
-            boolean putOk = Settings.Secure.putInt(
-                    context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, enabled);
-            afterEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
-            enabledOk = putOk && afterEnabled == enabled;
+            try {
+                boolean putOk = Settings.Secure.putInt(
+                        context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, enabled);
+                afterEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+                enabledOk = putOk && afterEnabled == enabled;
+            } finally {
+                afterEnabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+                writtenEnabled = afterEnabled;
+            }
+        } else {
+            writtenEnabled = afterEnabled;
         }
-        writtenEnabled = afterEnabled;
         return enabledOk;
     }
     static boolean removeOwnHomeService(Context context) {
@@ -584,6 +641,7 @@ final class SystemIntegration {
         expireAdbRestore(context);
         boolean unlocked = HomeSetup.unlocked(context);
         if (unlocked) respectExternalHomeServiceOff(context, false);
+        boolean rebindRemoved = false;
         try {
             if (p.getBoolean("adb_restore", false) && Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 1) {
                 boolean written = Settings.Global.putInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 1);
@@ -595,36 +653,25 @@ final class SystemIntegration {
             if (unlocked && !HomeSetup.paused(context) && p.getBoolean("home_compat", false)
                     && !p.getBoolean("setup_compat_reset_pending", false)
                     && android.os.SystemClock.elapsedRealtime() >= rebindUntil) {
-                Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
-                if (p.getBoolean("home_compat", false)) {
+                RebindGate gate = p.getBoolean("setup_accessibility_pending", false)
+                        ? RebindGate.NONE : verifyPendingRebindBeforeWrite(context);
+                if (gate != RebindGate.EXTERNAL_ABORT && gate != RebindGate.OWN_WAIT) {
+                    rebindRemoved = (gate == RebindGate.OWN_READY);
+                    Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
                     for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
                     wanted.add(OWN_SERVICE);
-                }
-                boolean rebindRemoved = REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""));
-                if (rebindRemoved) {
-                    rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
-                }
-                writeServices(context, wanted);
-                boolean restoredNow = HomeSetup.serviceEnabled(context);
-                if (restoredNow || !rebindRemoved) {
-                    p.edit().putBoolean("compat_seen_present", restoredNow).apply();
-                }
-                if (rebindRemoved) {
-                    if (restoredNow) {
-                        p.edit().putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
-                                .remove(PREF_REBIND_EXPECTED_SERVICES)
-                                .remove(PREF_REBIND_EXPECTED_ENABLED)
-                                .commit();
-                    } else if (ownServiceListed(context)) {
-                        // Partial write on restore: service list updated with Marco, but global
-                        // ACCESSIBILITY_ENABLED write failed. Record exact snapshot so rebind retries
-                        // and page re-entry preserve user settings and recover once putInt succeeds.
-                        persistRebindActualSnapshot(context);
+                    if (rebindRemoved) {
+                        rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
                     }
+                    writeServices(context, wanted);
+                    reconcileRebindStateAfterRestoreWrite(context, rebindRemoved, true);
                 }
             }
             p.edit().remove("last_error").putLong("last_check", System.currentTimeMillis()).apply();
         } catch (RuntimeException e) {
+            if (rebindRemoved) {
+                reconcileRebindStateAfterRestoreWrite(context, true, false);
+            }
             p.edit().putString("last_error", "恢复失败：" + e.getClass().getSimpleName()).apply();
             Diagnostics.event("SYSTEM_RECOVERY_FAILED");
             Log.w(TAG, "Settings recovery failed", e);
@@ -666,26 +713,33 @@ final class SystemIntegration {
                 || !p.getBoolean("home_compat", false) || p.getBoolean("setup_accessibility_pending", false)
                 || p.getBoolean("setup_compat_reset_pending", false)
                 || !p.getBoolean("compat_seen_present", false) || HomeSetup.serviceEnabled(context)) return false;
+        RebindGate gate = verifyPendingRebindBeforeWrite(context);
+        if (gate == RebindGate.EXTERNAL_ABORT || gate == RebindGate.OWN_WAIT) return false;
+        if (HomeSetup.serviceEnabled(context)) return false;
+        boolean rebindRemoved = (gate == RebindGate.OWN_READY);
         try {
+            if (rebindRemoved) {
+                rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+            }
             Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
             for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
             wanted.add(OWN_SERVICE);
             writeServices(context, wanted);
             boolean restored = HomeSetup.serviceEnabled(context);
             if (restored) {
-                SharedPreferences.Editor ed = p.edit().remove("setup_compat_reset_pending").remove("standby_wake_return")
-                        .putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。");
-                if (REBIND_STATE_REMOVED.equals(p.getString(PREF_REBIND_STATE, ""))) {
-                    rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
-                    ed.putString(PREF_REBIND_STATE, REBIND_STATE_WRITTEN)
-                            .remove(PREF_REBIND_EXPECTED_SERVICES)
-                            .remove(PREF_REBIND_EXPECTED_ENABLED);
-                }
-                ed.apply();
+                p.edit().remove("setup_compat_reset_pending").remove("standby_wake_return")
+                        .putString("last_notice", "电视重启时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。")
+                        .apply();
+            }
+            if (rebindRemoved) {
+                reconcileRebindStateAfterRestoreWrite(context, true, false);
             }
             Diagnostics.event(restored ? "HOME_SERVICE_RESTORED_AFTER_BOOT" : "HOME_SERVICE_BOOT_RESTORE_REJECTED");
             return restored;
         } catch (RuntimeException e) {
+            if (rebindRemoved) {
+                reconcileRebindStateAfterRestoreWrite(context, true, false);
+            }
             Log.w(TAG, "Boot restore of home service failed", e);
             return false;
         }
@@ -700,7 +754,6 @@ final class SystemIntegration {
      * AccessibilityManagerService.onHandleForceStop). Restores only our own entry.
      */
     static boolean restoreCompatAfterStandbyKill(Context context) {
-        if (isOwnRebindInProgress(context)) return false;
         SharedPreferences p = prefs(context);
         if (!HomeSetupPolicy.restoreCompatAfterStandby(authorized(context), HomeSetup.unlocked(context),
                 HomeSetup.paused(context), p.getBoolean("home_compat", false),
@@ -709,7 +762,14 @@ final class SystemIntegration {
                 p.getBoolean("compat_service_active", false),
                 p.getBoolean("setup_compat_reset_pending", false),
                 HomeSetup.serviceEnabled(context), isInteractive(context))) return false;
+        RebindGate gate = verifyPendingRebindBeforeWrite(context);
+        if (gate == RebindGate.EXTERNAL_ABORT || gate == RebindGate.OWN_WAIT) return false;
+        if (HomeSetup.serviceEnabled(context)) return false;
+        boolean rebindRemoved = (gate == RebindGate.OWN_READY);
         try {
+            if (rebindRemoved) {
+                rebindMinGeneration = Math.max(rebindMinGeneration, HomeKeyService.connectionGeneration);
+            }
             Set<String> wanted = services(Settings.Secure.getString(context.getContentResolver(),
                     Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
             for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
@@ -721,15 +781,24 @@ final class SystemIntegration {
                         .putBoolean("standby_wake_return", true)
                         .putString("last_notice", "电视待机时 Home 服务被系统关闭，已按之前的设置恢复，其他辅助服务未改动。")
                         .apply();
+                if (rebindRemoved) {
+                    reconcileRebindStateAfterRestoreWrite(context, true, false);
+                }
                 Diagnostics.event("HOME_SERVICE_RESTORED_AFTER_STANDBY");
                 Log.i(TAG, "Restored home service after standby force-stop");
                 startRecovery(context);
             } else {
+                if (rebindRemoved) {
+                    reconcileRebindStateAfterRestoreWrite(context, true, false);
+                }
                 Diagnostics.event("HOME_SERVICE_STANDBY_RESTORE_REJECTED");
                 HomeSetup.markCompatResetIfInterrupted(context);
             }
             return restored;
         } catch (RuntimeException e) {
+            if (rebindRemoved) {
+                reconcileRebindStateAfterRestoreWrite(context, true, false);
+            }
             Log.w(TAG, "Standby restore of home service failed", e);
             return false;
         }
@@ -807,7 +876,13 @@ final class SystemIntegration {
         HomeSetup.pause(activity, "你已关闭 Home 兼容；重新开启前不会恢复。");
         Set<String> wanted = services(Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
         for (String service : new ArrayList<>(wanted)) if (own(service)) wanted.remove(service);
-        if (authorized(activity)) writeServices(activity, wanted);
+        if (authorized(activity)) {
+            try {
+                writeServices(activity, wanted);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Disable home compat write failed", e);
+            }
+        }
         startRecovery(activity);
     }
     static void toggleAdbRestore(Activity activity, DialogHost host, Runnable onChanged) {
