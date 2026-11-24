@@ -16,6 +16,7 @@ final class HomeSetupPolicy {
         GuardMode(String prefValue) { this.prefValue = prefValue; }
         boolean requestsKeyFilter() { return this == KEY_FILTER; }
         boolean handlesDirectHomeKey() { return this == KEY_FILTER; }
+        boolean handlesHomeBroadcast() { return this != NATIVE_KEYS_ONLY; }
         boolean handlesWindowFallback() { return this != NATIVE_KEYS_ONLY; }
         boolean handlesWakeFallback() { return this != NATIVE_KEYS_ONLY; }
     }
@@ -34,10 +35,21 @@ final class HomeSetupPolicy {
         return legacyNativeKeys ? GuardMode.NATIVE_KEYS_ONLY : GuardMode.WINDOW_PULLBACK;
     }
 
+    /** Whether HomeKeyService should actively request key-event filtering right now. */
+    static boolean shouldRequestKeyFilter(boolean compatEnabled, boolean paused, GuardMode mode) {
+        return compatEnabled && !paused && mode != null && mode.requestsKeyFilter();
+    }
+
+    /** Applies only the key-event filtering flag bit according to guard state and chosen mode. */
+    static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit,
+                                  boolean compatEnabled, boolean paused, GuardMode mode) {
+        if (shouldRequestKeyFilter(compatEnabled, paused, mode)) return currentFlags | filterKeyEventsBit;
+        return currentFlags & ~filterKeyEventsBit;
+    }
+
     /** Applies only the key-event filtering flag bit according to the chosen guard mode. */
     static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit, GuardMode mode) {
-        if (mode != null && mode.requestsKeyFilter()) return currentFlags | filterKeyEventsBit;
-        return currentFlags & ~filterKeyEventsBit;
+        return applyKeyFilterFlag(currentFlags, filterKeyEventsBit, true, false, mode);
     }
 
     static Route route(boolean paused, boolean nativeHome, boolean picker, boolean compat,

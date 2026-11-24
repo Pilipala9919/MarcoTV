@@ -170,19 +170,101 @@ public final class HomeKeyServiceChecks {
                 service.startedActivities.size() == 1
                 && !service.startedActivities.get(0).getBooleanExtra("recent_apps", true));
 
-        // Trailing "recentapps" emitted by OEM recents overlay while dismissing itself after "homekey"
-        // must not suppress our follow-up or window pullback.
+        // Trailing "recentapps" emitted by an already-open OEM recents overlay while dismissing
+        // itself after "homekey" must not suppress our broadcast retry, AND broadcast retry must be
+        // attributed to COMPAT_BROADCAST / HOME_BROADCAST_RETRY (not HOME_WINDOW_FALLBACK).
+        Diagnostics.events.clear();
         SystemClock.elapsed += 30;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
         SystemClock.elapsed += 140;
         Handler.runDue();
-        check("trailing_recentapps_after_homekey_still_runs_trampoline_followup",
+        check("trailing_recentapps_after_homekey_still_runs_broadcast_retry",
                 service.startedActivities.size() == 2
-                && Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+                && Diagnostics.events.contains("HOME_BROADCAST_RETRY")
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK")
+                && HomeSetup.SOURCE_COMPAT_BROADCAST.equals(service.sysPrefs.getString("pending_home_source", "")));
+
+        // Observed OEM launcher window after "homekey" cancels retry and runs true WINDOW_FALLBACK.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 1500;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 40;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        Handler.runDue();
+        SystemClock.elapsed += 200;
+        Handler.runDue();
+        check("observed_oem_window_after_homekey_records_window_fallback_not_retry",
+                service.startedActivities.size() == 2
+                && Diagnostics.events.contains("HOME_WINDOW_FALLBACK")
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY")
+                && HomeSetup.SOURCE_WINDOW_FALLBACK.equals(service.sysPrefs.getString("pending_home_source", "")));
+
+        // P2 #4 repro A: assistant app window taking foreground 50ms after "homekey" cancels 150ms retry.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 1500;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.xiaomi.voicecontrol", "com.xiaomi.voicecontrol.VoiceActivity"));
+        SystemClock.elapsed += 200;
+        Handler.runDue();
+        check("p2_4_assistant_app_window_at_50ms_cancels_broadcast_retry",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY")
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+
+        // P2 #4 repro B: system overlay assistant (SystemUI / MiTV SystemUI) at 50ms after "homekey" cancels retry.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 1500;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.xiaomi.mitv.systemui", "com.xiaomi.mitv.systemui.AssistantOverlay"));
+        SystemClock.elapsed += 200;
+        Handler.runDue();
+        check("p2_4_system_overlay_assistant_at_50ms_cancels_broadcast_retry",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY")
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+
+        // P2 #4 repro C: "assist" broadcast 50ms after "homekey" is NEVER ignored and cancels retry + suppresses pullback.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 1500;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "assist"));
+        SystemClock.elapsed += 150;
+        Handler.runDue();
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed += 100;
+        Handler.runDue();
+        check("p2_4_assist_broadcast_at_50ms_cancels_retry_and_suppresses_pullback",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY")
+                && !Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+
+        // Fresh "recentapps" opened 50ms after normal "homekey" (not dismissing prior recents) also cancels retry.
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        SystemClock.elapsed += 200;
+        Handler.runDue();
+        check("p2_4_fresh_recentapps_at_50ms_cancels_broadcast_retry",
+                service.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY"));
 
         // When Marco settles promptly after "homekey", follow-up is cancelled without extra launch.
         service.startedActivities.clear();
-        SystemClock.elapsed += 1500;
+        SystemClock.elapsed += 15000;
         service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         SystemClock.elapsed += 50;
         service.onAccessibilityEvent(new AccessibilityEvent(
@@ -236,6 +318,43 @@ public final class HomeKeyServiceChecks {
                 && HomeKeyService.runtimeKeyFilterRequested
                 && (service.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) != 0);
 
+        // P1 #2 repro on real HomeKeyService: manual accessibility only (no WRITE_SECURE_SETTINGS),
+        // KEY_FILTER selected, then Home compat disabled/paused -> key filter revoked IMMEDIATELY and
+        // stays revoked across service reconnect while paused=true or home_compat=false.
+        service.secureAuthorized = false;
+        SystemIntegration.setGuardMode(service, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        check("p1_2_key_filter_active_before_pause",
+                HomeKeyService.runtimeKeyFilterRequested
+                && (service.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) != 0);
+        HomeSetup.pause(service, "你已关闭 Home 兼容；重新开启前不会恢复。");
+        check("p1_2_pause_immediately_revokes_key_filter_without_secure_settings",
+                HomeSetup.paused(service)
+                && !service.sysPrefs.getBoolean("home_compat", true)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && (service.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) == 0
+                && !service.onKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HOME)));
+        service.onUnbind(new Intent());
+        service.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        service.onServiceConnected();
+        check("p1_2_reconnect_while_paused_keeps_key_filter_off",
+                HomeKeyService.connected
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && service.serviceInfo.flags == 1);
+        service.sysPrefs.edit().putBoolean("setup_paused", false).putBoolean("home_compat", false).commit();
+        service.onUnbind(new Intent());
+        service.serviceInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS | 1;
+        service.onServiceConnected();
+        check("p1_2_reconnect_with_compat_off_keeps_key_filter_off",
+                HomeKeyService.connected
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && service.serviceInfo.flags == 1);
+        // Re-enabling compat restores persisted KEY_FILTER mode cleanly.
+        service.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("setup_paused", false).commit();
+        HomeKeyService.syncRuntimeKeyFilter(service);
+        check("p1_2_reenabling_compat_restores_key_filter_mode",
+                HomeKeyService.runtimeKeyFilterRequested
+                && (service.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) != 0);
+
         // Live switch back to WINDOW_PULLBACK clears key filter and persists across reconnect.
         SystemIntegration.setGuardMode(service, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
         check("live_switch_back_to_window_clears_runtime_flag",
@@ -249,13 +368,15 @@ public final class HomeKeyServiceChecks {
                 && !HomeKeyService.runtimeKeyFilterRequested
                 && service.serviceInfo.flags == 1);
 
-        // NATIVE_KEYS_ONLY disables key filter, window pullback, and wake recovery.
+        // P2 #3 repro on real HomeKeyService: NATIVE_KEYS_ONLY disables key filter, homekey broadcast,
+        // window pullback, wake recovery, AND TaskBridgeClient.shouldEnableWake().
         service.startedActivities.clear();
         Diagnostics.events.clear();
         SystemIntegration.setGuardMode(service, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        service.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
-        SystemClock.elapsed += 100;
+        SystemClock.elapsed += 200;
         Handler.runDue();
         service.powerManager.interactive = false;
         service.dispatchBroadcast(new Intent(Intent.ACTION_SCREEN_OFF));
@@ -264,9 +385,10 @@ public final class HomeKeyServiceChecks {
         service.dispatchBroadcast(new Intent(Intent.ACTION_SCREEN_ON));
         SystemClock.elapsed += 950;
         Handler.runDue();
-        check("native_keys_only_disables_filter_window_and_wake_pullback",
+        check("p2_3_native_keys_only_disables_filter_broadcast_window_wake_and_bridge",
                 !HomeKeyService.runtimeKeyFilterRequested
                 && !service.onKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HOME))
+                && !TaskBridgeClient.shouldEnableWake(service)
                 && service.startedActivities.isEmpty());
 
         service.onDestroy();

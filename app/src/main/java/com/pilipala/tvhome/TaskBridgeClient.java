@@ -73,6 +73,7 @@ final class TaskBridgeClient {
         return !HomeSetup.paused(context)
                 &&p.getBoolean("home_compat",false)
                 &&!p.getBoolean("setup_accessibility_pending",false)
+                &&SystemIntegration.guardMode(context).handlesWakeFallback()
                 &&HomeSetup.serviceEnabled(context)
                 &&wakePref
                 &&!homePkg.isEmpty();

@@ -105,7 +105,7 @@ final class SettingsTaxonomy {
                         new Item("home_compat", "Home 键兼容模式", Item.TOGGLE,
                                 "适用于限制替换默认桌面的厂商电视。仅管理 Marco TV 自身服务，保留其他辅助服务。"),
                         new Item("home_gestures", "Home 守护与按键模式", Item.DRILL,
-                                "选择窗口回拉（不拦截按键，蓝牙长按正常）、直接拦截 Home 键或原厂按键放行模式。"),
+                                "选择窗口回拉（不拦截按键，音量和方向键交由系统处理）、直接拦截 Home 键或原厂按键放行模式。"),
                         new Item("restore_home", "恢复设置前的桌面", Item.DRILL,
                                 "停用 Marco TV 桌面接管并尝试切回设置前的原厂桌面。")),
                 new Section("开机与待机唤醒",

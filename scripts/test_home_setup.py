@@ -133,10 +133,11 @@ android_stubs={
    public static final String ENABLED_ACCESSIBILITY_SERVICES="enabled_accessibility_services";
    public static final Map<String,Integer> ints=new HashMap<>();
    public static final Map<String,String> strings=new HashMap<>();
+   public static int failNextPutStrings;
    public static int getInt(ContentResolver r,String k,int d){return ints.containsKey(k)?ints.get(k):d;}
    public static boolean putInt(ContentResolver r,String k,int v){ints.put(k,v);return true;}
    public static String getString(ContentResolver r,String k){return strings.get(k);}
-   public static boolean putString(ContentResolver r,String k,String v){strings.put(k,v);return true;}
+   public static boolean putString(ContentResolver r,String k,String v){if(failNextPutStrings>0){failNextPutStrings--;return false;}strings.put(k,v);return true;}
   }
  }''',
  'android/content/SharedPreferences.java': '''package android.content;
@@ -330,6 +331,11 @@ assert 'flagRequestFilterKeyEvents' not in xml_text, 'home_accessibility.xml mus
 assert 'android:canRequestFilterKeyEvents="true"' in xml_text, 'home_accessibility.xml must keep canRequestFilterKeyEvents for explicit opt-in'
 assert 'typeWindowStateChanged' in xml_text, 'home_accessibility.xml must keep typeWindowStateChanged for OEM window pullback'
 print('PASS home_accessibility_xml_defaults_without_key_filter')
+for rel in ['app/src/main/java/com/pilipala/tvhome/SettingsTaxonomy.java', 'app/src/main/java/com/pilipala/tvhome/SystemIntegration.java']:
+    src=(ROOT/rel).read_text(encoding='utf8')
+    assert '可保证蓝牙' not in src and '蓝牙长按正常' not in src, f'{rel} must not overclaim Bluetooth repeat guarantee'
+    assert '音量和方向键交由系统处理' in src, f'{rel} must state volume and D-pad keys are handled by the system'
+print('PASS settings_wording_states_system_key_handling')
 
 # Real HomeKeyService runtime flag & mode checks against in-memory Android accessibility doubles.
 svc=ROOT/'build/home-key-service-tests';svc.mkdir(parents=True,exist_ok=True)

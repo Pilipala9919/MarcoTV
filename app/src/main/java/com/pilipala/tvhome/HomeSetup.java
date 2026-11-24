@@ -383,6 +383,7 @@ final class HomeSetup {
         prefs(c).edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
                 .putBoolean("setup_accessibility_pending", true)
                 .remove("setup_accessibility_deferred").commit();
+        HomeKeyService.syncRuntimeKeyFilter(c);
         // While consent is pending, bridge wake recovery must stay off until enabled.
         TaskBridgeClient.sync(c);
     }
@@ -412,9 +413,11 @@ final class HomeSetup {
             p.edit().putBoolean("home_compat", false)
                     .putBoolean("boot_home", !paused(c) && SystemIntegration.homeIsOurs(c)).commit();
         }
+        HomeKeyService.syncRuntimeKeyFilter(c);
         TaskBridgeClient.sync(c);
     }
     static void pause(Context c, String reason) {
+        SystemIntegration.cancelOwnRebind();
         cancelPendingShortPress();
         prefs(c).edit().putBoolean("setup_paused", true).putString("setup_pause_reason", reason)
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
@@ -430,7 +433,8 @@ final class HomeSetup {
                 .remove("setup_compat_reset_pending")
                 .remove("compat_seen_present")
                 .remove("compat_service_active")
-                .remove("standby_wake_return").apply();
+                .remove("standby_wake_return").commit();
+        HomeKeyService.syncRuntimeKeyFilter(c);
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
@@ -474,7 +478,10 @@ final class HomeSetup {
             if (serviceEnabled(c)) clearCompatReset(c);
             return;
         }
-        if (p.getBoolean("home_compat", false) && !p.getBoolean("setup_accessibility_pending", false) && !serviceEnabled(c)) {
+        if (p.getBoolean("home_compat", false)
+                && !p.getBoolean("setup_accessibility_pending", false)
+                && !SystemIntegration.isOwnRebindInProgress(c)
+                && !serviceEnabled(c)) {
             pause(c, "Home 服务不可用，需确认后继续恢复。");
             return;
         }

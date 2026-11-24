@@ -119,16 +119,19 @@ public final class HomeSetupChecks {
         check("guard_mode_window_capabilities",
                 !HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.requestsKeyFilter()
                 &&!HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesDirectHomeKey()
+                &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesHomeBroadcast()
                 &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesWindowFallback()
                 &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesWakeFallback());
         check("guard_mode_key_filter_capabilities",
                 HomeSetupPolicy.GuardMode.KEY_FILTER.requestsKeyFilter()
                 &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesDirectHomeKey()
+                &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesHomeBroadcast()
                 &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWindowFallback()
                 &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWakeFallback());
         check("guard_mode_native_only_capabilities",
                 !HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.requestsKeyFilter()
                 &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesDirectHomeKey()
+                &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesHomeBroadcast()
                 &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWindowFallback()
                 &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWakeFallback());
         check("resolve_guard_mode_defaults_to_window_pullback",
@@ -143,10 +146,19 @@ public final class HomeSetupChecks {
                 &&HomeSetupPolicy.resolveGuardMode("key_filter",false)==HomeSetupPolicy.GuardMode.KEY_FILTER
                 &&HomeSetupPolicy.resolveGuardMode("key_filter",true)==HomeSetupPolicy.GuardMode.KEY_FILTER
                 &&HomeSetupPolicy.resolveGuardMode("native_only",false)==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        check("should_request_key_filter_requires_compat_unpaused_and_key_filter",
+                HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY));
         check("apply_key_filter_flag_clears_or_sets_only_filter_bit",
                 HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)==0x05
                 &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)==0x05
                 &&HomeSetupPolicy.applyKeyFilterFlag(0x05,0x20,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x25
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,true,true,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05
                 &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,null)==0x05);
         check("wake_fallback_matches_guard_mode_policy",
                 HomeSetupPolicy.wakeFallback(true,false,false,true,

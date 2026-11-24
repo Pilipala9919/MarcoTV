@@ -34,6 +34,8 @@ public final class HomeKeyService extends AccessibilityService {
     }
     private void applyServiceFlags(){
         HomeSetupPolicy.GuardMode mode=guardMode();
+        boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
+        boolean paused=HomeSetup.paused(this);
         AccessibilityServiceInfo info=getServiceInfo();
         if(info==null){
             runtimeFlags=0;
@@ -41,15 +43,17 @@ public final class HomeKeyService extends AccessibilityService {
             return;
         }
         int nextFlags=HomeSetupPolicy.applyKeyFilterFlag(
-                info.flags,AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS,mode);
+                info.flags,AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS,compat,paused,mode);
         info.flags=nextFlags;
         setServiceInfo(info);
         AccessibilityServiceInfo applied=getServiceInfo();
         int effectiveFlags=applied!=null?applied.flags:nextFlags;
         runtimeFlags=effectiveFlags;
         runtimeKeyFilterRequested=(effectiveFlags&AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS)!=0;
-        if(!mode.handlesDirectHomeKey())resetPress();
+        if(!HomeSetupPolicy.shouldRequestKeyFilter(compat,paused,mode))resetPress();
         Log.i("MarcoTVSystem","HOME service ready; mode="+mode.prefValue
+                +"; compat="+compat
+                +"; paused="+paused
                 +"; keyFilter="+runtimeKeyFilterRequested
                 +"; capabilities="+(applied!=null?applied.getCapabilities():info.getCapabilities())
                 +"; flags="+effectiveFlags);
@@ -90,6 +94,8 @@ public final class HomeKeyService extends AccessibilityService {
     private long lastOpen;
     private long lastDirect=-10000;
     private long lastHomeBroadcastAt=-10000;
+    private long lastWindowFallbackAt=-10000;
+    private long dismissingRecentAppsUntil;
     private boolean homeBroadcastSettled;
     private final HomePressTracker homePressTracker=new HomePressTracker();
     private final HomeInputGate inputGate=new HomeInputGate();
@@ -204,14 +210,23 @@ public final class HomeKeyService extends AccessibilityService {
                 return;
             }
             if(!canRedirect())return;
-            if (!SystemIntegration.prefs(c).getBoolean("home_compat", false)) return;
+            if (HomeSetup.paused(c) || !SystemIntegration.prefs(c).getBoolean("home_compat", false)) return;
             long now=SystemClock.elapsedRealtime();
             String reason=i.getStringExtra("reason");
             HomeSetupPolicy.GuardMode mode=guardMode();
-            if(!mode.handlesDirectHomeKey()&&("recentapps".equals(reason)||"assist".equals(reason))){
-                // Dismissing an OEM recents overlay via Home can emit a trailing "recentapps"
-                // broadcast right after "homekey"; ignore it so the Home return is not suppressed.
-                if(now-lastHomeBroadcastAt<600)return;
+            if(!mode.handlesHomeBroadcast())return;
+            if(!mode.handlesDirectHomeKey()&&"assist".equals(reason)){
+                homeBroadcastSettled=true;
+                handler.removeCallbacks(fallback);
+                handler.removeCallbacks(homeBroadcastFollowup);
+                suppressUntil=now+10000;
+                return;
+            }
+            if(!mode.handlesDirectHomeKey()&&"recentapps".equals(reason)){
+                // Dismissing an already-open OEM recents overlay via Home can emit a trailing
+                // "recentapps" broadcast right after "homekey"; ignore only that closing echo.
+                if(now<dismissingRecentAppsUntil)return;
+                homeBroadcastSettled=true;
                 handler.removeCallbacks(fallback);
                 handler.removeCallbacks(homeBroadcastFollowup);
                 suppressUntil=now+10000;
@@ -220,6 +235,7 @@ public final class HomeKeyService extends AccessibilityService {
             if (!"homekey".equals(reason)) return;
             if(handlingHome)return;
             if(now-lastDirect<200)return;
+            dismissingRecentAppsUntil=suppressUntil>now?now+600:0;
             suppressUntil=0;
             lastHomeBroadcastAt=now;
             homeBroadcastSettled=false;
@@ -263,31 +279,36 @@ public final class HomeKeyService extends AccessibilityService {
         Diagnostics.event("HOME_SERVICE_CONNECTED");
     }
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable fallback = () -> {
+    private void launchHomeFallback(String source, String diagEvent, String logLabel) {
         long now = SystemClock.elapsedRealtime();
-        if (!canRedirect()||!guardMode().handlesWindowFallback()||now<suppressUntil
-                ||!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
+        if (HomeSetup.paused(this) || !canRedirect() || !guardMode().handlesWindowFallback()
+                || now < suppressUntil || !SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
+        boolean windowPullback = HomeSetup.SOURCE_WINDOW_FALLBACK.equals(source);
+        if (windowPullback && now - lastWindowFallbackAt < 60) return;
         boolean keepRecents = now < preserveRecentsUntil;
         try {
             Intent intent = SystemIntegration.homeIntent(this);
             if (keepRecents) {
                 intent.putExtra("home_press_handled", true).putExtra("recent_apps", true);
             } else {
-                String token = HomeSetup.issueHomeEvent(this, HomeSetup.SOURCE_WINDOW_FALLBACK);
+                String token = HomeSetup.issueHomeEvent(this, source);
                 intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token);
             }
             startActivity(intent);
-            Diagnostics.event("HOME_WINDOW_FALLBACK");
-            Log.i("MarcoTVSystem", "HOME window fallback" + (keepRecents ? " (preserve recents)" : ""));
+            if (windowPullback) lastWindowFallbackAt = now;
+            Diagnostics.event(diagEvent);
+            Log.i("MarcoTVSystem", logLabel + (keepRecents ? " (preserve recents)" : ""));
         }
         catch (RuntimeException e) {
             if (!keepRecents) HomeSetup.clearPendingHomeEvent(this);
             Log.w("MarcoTVSystem", "Home redirection failed", e);
         }
-    };
+    }
+    private final Runnable fallback = () ->
+            launchHomeFallback(HomeSetup.SOURCE_WINDOW_FALLBACK, "HOME_WINDOW_FALLBACK", "HOME window fallback");
     private final Runnable homeBroadcastFollowup = () -> {
         if (homeBroadcastSettled || SystemIntegration.homeIsOurs(this)) return;
-        fallback.run();
+        launchHomeFallback(HomeSetup.SOURCE_COMPAT_BROADCAST, "HOME_BROADCAST_RETRY", "HOME broadcast retry");
     };
     @Override protected boolean onKeyEvent(KeyEvent event) {
         if(event.getKeyCode()==KeyEvent.KEYCODE_POWER){
@@ -299,8 +320,8 @@ public final class HomeKeyService extends AccessibilityService {
             return false;
         }
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) return false;
-        if(HomeSetup.paused(this)){resetPress();return false;}
-        if(!canRedirect()||!guardMode().handlesDirectHomeKey()){
+        boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
+        if(!canRedirect()||!HomeSetupPolicy.shouldRequestKeyFilter(compat,HomeSetup.paused(this),guardMode())){
             resetPress();
             return false;
         }
@@ -345,10 +366,14 @@ public final class HomeKeyService extends AccessibilityService {
         long now = SystemClock.elapsedRealtime();
         boolean interactive = isInteractive();
         boolean originalWindow = isOriginalHomePackage(shown);
-        if (getPackageName().equals(shown)) {
-            lastActivePackage = shown;
+        if (!originalWindow) {
+            // Any non-OEM-launcher foreground window (Marco, user app, or system assistant/overlay)
+            // cancels a pending Home broadcast retry so Marco never steals focus back from it.
             homeBroadcastSettled = true;
             handler.removeCallbacks(homeBroadcastFollowup);
+        }
+        if (getPackageName().equals(shown)) {
+            lastActivePackage = shown;
             wakeOriginalSeen = false;
             wakeOtherAppSeen = false;
             wasOriginalHomeBeforeSleep = false;
@@ -362,8 +387,6 @@ public final class HomeKeyService extends AccessibilityService {
         } else if (!isWakeSystemOverlay(shown)) {
             lastActivePackage = shown;
             if (interactive) {
-                homeBroadcastSettled = true;
-                handler.removeCallbacks(homeBroadcastFollowup);
                 wakeOriginalSeen = false;
                 wakeOtherAppSeen = true;
                 wasOriginalHomeBeforeSleep = false;
