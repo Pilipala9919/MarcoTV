@@ -811,6 +811,28 @@ public final class TaskBridgeCompatChecks {
                 && "audio_adjust_no_effect".equals(noopEngine.lastStopReason())
                 && noopFailures.contains("audio_adjust_no_effect"));
 
+        // First-launch official notice & contact author copy integrity checks
+        String firstNotice = ProjectInfo.firstLaunchNotice();
+        String contactCopy = ProjectInfo.contactAuthor();
+        String aboutCopy = ProjectInfo.about();
+        check("project_info_first_launch_notice_gate",
+                ProjectInfo.shouldShowFirstLaunchNotice(false, false, false, false)
+                && !ProjectInfo.shouldShowFirstLaunchNotice(true, false, false, false)
+                && !ProjectInfo.shouldShowFirstLaunchNotice(false, true, false, false)
+                && !ProjectInfo.shouldShowFirstLaunchNotice(false, false, true, false)
+                && !ProjectInfo.shouldShowFirstLaunchNotice(false, false, false, true));
+        check("project_info_official_channels_and_warning_complete",
+                firstNotice.contains("PILIPALA来信")
+                && firstNotice.contains("小红书") && firstNotice.contains("B站") && firstNotice.contains("抖音")
+                && firstNotice.contains("公众号") && firstNotice.contains("视频号")
+                && firstNotice.contains("marcotv.wlj9919.top")
+                && firstNotice.contains("以防不明渠道软件添加病毒等不良内容")
+                && contactCopy.contains("PILIPALA来信")
+                && contactCopy.contains("https://marcotv.wlj9919.top/tv/#group")
+                && contactCopy.contains("marcotv.wlj9919.top")
+                && aboutCopy.contains("PILIPALA来信")
+                && aboutCopy.contains("https://marcotv.wlj9919.top/tv/#group"));
+
         System.out.println("OK " + passed + " task bridge cross-version compatibility checks");
     }
 }

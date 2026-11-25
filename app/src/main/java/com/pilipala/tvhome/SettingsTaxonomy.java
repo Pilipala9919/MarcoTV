@@ -152,12 +152,14 @@ final class SettingsTaxonomy {
                         new Item("debug_help", "调试与授权说明", Item.DRILL,
                                 "查看网络调试授权方式、不同电视固件差异与卸载后的重新授权说明。")),
                 new Section("帮助与关于",
+                        new Item("contact_author", "联系与反馈作者", Item.DRILL,
+                                "查看作者各社媒账号名「PILIPALA来信」（小红书、B站、抖音、公众号、视频号）、Marco 官网与官网交流群链接，也可直接提交脱敏反馈。"),
                         new Item("guide", "首次使用引导", Item.DRILL,
                                 "重新浏览 5 步快速上手引导，了解桌面导航、默认桌面与播放卡片设置。"),
                         new Item("device_info", "设备信息", Item.DRILL,
                                 "查看电视品牌、型号、Android 与固件版本（不读取或显示设备序列号）。"),
                         new Item("about", "关于 Marco TV", Item.DRILL,
-                                "查看版本、作者署名、免费开源声明以及完整的第三方开源许可协议。")))
+                                "查看版本、作者署名、官方下载说明、免费开源声明以及完整的第三方开源许可协议。")))
     };
 
     static int indexOfCategory(String id) {

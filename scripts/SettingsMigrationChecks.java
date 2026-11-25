@@ -131,10 +131,18 @@ public final class SettingsMigrationChecks {
         for(String required:new String[]{"magic_desktop","wallpaper","ambient_enabled","ambient_pure_wallpaper","ambient_sleep","ambient_preview",
                 "add_app","all_apps","app_manager","tv_sort","pinned_cards","favorite_cards","hidden_cards","now_playing","playback_source",
                 "default_home","home_compat","home_gestures","restore_home","boot_home","recent_wake","recent_enabled","recent_open","recent_style",
-                "wifi","cast","phone","sound","updates","health_status","backup","diagnostics","adb_restore","guide","device_info","about"}){
+                "wifi","cast","phone","sound","updates","health_status","backup","diagnostics","adb_restore","contact_author","guide","device_info","about"}){
             coreCovered&=SettingsTaxonomy.findItem(required)!=null;
         }
         check("taxonomy_covers_every_existing_launcher_setting",coreCovered);
+        SettingsTaxonomy.Item contactItem=SettingsTaxonomy.findItem("contact_author");
+        check("taxonomy_contact_author_lists_socials_and_community_group",
+                contactItem!=null
+                &&"联系与反馈作者".equals(contactItem.title)
+                &&contactItem.hint.contains("PILIPALA来信")
+                &&contactItem.hint.contains("小红书")&&contactItem.hint.contains("B站")
+                &&contactItem.hint.contains("抖音")&&contactItem.hint.contains("公众号")&&contactItem.hint.contains("视频号")
+                &&contactItem.hint.contains("官网交流群"));
         System.out.println("OK "+passed+" settings migration checks");
     }
 }

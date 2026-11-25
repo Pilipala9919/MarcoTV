@@ -64,6 +64,82 @@ final class HealthPanel {
             else guide(0);
         }).setNegativeButton("返回",null).create());
     }
+    static android.widget.LinearLayout qrInfoCard(MainActivity host,String qrUrl,String qrCaption,String qrDescription,String body){
+        android.widget.LinearLayout box=new android.widget.LinearLayout(host);
+        box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        box.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        float density=host.getResources().getDisplayMetrics().density;
+        int gap=Math.round(20*density);
+        try{
+            final io.nayuki.qrcodegen.QrCode code=io.nayuki.qrcodegen.QrCode.encodeText(qrUrl,io.nayuki.qrcodegen.QrCode.Ecc.LOW);
+            android.widget.LinearLayout left=new android.widget.LinearLayout(host);
+            left.setOrientation(android.widget.LinearLayout.VERTICAL);
+            left.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            int side=Math.round(168*density);
+            android.view.View image=new android.view.View(host){
+                @Override protected void onDraw(android.graphics.Canvas canvas){
+                    android.graphics.Paint p=new android.graphics.Paint();
+                    float s=Math.min(getWidth(),getHeight()),cell=s/(code.size+8);
+                    p.setColor(android.graphics.Color.WHITE);
+                    canvas.drawRect(0,0,s,s,p);
+                    p.setColor(android.graphics.Color.BLACK);
+                    for(int y=0;y<code.size;y++)for(int x=0;x<code.size;x++)if(code.getModule(x,y))
+                        canvas.drawRect((x+4)*cell,(y+4)*cell,(x+5)*cell,(y+5)*cell,p);
+                }
+            };
+            image.setContentDescription(qrDescription);
+            left.addView(image,new android.widget.LinearLayout.LayoutParams(side,side));
+            android.widget.TextView cap=new android.widget.TextView(host);
+            cap.setText(qrCaption);
+            cap.setTextColor(0xFFB5C2D1);
+            cap.setTextSize(12.5f);
+            cap.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            cap.setPadding(0,Math.round(8*density),0,0);
+            left.addView(cap,new android.widget.LinearLayout.LayoutParams(side,-2));
+            android.widget.LinearLayout.LayoutParams leftLp=new android.widget.LinearLayout.LayoutParams(-2,-2);
+            leftLp.rightMargin=gap;
+            box.addView(left,leftLp);
+        }catch(Exception ignored){}
+        android.widget.TextView text=new android.widget.TextView(host);
+        text.setTextColor(0xFFF0F4F8);
+        text.setTextSize(15f);
+        text.setLineSpacing(Math.round(4*density),1f);
+        text.setText(body);
+        box.addView(text,new android.widget.LinearLayout.LayoutParams(0,-2,1f));
+        return box;
+    }
+    void markOfficialNoticeSeen(){
+        host.getSharedPreferences("onboarding",0).edit().putBoolean("official_notice_seen",true).apply();
+    }
+    void officialNotice(final boolean offerGuideNext){
+        android.widget.LinearLayout card=qrInfoCard(host,ProjectInfo.OFFICIAL_SITE_URL,
+                "手机扫码访问 Marco 官网","Marco 官网二维码",ProjectInfo.firstLaunchNotice());
+        TvDialog.Builder b=new TvDialog.Builder(host).centered()
+                .setPageId("official_notice")
+                .setTitle("欢迎使用 Marco TV · 官方渠道说明")
+                .setView(card);
+        if(offerGuideNext){
+            b.setPositiveButton("我知道了，进入引导",(d,w)->{
+                markOfficialNoticeSeen();
+                guide(0);
+            }).setNegativeButton("直接开始使用",(d,w)->{
+                markOfficialNoticeSeen();
+                finishGuide();
+                host.exitMenus();
+            });
+        }else{
+            b.setPositiveButton("我知道了",(d,w)->{
+                markOfficialNoticeSeen();
+                host.exitMenus();
+            }).setNeutralButton("联系作者与交流群",(d,w)->{
+                markOfficialNoticeSeen();
+                host.navigator.contactAuthor();
+            });
+        }
+        TvDialog dialog=b.create();
+        dialog.onLeave(this::markOfficialNoticeSeen);
+        host.showDialog(dialog);
+    }
     void guide(int step){
         String[] titles={"先试用桌面","默认桌面与 Home","开机与调试恢复","正在播放与本地诊断","完成检查"};
         String[] messages={"方向键选择卡片，确定打开，长按编辑。菜单键进入设置；从设置首页按返回可回桌面。你可以跳过引导，以后从状态页重新打开。",

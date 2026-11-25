@@ -797,6 +797,8 @@ final class SettingsScreen extends LinearLayout {
                 return "仅执行已开项";
             case "debug_help":
                 return "查看说明";
+            case "contact_author":
+                return ProjectInfo.SOCIAL_ACCOUNT + " · 交流群";
             case "guide":
                 return "5 步上手";
             case "device_info":
@@ -962,6 +964,9 @@ final class SettingsScreen extends LinearLayout {
                 break;
             case "debug_help":
                 SystemIntegration.showDebugHelp(host, host::showDialog);
+                break;
+            case "contact_author":
+                host.navigator.contactAuthor();
                 break;
             case "guide":
                 host.health.guide(0);
