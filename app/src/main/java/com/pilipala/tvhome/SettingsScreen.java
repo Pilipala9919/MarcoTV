@@ -616,8 +616,12 @@ final class SettingsScreen extends LinearLayout {
                 text = sortLabel();
                 fg = 0xFFB5B4FF; bgColor = 0x245E5CE6; stroke = 0x555E5CE6;
                 break;
-            case SettingsTaxonomy.HOME:
-                if (SystemIntegration.homeIsOurs(host)) {
+            case SettingsTaxonomy.HOME: {
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) {
+                    text = "● 按键过滤未撤销";
+                    fg = 0xFFFFB86C; bgColor = 0x22FFB86C; stroke = 0x66FFB86C;
+                } else if (SystemIntegration.homeIsOurs(host)) {
                     text = HomeSetup.paused(host) ? "● 系统默认桌面（守护已暂停）" : "● 系统默认桌面";
                     fg = HomeSetup.paused(host) ? 0xFFFFD166 : 0xFF63E69A;
                     bgColor = HomeSetup.paused(host) ? 0x22FFD166 : 0x2234C759;
@@ -654,6 +658,7 @@ final class SettingsScreen extends LinearLayout {
                     text = BuildEdition.RESTRICTED ? "● 受限兼容版" : "● 原厂桌面";
                 }
                 break;
+            }
             case SettingsTaxonomy.NETWORK:
                 String net = networkShortStatus();
                 if (net.startsWith("已连接") || net.equals("有线网络")) {
@@ -727,7 +732,9 @@ final class SettingsScreen extends LinearLayout {
                 return host.playback.authorized() ? "已允许" : "未允许";
             case "playback_restore":
                 return "点击恢复";
-            case "default_home":
+            case "default_home": {
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) return "按键过滤未撤销";
                 if (SystemIntegration.homeIsOurs(host)) return HomeSetup.paused(host) ? "系统默认桌面 · 守护已暂停" : "系统默认桌面";
                 if (HomeSetup.paused(host)) return "已暂停";
                 if (HomeKeyService.connected) {
@@ -744,7 +751,10 @@ final class SettingsScreen extends LinearLayout {
                 }
                 if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
                 return BuildEdition.RESTRICTED ? "受限兼容 · 未启用" : "未启用";
+            }
             case "home_gestures": {
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) return "按键过滤未撤销";
                 if (SystemIntegration.homeIsOurs(host)) return HomeSetup.paused(host) ? "系统默认桌面 · 守护已暂停" : "系统默认桌面";
                 HomeSetupPolicy.GuardMode mode = SystemIntegration.guardMode(host);
                 if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";

@@ -100,12 +100,14 @@ final class LocalHomeAuthorizer {
                 check();
                 final int userId = SystemIntegration.currentUserId();
                 if (restoreOem) {
-                    // Strict zero-write, zero-ADB guard when no valid snapshot exists for current user.
+                    // Strict zero-write, zero-ADB guard when no valid snapshot exists OR already externally restored!
                     final SystemIntegration.OemExperimentSnapshot snap = onMain(() ->
                             SystemIntegration.readValidOemExperimentSnapshot(context, userId));
                     if (snap == null) {
                         onMain(() -> { Diagnostics.event("OEM_EXP_RESTORE_NO_SNAPSHOT"); return null; });
                         result = "当前用户没有有效的停用原厂桌面实验快照，未执行任何修改。";
+                    } else if (onMain(() -> SystemIntegration.isOemExperimentRestoreVerified(context, snap))) {
+                        result = onMain(() -> SystemIntegration.finalizeOemExperimentExternalRestoreLocal(context, snap));
                     } else {
                         OemShellSession session = openOemSession();
                         oemSession = session;
@@ -132,16 +134,32 @@ final class LocalHomeAuthorizer {
                         HomeShellSetup commands = session.connect(userId);
                         check();
                         onMain(() -> { SystemIntegration.beginOemExperimentDisableLocal(context, snap); return null; });
+                        boolean disableIssued = false;
                         String failureReason = null;
                         try {
                             check();
+                            disableIssued = true;
                             commands.disableOemPackage(snap.oemPackage);
                             check();
                             commands.selectHome(HomeSetup.OWN);
                             check();
-                            failureReason = onMain(() -> SystemIntegration.verifyOemExperimentDisableLocal(context, null));
+                            failureReason = onMain(() -> SystemIntegration.verifyOemExperimentDisableLocal(context, snap, null));
                         } catch (Exception e) {
-                            if (cancelled || expired) throw e;
+                            if (cancelled || expired) {
+                                if (disableIssued) {
+                                    // Best-effort rollback on same session if still alive, otherwise keep snapshot and warn!
+                                    try {
+                                        commands.restoreOemPackageState(snap.oemPackage, snap.priorState);
+                                        commands.selectHome(snap.priorHome);
+                                    } catch (Exception ignored) { }
+                                    try {
+                                        if (onMain(() -> SystemIntegration.isOemExperimentRestoreVerified(context, snap))) {
+                                            onMain(() -> { SystemIntegration.clearOemExperimentSnapshot(context); return null; });
+                                        }
+                                    } catch (Exception ignored) { }
+                                }
+                                throw e;
+                            }
                             failureReason = "执行过程出现异常（" + e.getClass().getSimpleName() + "）";
                         }
                         if (failureReason != null) {
@@ -281,6 +299,14 @@ final class LocalHomeAuthorizer {
         });
         if (ready != null) return ready;
         boolean rebind = onMain(() -> {
+            // When falling back to compatibility after a native HOME attempt failed (or from prior NATIVE_KEYS_ONLY),
+            // switch runtime guard mode to WINDOW_PULLBACK while preserving user's NATIVE_HOME preference.
+            HomeSetupPolicy.DesktopChoice choice = SystemIntegration.desktopChoice(context);
+            HomeSetupPolicy.GuardMode curMode = SystemIntegration.guardMode(context);
+            if (choice == HomeSetupPolicy.DesktopChoice.NATIVE_HOME
+                    || curMode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) {
+                SystemIntegration.setGuardModePreservingChoice(context, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+            }
             HomeSetup.requestCompatibility(context);
             // An allowed-but-dead binding survives some reinstalls/firmware restarts.
             // Only this explicit setup may toggle our own service; other entries stay.

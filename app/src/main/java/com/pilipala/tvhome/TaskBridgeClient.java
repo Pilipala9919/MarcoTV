@@ -101,6 +101,13 @@ final class TaskBridgeClient {
             volumeAssistReason="disconnected";
         }
     }
+    static boolean supportsVolumeAssistProtocol(JSONObject status){
+        return status!=null
+                &&status.optInt("volumeProtocolVersion",0)>=TaskBridgeServer.VOLUME_PROTOCOL_VERSION
+                &&status.has("volumeAudioReady")
+                &&status.has("volumeInputDeviceCount")
+                &&status.has("volumeAssistReason");
+    }
     static void onServerStateChanged(Context context,JSONObject status){
         if(status==null)return;
         if(context!=null)appContext=context.getApplicationContext();
@@ -110,17 +117,26 @@ final class TaskBridgeClient {
     }
     private static void applyServerStatus(Context ctx,boolean allowedByClient,JSONObject status){
         boolean prevReady=volumeAssistReady;
+        boolean prevAudio=volumeAudioReady;
         int prevDevices=volumeInputDevices;
         String prevReason=volumeAssistReason;
-        boolean audioOk=status.optBoolean("volumeAudioReady",status.optBoolean("volumeAssistActive",false));
-        int devices=status.optInt("volumeInputDeviceCount",0);
-        boolean nextReady=connected()&&allowedByClient&&status.optBoolean("volumeAssistActive",false)&&audioOk&&devices>0;
-        String reason=status.optString("volumeAssistReason",nextReady?"ready":(devices<=0?"no_volume_input_device":"unavailable"));
-        volumeAssistReady=nextReady;
-        volumeAudioReady=audioOk;
-        volumeInputDevices=devices;
-        volumeAssistReason=nextReady?"ready":(!allowedByClient?"key_filter_inactive":reason);
-        boolean changed=(prevReady!=volumeAssistReady)||(prevDevices!=volumeInputDevices)||!prevReason.equals(volumeAssistReason);
+        if(!supportsVolumeAssistProtocol(status)){
+            volumeAssistReady=false;
+            volumeAudioReady=false;
+            volumeInputDevices=0;
+            volumeAssistReason=connected()?"bridge_update_required":"disconnected";
+        }else{
+            boolean audioOk=status.optBoolean("volumeAudioReady",false);
+            int devices=status.optInt("volumeInputDeviceCount",0);
+            boolean nextReady=connected()&&allowedByClient&&status.optBoolean("volumeAssistActive",false)&&audioOk&&devices>0;
+            String reason=status.optString("volumeAssistReason",nextReady?"ready":(devices<=0?"no_volume_input_device":"unavailable"));
+            volumeAssistReady=nextReady;
+            volumeAudioReady=audioOk;
+            volumeInputDevices=devices;
+            volumeAssistReason=nextReady?"ready":(!allowedByClient?"key_filter_inactive":reason);
+        }
+        boolean changed=(prevReady!=volumeAssistReady)||(prevAudio!=volumeAudioReady)
+                ||(prevDevices!=volumeInputDevices)||!prevReason.equals(volumeAssistReason);
         if(changed){
             if(ctx!=null&&prevReady!=volumeAssistReady)HomeKeyService.syncRuntimeKeyFilter(ctx);
             notifyStateListener();
@@ -132,6 +148,12 @@ final class TaskBridgeClient {
         return t;
     });
     static void sync(Context c){
+        sync(c,false);
+    }
+    static void retryVolumeAssist(Context c){
+        sync(c,true);
+    }
+    private static void sync(Context c,final boolean explicitRetry){
         Context app=c.getApplicationContext();
         appContext=app;
         final long queuedGen=attachGeneration.get();
@@ -151,7 +173,7 @@ final class TaskBridgeClient {
                 return;
             }
             try{
-                configure(app);
+                configure(app,explicitRetry);
             }catch(Exception ignored){
                 if(attachGeneration.get()==queuedGen&&service==active
                         &&(volumeAssistReady||volumeInputDevices!=0||volumeAudioReady)){
@@ -221,13 +243,23 @@ final class TaskBridgeClient {
                 &&!HomeKeyService.runtimeVolumeYieldActive;
     }
     static JSONObject configure(Context context)throws Exception{
+        return configure(context,false);
+    }
+    static JSONObject configure(Context context,boolean explicitRetryVolumeAssist)throws Exception{
         appContext=context.getApplicationContext();
         String homePkg=configuredHomePackage(context);
         boolean wake=shouldEnableWake(context);
-        boolean volAssist=shouldEnableVolumeAssist(context);
-        call(new JSONObject().put("action","configure").put("wake",wake).put("home",homePkg).put("volumeAssist",volAssist));
+        boolean wantsVolAssist=shouldEnableVolumeAssist(context);
+        // Probe peer status BEFORE enabling volumeAssist so an older bridge surviving an overwrite install
+        // keeps recent-task & wake functionality without activating legacy volume repeat logic.
+        JSONObject preStatus=request("status");
+        boolean peerSupportsV2=supportsVolumeAssistProtocol(preStatus);
+        boolean sendVolAssist=peerSupportsV2&&wantsVolAssist;
+        JSONObject req=new JSONObject().put("action","configure").put("wake",wake).put("home",homePkg).put("volumeAssist",sendVolAssist);
+        if(explicitRetryVolumeAssist&&sendVolAssist)req.put("retryVolumeAssist",true);
+        call(req);
         JSONObject status=request("status");
-        applyServerStatus(appContext,volAssist,status);
+        applyServerStatus(appContext,sendVolAssist,status);
         return status;
     }
 }

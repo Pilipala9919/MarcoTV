@@ -27,6 +27,8 @@ final class StatusSnapshot {
         String keyFilterStatus;
         if(!HomeKeyService.connected){
             keyFilterStatus="未绑定";
+        }else if(state.keyFilterStillActiveUnexpectedly){
+            keyFilterStatus="系统拒绝撤销过滤（过滤位仍开启）";
         }else if(HomeKeyService.runtimeVolumeYieldActive){
             keyFilterStatus="无桥临时让渡中";
         }else if(HomeKeyService.runtimeVolumeYieldFailed){
@@ -71,14 +73,15 @@ final class StatusSnapshot {
         String state="本机 5555 端口："+(reachable?"可连接（不等于局域网 ADB 已通过）":"未监听或使用其他端口");
         try{
             JSONObject task=TaskBridgeClient.request("status");
+            boolean supportsV2=TaskBridgeClient.supportsVolumeAssistProtocol(task);
             boolean volCfg=task.optBoolean("volumeAssist",false);
-            boolean volAct=task.optBoolean("volumeAssistActive",false);
-            boolean volAudio=task.optBoolean("volumeAudioReady",false);
+            boolean volAct=supportsV2&&task.optBoolean("volumeAssistActive",false);
+            boolean volAudio=supportsV2&&task.optBoolean("volumeAudioReady",false);
             int devCount=task.optInt("volumeInputDeviceCount",0);
-            String volReason=task.optString("volumeAssistReason",volAct?"ready":"unavailable");
+            String volReason=supportsV2?task.optString("volumeAssistReason",volAct?"ready":"unavailable"):"bridge_update_required";
             state+="\n任务服务：已连接\n任务服务版本："+task.optString("version")
                     +"\n任务服务唤醒恢复："+(task.optBoolean("wake")?"已启用":"未启用")
-                    +"\n任务桥音量长按辅助："+(volAct?"已生效（音量输入设备 "+devCount+" 个，音频能力就绪，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（原因："+volReason+"，音量输入设备 "+devCount+" 个，音频="+(volAudio?"就绪":"不可用")+"）":"未启用（原因："+volReason+"）")
+                    +"\n任务桥音量长按辅助："+(!supportsV2?"旧版任务桥（最近任务正常，需重启任务桥后启用新版音量辅助）":volAct?"已生效（音量输入设备 "+devCount+" 个，音频能力就绪，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（原因："+volReason+"，音量输入设备 "+devCount+" 个，音频="+(volAudio?"就绪":"不可用")+"）":"未启用（原因："+volReason+"）")
                     +"\n音量补偿最近停止原因："+task.optString("volumeLastStopReason","idle")
                     +"\n清除单个任务："+(task.optBoolean("canRemove")?("task".equals(task.optString("removeMode"))?"接口可用，需实际测试":"仅独立任务可清除"):"系统未开放")
                     +"\n最近唤醒结果："+task.optString("lastWake","尚无记录");

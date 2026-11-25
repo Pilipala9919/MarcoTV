@@ -34,8 +34,25 @@ subprocess.run(
 subprocess.run(
     [str(executable(JDK / 'bin', 'java')), '-cp', str(folder) + os.pathsep + classpath, 'com.pilipala.tvhome.TaskBridgeCompatChecks'],
     check=True,
-    timeout=20,
+    timeout=30,
 )
+# Codex P1 #1B: Verify TaskBridgeServer bytecode & source NEVER call API 26+ Process.waitFor(long, TimeUnit) or destroyForcibly().
+tbs_src = (ROOT / 'app/src/main/java/com/pilipala/tvhome/TaskBridgeServer.java').read_text(encoding='utf-8')
+assert 'destroyForcibly' not in tbs_src, 'TaskBridgeServer.java must remain API 23-25 compatible (no destroyForcibly)'
+javap = subprocess.run(
+    [str(executable(JDK / 'bin', 'javap')), '-c', '-p', str(folder / 'com/pilipala/tvhome/TaskBridgeServer.class')],
+    check=True, capture_output=True, text=True, encoding='utf-8', errors='replace',
+)
+assert 'java/lang/Process.waitFor:(JLjava/util/concurrent/TimeUnit;)Z' not in javap.stdout, (
+    'TaskBridgeServer.class must NOT reference API 26+ Process.waitFor(long, TimeUnit)'
+)
+assert 'java/lang/Process.destroyForcibly' not in javap.stdout, (
+    'TaskBridgeServer.class must NOT reference API 26+ Process.destroyForcibly()'
+)
+assert 'ConcurrentHashMap$KeySetView' not in javap.stdout, (
+    'TaskBridgeServer.class must NOT reference ConcurrentHashMap.keySet()->KeySetView (NoSuchMethodError on Android API 23-28)'
+)
+print('PASS task_bridge_api23_28_bytecode_compat')
 
 # Exercise start_task_bridge.py host probes against Android 6.0 (API 23), 7-8, and 9-15+ outputs.
 import start_task_bridge as bridge

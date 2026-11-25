@@ -103,6 +103,19 @@ final class TvDialog extends Dialog {
         spec.message=value;
         if(messageView!=null)messageView.setText(value);
     }
+    void updateItems(String[] nextItems){
+        if(nextItems==null||spec.items==null||nextItems.length!=spec.items.length)return;
+        spec.items=nextItems;
+        for(TextView item:itemViews){
+            if(item.getTag() instanceof Integer){
+                int idx=(Integer)item.getTag();
+                if(idx>=0&&idx<nextItems.length){
+                    item.setText(nextItems[idx]);
+                    item.setContentDescription(nextItems[idx]);
+                }
+            }
+        }
+    }
     private int moving=-1, lastItem, itemsOffset;
     private boolean swallowMoveRelease;
     private boolean forwardDismiss;

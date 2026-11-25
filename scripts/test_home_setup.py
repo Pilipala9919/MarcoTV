@@ -209,13 +209,15 @@ android_stubs={
   public static final int FLAG_ACTIVITY_CLEAR_TOP=0x04000000;
   public static final int FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY=0x00100000;
   private String action;
+  private Class<?> targetClass;
   private int flags;
   private final Set<String> categories=new HashSet<>();
   private final Map<String,Object> extras=new HashMap<>();
   public Intent(){}
   public Intent(String a){action=a;}
-  public Intent(Context c,Class<?> cls){}
+  public Intent(Context c,Class<?> cls){targetClass=cls;}
   public String getAction(){return action;}
+  public Class<?> getTargetClass(){return targetClass;}
   public Intent addCategory(String c){categories.add(c);return this;}
   public boolean hasCategory(String c){return categories.contains(c);}
   public Intent addFlags(int f){flags|=f;return this;}
@@ -241,12 +243,18 @@ android_stubs={
   public static final int PERMISSION_GRANTED=0,PERMISSION_DENIED=-1,MATCH_DEFAULT_ONLY=0x10000;
   public static final int COMPONENT_ENABLED_STATE_DEFAULT=0,COMPONENT_ENABLED_STATE_ENABLED=1,COMPONENT_ENABLED_STATE_DISABLED=2,COMPONENT_ENABLED_STATE_DISABLED_USER=3,COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED=4,DONT_KILL_APP=1;
   public int alias=COMPONENT_ENABLED_STATE_DISABLED;
-  public boolean failAlias,preferredHomeIsOurs;
+  public boolean failAlias,preferredHomeIsOurs,throwOnAppEnabledState,failResolveMainActivity;
   public String currentHome="";
   public final List<ResolveInfo> homes=Collections.synchronizedList(new ArrayList<>());
   public final Map<String,ResolveInfo> actions=Collections.synchronizedMap(new HashMap<>());
   public final Map<String,Integer> appEnabledStates=Collections.synchronizedMap(new HashMap<>());
   public ResolveInfo resolveActivity(Intent i,int flags){
+   if(i.getTargetClass()!=null){
+    if(failResolveMainActivity)return null;
+    ResolveInfo r=new ResolveInfo();r.activityInfo=new ActivityInfo();
+    r.activityInfo.packageName="com.pilipala.tvhome";r.activityInfo.name=i.getTargetClass().getName();
+    return r;
+   }
    if(Intent.ACTION_MAIN.equals(i.getAction())&&i.hasCategory(Intent.CATEGORY_HOME)){
     ComponentName cn=ComponentName.unflattenFromString(currentHome);
     if(cn==null)return null;
@@ -267,6 +275,7 @@ android_stubs={
   public int getComponentEnabledSetting(ComponentName c){return alias;}
   public void setComponentEnabledSetting(ComponentName c,int v,int flags){if(failAlias)throw new IllegalStateException("alias");alias=v;}
   public int getApplicationEnabledSetting(String pkg){
+   if(throwOnAppEnabledState)throw new SecurityException("getApplicationEnabledSetting blocked");
    Integer explicit=appEnabledStates.get(pkg);
    if(explicit!=null)return explicit;
    synchronized(homes){

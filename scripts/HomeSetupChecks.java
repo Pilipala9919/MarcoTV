@@ -252,6 +252,40 @@ public final class HomeSetupChecks {
                 yieldRejected.effectiveModeLabel.contains("系统拒绝临时撤销按键过滤")
                 &&!yieldRejected.effectiveModeLabel.contains("让渡 5 秒中")
                 &&!yieldRejected.volumeYieldMode);
+        // 4. Codex P1 #3B: System refused revoking KEY_FILTER after switching to WINDOW_PULLBACK / NATIVE_KEYS_ONLY / paused / nativeHome ->
+        // MUST report filter bit still ON, set keyFilterStillActiveUnexpectedly=true, and NEVER claim keys are handled by system!
+        HomeSetupPolicy.DesktopState stuckWindow=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.WINDOW_PULLBACK,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckNativeKeys=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_KEYS_ONLY,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckPaused=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.OFF,false,true,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckNativeHome=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false,
+                true,false,false);
+        check("desktop_state_filter_revoke_rejected_warns_in_all_non_filter_modes",
+                stuckWindow.keyFilterStillActiveUnexpectedly
+                &&stuckWindow.effectiveModeLabel.contains("过滤位仍开启")
+                &&!stuckWindow.effectiveModeLabel.contains("音量和方向键交由系统处理")
+                &&!stuckWindow.fallbackReason.contains("音量和方向键交由系统处理")
+                &&stuckNativeKeys.keyFilterStillActiveUnexpectedly
+                &&stuckNativeKeys.effectiveModeLabel.contains("过滤位仍开启")
+                &&!stuckNativeKeys.effectiveModeLabel.contains("音量和方向键交由系统处理")
+                &&stuckPaused.keyFilterStillActiveUnexpectedly
+                &&stuckPaused.effectiveModeLabel.contains("过滤位仍开启")
+                &&stuckNativeHome.keyFilterStillActiveUnexpectedly
+                &&stuckNativeHome.effectiveModeLabel.contains("过滤位仍开启"));
         check("oem_exp_production_allowlist_stays_empty",
                 OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST.isEmpty());
         // Experimental OEM launcher disable policy gating

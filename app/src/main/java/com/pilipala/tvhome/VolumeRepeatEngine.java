@@ -88,6 +88,8 @@ final class VolumeRepeatEngine {
     private long holdStartMs;
     private int baselineVol = -1;
     private boolean baselineSampled;
+    private int lastPostAdjustVol = -1;
+    private int consecutiveNoEffect;
     private int stepsIssued;
     private boolean nativeRepeatDetected;
     private TaskHandle baselineTask;
@@ -165,6 +167,8 @@ final class VolumeRepeatEngine {
             holdStartMs = callbacks.nowMs();
             baselineVol = downVol;
             baselineSampled = false;
+            lastPostAdjustVol = -1;
+            consecutiveNoEffect = 0;
             stepsIssued = 0;
             nativeRepeatDetected = false;
             baselineTask = scheduler.schedule(() -> sampleBaseline(gen), baselineSampleMs);
@@ -279,19 +283,24 @@ final class VolumeRepeatEngine {
                 cancelLocked("boundary_reached");
                 abort = true;
             } else {
-                // Exact 1-index-per-call invariant: any advance beyond Marco's own issued steps
-                // proves an external/native repeater is already advancing this same audio stream.
-                int moved = (curVol - baselineVol) * dir;
                 if (stepsIssued == 0) {
-                    if (moved > 0) {
+                    // Before Marco issues its first step, any advance past the 340 ms baseline
+                    // proves the system/firmware native repeater (e.g. 430 ms or 530 ms) is active.
+                    int movedFromBaseline = (curVol - baselineVol) * dir;
+                    if (movedFromBaseline > 0) {
                         nativeRepeatDetected = true;
                         cancelLocked("native_repeat_detected");
                         abort = true;
                     }
-                } else if (moved > stepsIssued) {
-                    nativeRepeatDetected = true;
-                    cancelLocked("external_volume_advance");
-                    abort = true;
+                } else if (lastPostAdjustVol >= 0) {
+                    // Compare directly to the volume observed immediately after our previous adjust:
+                    // catches late external/native repeats regardless of step granularity (1, 2, or N units).
+                    int externalDelta = (curVol - lastPostAdjustVol) * dir;
+                    if (externalDelta > 0) {
+                        nativeRepeatDetected = true;
+                        cancelLocked("external_volume_advance");
+                        abort = true;
+                    }
                 }
             }
         }
@@ -314,23 +323,40 @@ final class VolumeRepeatEngine {
         int afterVol = safeReadVolume();
         int afterMin = safeReadMinVolume();
         int afterMax = safeReadMaxVolume();
-        boolean afterReadFailed = false;
+        String postFailure = null;
         synchronized (lock) {
             if (gen != generation || activeCode == 0) return;
             stepsIssued++;
             totalAdjustments++;
             if (!validVolumeBounds(afterVol, afterMin, afterMax)) {
                 cancelLocked("audio_read_unavailable");
-                afterReadFailed = true;
-            } else if (atBoundary(afterVol, afterMin, afterMax, dir)) {
-                cancelLocked("boundary_reached");
-            } else if (stepsIssued >= maxSteps || (callbacks.nowMs() - holdStartMs) >= maxHoldMs) {
-                cancelLocked("safety_timeout");
+                postFailure = "audio_read_unavailable";
             } else {
-                repeatTask = scheduler.schedule(() -> onRepeatTick(gen), repeatIntervalMs);
+                lastPostAdjustVol = afterVol;
+                int stepDelta = (afterVol - curVol) * dir;
+                if (atBoundary(afterVol, afterMin, afterMax, dir)) {
+                    cancelLocked("boundary_reached");
+                } else if (stepDelta <= 0) {
+                    consecutiveNoEffect++;
+                    if (consecutiveNoEffect >= 2) {
+                        cancelLocked("audio_adjust_no_effect");
+                        postFailure = "audio_adjust_no_effect";
+                    } else if (stepsIssued >= maxSteps || (callbacks.nowMs() - holdStartMs) >= maxHoldMs) {
+                        cancelLocked("safety_timeout");
+                    } else {
+                        repeatTask = scheduler.schedule(() -> onRepeatTick(gen), repeatIntervalMs);
+                    }
+                } else {
+                    consecutiveNoEffect = 0;
+                    if (stepsIssued >= maxSteps || (callbacks.nowMs() - holdStartMs) >= maxHoldMs) {
+                        cancelLocked("safety_timeout");
+                    } else {
+                        repeatTask = scheduler.schedule(() -> onRepeatTick(gen), repeatIntervalMs);
+                    }
+                }
             }
         }
-        if (afterReadFailed) notifyCapabilityFailure("audio_read_unavailable");
+        if (postFailure != null) notifyCapabilityFailure(postFailure);
     }
 
     private void notifyCapabilityFailure(String reason) {
@@ -376,6 +402,8 @@ final class VolumeRepeatEngine {
         activeDevice = "";
         activeCode = 0;
         activeDirection = 0;
+        lastPostAdjustVol = -1;
+        consecutiveNoEffect = 0;
         stepsIssued = 0;
         lastStopReason = reason;
     }

@@ -193,6 +193,23 @@ public final class TaskBridgeCompatChecks {
     }
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && "--child-hang".equals(args[0])) {
+            Thread.sleep(30000L);
+            return;
+        }
+        if (args.length == 1 && "--child-flood".equals(args[0])) {
+            byte[] chunk = new byte[4096];
+            Arrays.fill(chunk, (byte) 'A');
+            while (true) {
+                System.out.write(chunk);
+                System.out.flush();
+            }
+        }
+        if (args.length == 1 && "--child-ok".equals(args[0])) {
+            System.out.print("add device 1: /dev/input/event5\n");
+            System.out.flush();
+            return;
+        }
         final String atm = FakeActivityTaskManager.class.getName();
         final String am = FakeActivityManager.class.getName();
         final String amNoGet = FakeActivityManagerNoGetService.class.getName();
@@ -623,6 +640,176 @@ public final class TaskBridgeCompatChecks {
         check("vol_engine_screen_off_stops_hold",
                 beforeOff >= 2 && dirs.size() == beforeOff && "screen_off".equals(engine.lastStopReason()));
         flags[2] = true;
+
+        // =========================================================================
+        // Codex 82c1c8d Rework Regressions:
+        // 1A. Held keys in getevent -p (0072*, 0073*, KEY_VOLUMEDOWN*, KEY_VOLUMEUP*) survive periodic scan!
+        // =========================================================================
+        String heldVolUpGetevent =
+                "add device 1: /dev/input/event5\n"
+                + "  name:     \"Xiaomi BT Remote\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 001c  0072  0073*  00ac\n";
+        String heldVolDownGetevent =
+                "add device 1: /dev/input/event5\n"
+                + "  name:     \"Xiaomi BT Remote\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 001c  0072*  0073  00ac\n";
+        String heldNamedGetevent =
+                "add device 1: /dev/input/event5\n"
+                + "  events:\n"
+                + "    KEY (0001): KEY_VOLUMEDOWN*  KEY_VOLUMEUP*\n";
+        check("codex_1a_getevent_matches_held_key_asterisks",
+                TaskBridgeServer.parseVolumeCapableEventPaths(heldVolUpGetevent).contains("/dev/input/event5")
+                && TaskBridgeServer.parseVolumeCapableEventPaths(heldVolDownGetevent).contains("/dev/input/event5")
+                && TaskBridgeServer.parseVolumeCapableEventPaths(heldNamedGetevent).contains("/dev/input/event5"));
+
+        // Hold Vol+ and Vol- across simulated periodic scan (at t=600ms) -> 0 readers closed, continuous 11 steps in 1.1s!
+        // Then real unplug scan -> closes reader and stops immediately!
+        java.util.Set<String> openReaders = new java.util.LinkedHashSet<>(Collections.singletonList("/dev/input/event5"));
+        dirs.clear();
+        vol[0] = 20;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 21;
+        sched.advanceBy(600); // 1 step at 550ms
+        java.util.Set<String> removedDuringUp = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, TaskBridgeServer.parseVolumeCapableEventPaths(heldVolUpGetevent));
+        for (String p : removedDuringUp) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500); // total 1100ms -> 11 steps at 550..1100ms
+        int stepsUpAcrossScan = dirs.size();
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("codex_1a_vol_up_survives_periodic_scan_with_asterisk",
+                removedDuringUp.isEmpty() && stepsUpAcrossScan == 11 && vol[0] == 32);
+
+        dirs.clear();
+        vol[0] = 60;
+        engine.onKeyEvent("/dev/input/event5", 1, 114, 1);
+        vol[0] = 59;
+        sched.advanceBy(600);
+        java.util.Set<String> removedDuringDown = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, TaskBridgeServer.parseVolumeCapableEventPaths(heldVolDownGetevent));
+        for (String p : removedDuringDown) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500);
+        int stepsDownAcrossScan = dirs.size();
+        // Now real unplug occurs during hold -> device disappears from scan -> stops immediately!
+        java.util.Set<String> removedOnUnplug = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, TaskBridgeServer.parseVolumeCapableEventPaths(""));
+        for (String p : removedOnUnplug) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500);
+        check("codex_1a_vol_down_survives_scan_and_real_unplug_still_stops",
+                removedDuringDown.isEmpty() && stepsDownAcrossScan == 11
+                && removedOnUnplug.contains("/dev/input/event5")
+                && dirs.size() == stepsDownAcrossScan
+                && !engine.isHolding()
+                && "device_disconnected".equals(engine.lastStopReason()));
+
+        // 1B. API 23-25 safe readProcessOutputWithTimeout: fast ok, silent hang timeout, and endless flood bound!
+        String javaBin = new java.io.File(System.getProperty("java.home"),
+                "bin" + java.io.File.separator
+                + (System.getProperty("os.name", "").toLowerCase(java.util.Locale.US).contains("win") ? "java.exe" : "java"))
+                .getAbsolutePath();
+        String selfCp = System.getProperty("java.class.path");
+        java.lang.Process okProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-ok")
+                .redirectErrorStream(true).start();
+        String okOut = TaskBridgeServer.readProcessOutputWithTimeout(okProc, 5000L, 65536);
+        check("codex_1b_probe_process_fast_exit_returns_output",
+                okOut != null && okOut.contains("/dev/input/event5"));
+
+        long hangStart = System.nanoTime();
+        java.lang.Process hangProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-hang")
+                .redirectErrorStream(true).start();
+        String hangOut = TaskBridgeServer.readProcessOutputWithTimeout(hangProc, 300L, 65536);
+        long hangMs = (System.nanoTime() - hangStart) / 1000000L;
+        for (int i = 0; i < 20 && hangProc.isAlive(); i++) Thread.sleep(25);
+        check("codex_1b_probe_process_silent_hang_times_out_and_destroys_child",
+                hangOut == null && hangMs < 4000L && !hangProc.isAlive());
+
+        long floodStart = System.nanoTime();
+        java.lang.Process floodProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-flood")
+                .redirectErrorStream(true).start();
+        String floodOut = TaskBridgeServer.readProcessOutputWithTimeout(floodProc, 3000L, 8192);
+        long floodMs = (System.nanoTime() - floodStart) / 1000000L;
+        for (int i = 0; i < 20 && floodProc.isAlive(); i++) Thread.sleep(25);
+        check("codex_1b_probe_process_endless_output_aborts_cleanly_at_limit",
+                floodOut == null && floodMs < 4000L && !floodProc.isAlive());
+
+        // 2A. Sticky write failure stays degraded across periodic readback scans; only explicit retry or write success clears it!
+        TaskBridgeServer.AudioHealthState health = new TaskBridgeServer.AudioHealthState();
+        health.recordFailure("audio_adjust_failed");
+        health.onPeriodicReadProbe(true);
+        health.onPeriodicReadProbe(true);
+        org.json.JSONObject stWriteDenied = TaskBridgeServer.buildVolumeStatusJson(
+                true, true, aBoth, AudioBothStreams.class,
+                health.readFailed, health.writeFailed, health.failureReason, 2, 0, "audio_adjust_failed");
+        check("codex_2a_write_failure_not_cleared_by_periodic_read_probe",
+                health.writeFailed
+                && !stWriteDenied.optBoolean("volumeAssistActive")
+                && !stWriteDenied.optBoolean("volumeAudioReady")
+                && stWriteDenied.optBoolean("volumeAudioWriteFailed")
+                && stWriteDenied.optInt("volumeProtocolVersion") == TaskBridgeServer.VOLUME_PROTOCOL_VERSION
+                && "audio_adjust_failed".equals(stWriteDenied.optString("volumeAssistReason")));
+        health.onExplicitRetry();
+        org.json.JSONObject stAfterRetry = TaskBridgeServer.buildVolumeStatusJson(
+                true, true, aBoth, AudioBothStreams.class,
+                health.readFailed, health.writeFailed, health.failureReason, 2, 0, "idle");
+        check("codex_2a_explicit_retry_restores_ready_and_read_failure_auto_recovers",
+                !health.writeFailed && stAfterRetry.optBoolean("volumeAssistActive") && "ready".equals(stAfterRetry.optString("volumeAssistReason")));
+        health.recordFailure("audio_read_unavailable");
+        health.onPeriodicReadProbe(true);
+        check("codex_2a_transient_read_failure_recovers_on_read_probe", !health.readFailed && !health.writeFailed);
+
+        // Bonus Boundary A: Multi-unit step firmware (2 units per adjustVolume) completes full hold without false abort!
+        VirtualScheduler multiSched = new VirtualScheduler();
+        int[] multiVol = {20};
+        java.util.List<Integer> multiDirs = new java.util.ArrayList<>();
+        VolumeRepeatEngine multiEngine = new VolumeRepeatEngine(multiSched, new VolumeRepeatEngine.Callbacks() {
+            @Override public boolean isEnabled() { return true; }
+            @Override public boolean isConnected() { return true; }
+            @Override public boolean isInteractive() { return true; }
+            @Override public int readStreamVolume() { return multiVol[0]; }
+            @Override public int readStreamMinVolume() { return 0; }
+            @Override public int readStreamMaxVolume() { return 100; }
+            @Override public boolean adjustVolume(int direction) {
+                multiDirs.add(direction);
+                multiVol[0] = Math.max(0, Math.min(100, multiVol[0] + direction * 2));
+                return true;
+            }
+            @Override public long nowMs() { return multiSched.now; }
+        });
+        multiEngine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        multiVol[0] = 22; // system initial +2
+        multiSched.advanceBy(1100);
+        multiEngine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("codex_boundary_multi_unit_step_firmware_does_not_false_abort",
+                multiDirs.size() == 11 && multiVol[0] == 44 && "key_up".equals(multiEngine.lastStopReason()));
+
+        // Bonus Boundary B: adjustVolume returns true with no volume change (not at boundary) ->
+        // stops after 2 consecutive no-effect calls and reports audio_adjust_no_effect!
+        VirtualScheduler noopSched = new VirtualScheduler();
+        java.util.List<Integer> noopDirs = new java.util.ArrayList<>();
+        java.util.List<String> noopFailures = new java.util.ArrayList<>();
+        VolumeRepeatEngine noopEngine = new VolumeRepeatEngine(noopSched, new VolumeRepeatEngine.Callbacks() {
+            @Override public boolean isEnabled() { return true; }
+            @Override public boolean isConnected() { return true; }
+            @Override public boolean isInteractive() { return true; }
+            @Override public int readStreamVolume() { return 30; }
+            @Override public int readStreamMinVolume() { return 0; }
+            @Override public int readStreamMaxVolume() { return 100; }
+            @Override public boolean adjustVolume(int direction) {
+                noopDirs.add(direction);
+                return true; // returns true, yet stream volume stays 30!
+            }
+            @Override public void onCapabilityFailure(String reason) { noopFailures.add(reason); }
+            @Override public long nowMs() { return noopSched.now; }
+        });
+        noopEngine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        noopSched.advanceBy(1100);
+        noopEngine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("codex_boundary_no_effect_adjust_stops_after_2_calls_and_reports_failure",
+                noopDirs.size() == 2
+                && !noopEngine.isHolding()
+                && "audio_adjust_no_effect".equals(noopEngine.lastStopReason())
+                && noopFailures.contains("audio_adjust_no_effect"));
 
         System.out.println("OK " + passed + " task bridge cross-version compatibility checks");
     }

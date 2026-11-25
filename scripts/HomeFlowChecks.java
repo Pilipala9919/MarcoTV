@@ -3310,6 +3310,216 @@ public final class HomeFlowChecks {
                 && !npState.effectiveModeLabel.contains("原厂桌面")
                 && nativePausedHost.dialogs.active().message.contains("系统默认桌面")
                 && nativePausedHost.dialogs.active().items[1].contains("✓"));
+
+        // =========================================================================
+        // Codex 82c1c8d Rework Regressions:
+        // =========================================================================
+        // 3C. No-picker -> LocalHomeAuthorizer auto-setup -> OEM keeps HOME ->
+        // switches prior KEY_FILTER AND prior NATIVE_KEYS_ONLY to WINDOW_PULLBACK while preserving NATIVE_HOME choice!
+        for (HomeSetupPolicy.GuardMode prior : new HomeSetupPolicy.GuardMode[]{
+                HomeSetupPolicy.GuardMode.KEY_FILTER, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY}) {
+            MainActivity autoFbHost = freshEnv();
+            autoFbHost.roleAvailable = false;
+            autoFbHost.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+            autoFbHost.pm.actions.remove(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            autoFbHost.secureAuthorized = true;
+            LocalAdbWire.selectSucceeds = false;
+            SystemIntegration.setGuardMode(autoFbHost, prior);
+            autoFbHost.dialogs.armResultLatch();
+            autoFbHost.defaultHome.show();
+            autoFbHost.dialogs.active().clickItem(1); // "系统默认桌面" -> no picker -> home_local_consent
+            check("codex82_3c_no_picker_enters_local_consent_" + prior.name(),
+                    autoFbHost.isPage("home_local_consent"));
+            autoFbHost.dialogs.active().clickPositive();
+            check("codex82_3c_auto_setup_completes_" + prior.name(), autoFbHost.dialogs.awaitResult());
+            HomeKeyService.simulateConnect(autoFbHost);
+            HomeSetupPolicy.DesktopState afterAutoFb = SystemIntegration.desktopState(autoFbHost);
+            check("codex82_3c_no_picker_auto_setup_fail_enters_window_pullback_from_" + prior.name(),
+                    autoFbHost.sysPrefs.getBoolean("home_compat", false)
+                    && SystemIntegration.desktopChoice(autoFbHost) == HomeSetupPolicy.DesktopChoice.NATIVE_HOME
+                    && SystemIntegration.guardMode(autoFbHost) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                    && !HomeKeyService.runtimeKeyFilterRequested
+                    && afterAutoFb.effectiveModeLabel.contains("窗口回拉")
+                    && HomeSetupPolicy.shouldInterceptHomeCompat(true, false, false, SystemIntegration.guardMode(autoFbHost)));
+        }
+
+        // Bonus UI: Open DefaultHomePanel live-refreshes BOTH message AND item labels when TaskBridge disconnects!
+        TaskBridgeClient.resetForTest();
+        MainActivity livePanelHost = freshEnv();
+        livePanelHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        setService(true, true);
+        SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        HomeKeyService.simulateConnect(livePanelHost);
+        final String[] liveReply = {
+                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}"
+        };
+        IBinder liveBridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                data.readString();
+                reply.writeNoException();
+                reply.writeString(liveReply[0]);
+                return true;
+            }
+        };
+        TaskBridgeClient.attach(livePanelHost, liveBridge);
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog openPanel = livePanelHost.dialogs.active();
+        boolean beforeDropShowedBridge = openPanel.items[3].contains("任务桥辅助") && openPanel.message.contains("任务桥");
+        // Now push bridge drop / device disconnect while dialog remains open!
+        TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
+                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}"));
+        check("codex82_ui_open_default_home_panel_updates_items_and_message_on_bridge_drop",
+                beforeDropShowedBridge
+                && openPanel.items[3].contains("无桥让渡")
+                && !openPanel.items[3].contains("任务桥辅助")
+                && openPanel.message.contains("先点一下音量，松手后再长按"));
+        TaskBridgeClient.resetForTest();
+
+        // 3B UI: When system refuses to revoke filter bit, DefaultHomePanel shows one-click release action
+        // that disables ONLY Marco's accessibility service while preserving XiaoAi!
+        MainActivity stuckPanelHost = freshEnv();
+        stuckPanelHost.secureAuthorized = true;
+        stuckPanelHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                "com.xiaomi.voicecontrol/.VoiceAccessibilityService:" + HomeSetup.SERVICE);
+        SystemIntegration.setGuardMode(stuckPanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        HomeKeyService.connected = true;
+        HomeKeyService.runtimeKeyFilterRequested = true; // simulate system refused revoke!
+        stuckPanelHost.defaultHome.show();
+        TvDialog stuckDlg = stuckPanelHost.dialogs.active();
+        boolean hasReleaseItem = stuckDlg.items.length == 7 && stuckDlg.items[6].contains("仅关闭 Marco 辅助服务");
+        stuckDlg.clickItem(6);
+        String remainingSvcs = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("codex82_3b_stuck_filter_release_button_removes_only_marco_preserves_xiaoai",
+                hasReleaseItem
+                && !HomeSetup.serviceEnabled(stuckPanelHost)
+                && remainingSvcs != null && remainingSvcs.contains("com.xiaomi.voicecontrol/.VoiceAccessibilityService")
+                && !remainingSvcs.contains("com.pilipala.tvhome")
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1);
+
+        // 4A. OEM pre-allowlist: getApplicationEnabledSetting throwing SecurityException MUST return UNKNOWN (-1),
+        // NEVER DEFAULT (0), so restore fails truthfully and preserves snapshot!
+        MainActivity readErrHost = freshEnv();
+        readErrHost.pm.homes.clear();
+        readErrHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        readErrHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        readErrHost.pm.throwOnAppEnabledState = true;
+        SystemIntegration.saveOemExperimentSnapshot(readErrHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        HomeShellSetup readErrShell = new HomeShellSetup(cmd -> "id -u".equals(cmd) ? "2000" : "", 0);
+        readErrShell.authenticate();
+        String readErrRes = SystemIntegration.executeOemExperimentRestore(readErrHost, readErrShell, 0);
+        check("codex82_4a_package_state_read_exception_never_treated_as_default",
+                SystemIntegration.readApplicationEnabledState(readErrHost, "com.oem.tvhome") == SystemIntegration.APPLICATION_ENABLED_STATE_UNKNOWN
+                && readErrRes.contains("未通过核验")
+                && SystemIntegration.hasValidOemExperimentSnapshot(readErrHost, 0));
+
+        // 4B. OEM pre-allowlist: Already restored externally -> LocalHomeAuthorizer.restoreOemExperiment()
+        // verifies locally and clears snapshot with ZERO ADB connects and ZERO shell writes!
+        MainActivity extRestoredHost = freshEnv();
+        extRestoredHost.pm.homes.clear();
+        extRestoredHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        extRestoredHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        extRestoredHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        SystemIntegration.saveOemExperimentSnapshot(extRestoredHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final AtomicInteger extConnects = new AtomicInteger();
+        final CountDownLatch extLatch = new CountDownLatch(1);
+        final String[] extOutcome = {null};
+        LocalHomeAuthorizer extAuth = new LocalHomeAuthorizer(extRestoredHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) { extConnects.incrementAndGet(); throw new AssertionError("must not connect ADB when already restored externally"); }
+            @Override public void close() {}
+        }, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+        extAuth.restoreOemExperiment(res -> { extOutcome[0] = res; extLatch.countDown(); });
+        check("codex82_4b_external_restore_clears_snapshot_with_zero_adb_connects",
+                extLatch.await(5, TimeUnit.SECONDS)
+                && extConnects.get() == 0
+                && extOutcome[0] != null && extOutcome[0].contains("未执行 ADB 写入")
+                && !SystemIntegration.hasValidOemExperimentSnapshot(extRestoredHost, 0));
+
+        // 4C. OEM pre-allowlist: Disable command refused (HOME switches to Marco yet OEM package stays enabled) ->
+        // MUST fail verification and trigger rollback instead of reporting "已停用"!
+        MainActivity refDisHost = freshEnv();
+        refDisHost.pm.homes.clear();
+        ResolveInfo refOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        refDisHost.pm.homes.add(refOem);
+        refDisHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        refDisHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        refDisHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        HomeShellSetup refDisShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                // OEM stays enabled (command refused), even though HOME temporarily resolves to Marco!
+                refDisHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                return "SecurityException: Cannot disable protected package";
+            }
+            if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                refDisHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        refDisShell.authenticate();
+        String refDisRes = SystemIntegration.executeOemExperimentDisable(refDisHost, refDisShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, null);
+        check("codex82_4c_refused_disable_when_oem_still_enabled_fails_and_rolls_back",
+                !refDisRes.contains("已停用原厂桌面")
+                && refDisRes.contains("已自动恢复原厂桌面")
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(refDisHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(refDisHost, 0));
+
+        // 4D. OEM pre-allowlist: Unresolvable MainActivity -> canLaunchMarcoForeground returns false (no alias fallback!)
+        // and independent recovery check requires adb_enabled==1 or ACTION_SETTINGS (not WRITE_SECURE_SETTINGS alone)!
+        MainActivity fgFailHost = freshEnv();
+        fgFailHost.pm.homes.clear();
+        ResolveInfo fgOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        fgFailHost.pm.homes.add(fgOem);
+        fgFailHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        fgFailHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        fgFailHost.pm.failResolveMainActivity = true;
+        HomeShellSetup fgFailShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                fgOem.activityInfo.applicationInfo.enabled = false;
+                fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                fgFailHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+            }
+            if (cmd.contains("pm default-state")) {
+                fgOem.activityInfo.applicationInfo.enabled = true;
+                fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+            }
+            if (cmd.contains("set-home-activity")) {
+                fgFailHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        fgFailShell.authenticate();
+        String fgFailRes = SystemIntegration.executeOemExperimentDisable(fgFailHost, fgFailShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, null);
+        check("codex82_4d_unresolvable_main_activity_triggers_rollback_no_alias_fallback",
+                !SystemIntegration.canLaunchMarcoForeground(fgFailHost)
+                && fgFailRes.contains("已自动恢复原厂桌面")
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(fgFailHost.pm.currentHome));
+
+        MainActivity noIndepHost = freshEnv();
+        noIndepHost.secureAuthorized = true; // Marco's own WRITE_SECURE_SETTINGS does NOT count as independent recovery!
+        Settings.Global.ints.put("adb_enabled", 0);
+        noIndepHost.pm.actions.remove(Settings.ACTION_SETTINGS);
+        noIndepHost.pm.homes.clear();
+        noIndepHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        noIndepHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        SystemIntegration.OemDisablePlan noIndepPlan = SystemIntegration.prepareOemExperimentDisable(
+                noIndepHost, 0, "TestVerifiedTV", "1.0.0", testAllowlist);
+        check("codex82_4d_independent_recovery_rejects_write_secure_settings_alone",
+                !SystemIntegration.hasIndependentRecoveryPath(noIndepHost)
+                && !noIndepPlan.allowed()
+                && noIndepPlan.blockedMessage != null && noIndepPlan.blockedMessage.contains("恢复途径"));
+
         android.os.Process.uid = 1012345; // restore default stub uid
     }
 
@@ -3403,7 +3613,10 @@ class HomeKeyService {
 class RecoveryService { static volatile boolean running; }
 class AmbientIntegration { static void configure(Context c) { } }
 class Diagnostics { static final List<String> events = Collections.synchronizedList(new ArrayList<>()); static void event(String e) { events.add(e); } }
-class TaskBridgeServer { static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1"; }
+class TaskBridgeServer {
+    static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1";
+    static final int VOLUME_PROTOCOL_VERSION = 2;
+}
 class HealthPanel {
     static String date(long s) { return s == 0 ? "尚无记录" : String.valueOf(s); }
     void status() { }
@@ -3446,7 +3659,7 @@ class LocalAdbWire {
 class TvDialog {
     final String pageId, title;
     String message;
-    final String[] items;
+    String[] items;
     final DialogInterface.OnClickListener itemClick, positive, neutral, negative;
     Runnable leaveAction;
     boolean showing;
@@ -3458,6 +3671,7 @@ class TvDialog {
     String pageKey() { return pageId; }
     boolean isShowing() { return showing; }
     void updateMessage(String m) { message = m; }
+    void updateItems(String[] next) { if (next != null) items = next; }
     void onLeave(Runnable r) { leaveAction = r; }
     void leave() { if (leaveAction != null) { Runnable r = leaveAction; leaveAction = null; r.run(); } }
     void clickItem(int i) { if (itemClick != null) itemClick.onClick(null, i); }

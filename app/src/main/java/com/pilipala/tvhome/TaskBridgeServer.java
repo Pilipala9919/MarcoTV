@@ -17,6 +17,7 @@ import java.util.concurrent.*;
 public final class TaskBridgeServer {
     static final String DESCRIPTOR="com.pilipala.tvhome.TaskBridge.v1";
     static final int EVENT_VOLUME_STATE=IBinder.FIRST_CALL_TRANSACTION+1;
+    static final int VOLUME_PROTOCOL_VERSION=2;
     static final int STREAM_MUSIC=3;
     private static final int USE_DEFAULT_STREAM_TYPE=Integer.MIN_VALUE;
     private static final int FLAG_SHOW_UI=1;
@@ -31,7 +32,9 @@ public final class TaskBridgeServer {
     private final Class<?> api,powerApi,audioApi;
     private volatile boolean wakeRecovery;
     private volatile boolean volumeAssist;
-    private volatile boolean audioRuntimeFailed;
+    private volatile boolean audioReadFailed;
+    private volatile boolean audioWriteFailed;
+    private volatile String audioFailureReason="";
     private volatile String originalHome="",lastWake="尚无唤醒记录";
     private long lastWakeTime;
     private volatile boolean connected;
@@ -43,7 +46,7 @@ public final class TaskBridgeServer {
         t.setDaemon(true);
         return t;
     });
-    private final ConcurrentHashMap<String,InputReader> inputReaders=new ConcurrentHashMap<>();
+    private final ConcurrentMap<String,InputReader> inputReaders=new ConcurrentHashMap<>();
     private final VolumeRepeatEngine volumeEngine;
     private static final class InputReader {
         final String path;
@@ -291,53 +294,173 @@ public final class TaskBridgeServer {
     }
     private static boolean containsKeyToken(String line,String hexCode,String symbolName){
         if(line==null||line.isEmpty())return false;
-        for(String token:line.trim().split("\\s+")){
+        for(String rawToken:line.trim().split("\\s+")){
+            // AOSP getevent -p / -lp appends '*' to keys that are currently pressed (e.g. "0072*", "KEY_VOLUMEUP*").
+            String token=rawToken;
+            while(token.endsWith("*"))token=token.substring(0,token.length()-1);
+            if(token.isEmpty())continue;
             if(hexCode.equalsIgnoreCase(token)||symbolName.equals(token))return true;
         }
         return false;
     }
-    private static Set<String> probeVolumeCapablePathsLive(){
-        java.lang.Process p=null;
-        try{
-            p=new ProcessBuilder("/system/bin/getevent","-p").redirectErrorStream(true).start();
-            ByteArrayOutputStream out=new ByteArrayOutputStream();
-            try(InputStream in=p.getInputStream()){
+    /**
+     * Reads stdout/stderr from a child process with a strict wall-clock deadline that also aborts
+     * blocking reads and never uses API 26+ {@code Process.waitFor(long, TimeUnit)} (API 23+ safe).
+     * Returns {@code null} on timeout or I/O failure so callers can distinguish probe failure from 0 devices.
+     */
+    static String readProcessOutputWithTimeout(final java.lang.Process process,long timeoutMs,final int maxBytes){
+        if(process==null)return null;
+        final ByteArrayOutputStream out=new ByteArrayOutputStream();
+        final boolean[] readOk={false};
+        final boolean[] truncated={false};
+        final Thread reader=new Thread(()->{
+            InputStream in=process.getInputStream();
+            try{
                 byte[] buf=new byte[2048];
                 int n;
-                while((n=in.read(buf))!=-1&&out.size()<262144){
-                    out.write(buf,0,n);
+                while((n=in.read(buf))!=-1){
+                    int remaining=maxBytes-out.size();
+                    if(remaining>0){
+                        out.write(buf,0,Math.min(n,remaining));
+                    }
+                    if(out.size()>=maxBytes){
+                        truncated[0]=true;
+                        break;
+                    }
+                }
+                readOk[0]=true;
+            }catch(Throwable ignored){
+            }finally{
+                try{ in.close(); }catch(Throwable ignored){}
+            }
+        },"MarcoTV-probe-read");
+        reader.setDaemon(true);
+        reader.start();
+        final long deadlineNs=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(Math.max(1L,timeoutMs));
+        try{
+            long remainingMs=Math.max(1L,TimeUnit.NANOSECONDS.toMillis(deadlineNs-System.nanoTime()));
+            reader.join(remainingMs);
+            if(reader.isAlive()){
+                destroyProcessQuietly(process);
+                reader.interrupt();
+                reader.join(250);
+                return null;
+            }
+            if(truncated[0]){
+                destroyProcessQuietly(process);
+                return null;
+            }
+            if(!readOk[0]){
+                destroyProcessQuietly(process);
+                return null;
+            }
+            while(true){
+                try{
+                    process.exitValue();
+                    return out.toString("UTF-8");
+                }catch(IllegalThreadStateException stillRunning){
+                    long leftNs=deadlineNs-System.nanoTime();
+                    if(leftNs<=0){
+                        destroyProcessQuietly(process);
+                        return null;
+                    }
+                    Thread.sleep(Math.min(20L,Math.max(1L,TimeUnit.NANOSECONDS.toMillis(leftNs))));
                 }
             }
-            p.waitFor(3,TimeUnit.SECONDS);
-            return parseVolumeCapableEventPaths(out.toString("UTF-8"));
-        }catch(Exception ignored){
-            return Collections.emptySet();
+        }catch(InterruptedException ie){
+            destroyProcessQuietly(process);
+            Thread.currentThread().interrupt();
+            return null;
+        }catch(Throwable ignored){
+            destroyProcessQuietly(process);
+            return null;
         }finally{
-            if(p!=null)p.destroy();
+            destroyProcessQuietly(process);
+        }
+    }
+    private static void destroyProcessQuietly(java.lang.Process p){
+        if(p==null)return;
+        // Always destroy the child BEFORE touching streams so a reader thread blocked in read()
+        // receives EOF instead of deadlocking on the InputStream monitor during close().
+        try{ p.destroy(); }catch(Throwable ignored){}
+        try{ p.getOutputStream().close(); }catch(Throwable ignored){}
+        try{ p.getErrorStream().close(); }catch(Throwable ignored){}
+    }
+    private static Set<String> probeVolumeCapablePathsLive(){
+        try{
+            java.lang.Process p=new ProcessBuilder("/system/bin/getevent","-p").redirectErrorStream(true).start();
+            String output=readProcessOutputWithTimeout(p,3000L,262144);
+            if(output==null)return null;
+            return parseVolumeCapableEventPaths(output);
+        }catch(Throwable ignored){
+            return null;
         }
     }
     /** Pure-testable evaluator shared by TaskBridgeServer status, hotplug push, and unit checks. */
     static JSONObject buildVolumeStatusJson(boolean configured,boolean connected,
                                             Object audio,Class<?> audioApi,boolean audioRuntimeFailed,
                                             int volumeDeviceCount,long adjustCount,String lastStopReason)throws JSONException{
-        boolean audioReady=!audioRuntimeFailed&&isAudioControlCapable(audio,audioApi,STREAM_MUSIC);
+        return buildVolumeStatusJson(configured,connected,audio,audioApi,false,audioRuntimeFailed,
+                audioRuntimeFailed?"audio_runtime_failed":"",volumeDeviceCount,adjustCount,lastStopReason);
+    }
+    static JSONObject buildVolumeStatusJson(boolean configured,boolean connected,
+                                            Object audio,Class<?> audioApi,
+                                            boolean audioReadFailed,boolean audioWriteFailed,String failureReason,
+                                            int volumeDeviceCount,long adjustCount,String lastStopReason)throws JSONException{
+        boolean audioProbeOk=isAudioControlCapable(audio,audioApi,STREAM_MUSIC);
+        boolean audioReady=!audioWriteFailed&&!audioReadFailed&&audioProbeOk;
         boolean inputReady=volumeDeviceCount>0;
         boolean active=configured&&connected&&audioReady&&inputReady;
         String reason;
         if(!configured)reason="disabled";
         else if(!connected)reason="disconnected";
-        else if(!audioReady)reason=audioRuntimeFailed?"audio_runtime_failed":"audio_unavailable";
+        else if(audioWriteFailed)reason=(failureReason!=null&&!failureReason.isEmpty())?failureReason:"audio_adjust_failed";
+        else if(audioReadFailed||!audioProbeOk)reason=(audioReadFailed&&failureReason!=null&&!failureReason.isEmpty())?failureReason:"audio_unavailable";
         else if(!inputReady)reason="no_volume_input_device";
         else reason="ready";
         return new JSONObject()
+                .put("volumeProtocolVersion",VOLUME_PROTOCOL_VERSION)
                 .put("volumeAssist",configured)
                 .put("volumeAssistActive",active)
                 .put("volumeAudioReady",audioReady)
+                .put("volumeAudioWriteFailed",audioWriteFailed)
                 .put("volumeInputReady",inputReady)
                 .put("volumeInputDeviceCount",volumeDeviceCount)
                 .put("volumeAdjustCount",adjustCount)
                 .put("volumeLastStopReason",lastStopReason==null?"idle":lastStopReason)
                 .put("volumeAssistReason",reason);
+    }
+    /** Pure-testable read/write audio health reconciliation used during periodic scans. */
+    static final class AudioHealthState {
+        boolean readFailed;
+        boolean writeFailed;
+        String failureReason="";
+        void recordFailure(String reason){
+            String r=(reason==null||reason.isEmpty())?"audio_runtime_failed":reason;
+            failureReason=r;
+            if("audio_adjust_failed".equals(r)||"audio_adjust_no_effect".equals(r)){
+                writeFailed=true;
+            }else{
+                readFailed=true;
+            }
+        }
+        void recordWriteSuccess(){
+            writeFailed=false;
+            if(!readFailed)failureReason="";
+        }
+        void onPeriodicReadProbe(boolean readCapable){
+            // Periodic scan may recover a transient read failure once readback succeeds again,
+            // but MUST NEVER clear a persistent write denial solely from readback!
+            if(readCapable&&readFailed){
+                readFailed=false;
+                if(!writeFailed)failureReason="";
+            }
+        }
+        void onExplicitRetry(){
+            readFailed=false;
+            writeFailed=false;
+            failureReason="";
+        }
     }
     private TaskBridgeServer(int uid,int userId)throws Exception{
         appUid=uid;
@@ -365,7 +488,7 @@ public final class TaskBridgeServer {
             ScheduledFuture<?> future=volumeScheduler.schedule(task,Math.max(0L,delayMs),TimeUnit.MILLISECONDS);
             return ()->future.cancel(false);
         },new VolumeRepeatEngine.Callbacks(){
-            @Override public boolean isEnabled(){ return volumeAssist&&!audioRuntimeFailed; }
+            @Override public boolean isEnabled(){ return volumeAssist&&!audioWriteFailed&&!audioReadFailed; }
             @Override public boolean isConnected(){ return connected; }
             @Override public boolean isInteractive(){ return interactive(); }
             @Override public int readStreamVolume(){ return invokeGetStreamVolume(audio,audioApi,STREAM_MUSIC); }
@@ -373,15 +496,27 @@ public final class TaskBridgeServer {
             @Override public int readStreamMaxVolume(){ return invokeGetStreamMaxVolume(audio,audioApi,STREAM_MUSIC); }
             @Override public boolean adjustVolume(int direction){
                 try{
-                    return invokeAdjustStreamOrSuggestedVolume(audio,audioApi,direction,STREAM_MUSIC,
+                    boolean ok=invokeAdjustStreamOrSuggestedVolume(audio,audioApi,direction,STREAM_MUSIC,
                             FLAG_SHOW_UI,"com.android.shell","MarcoTV",android.os.Process.myUid());
+                    if(ok&&audioWriteFailed){
+                        audioWriteFailed=false;
+                        if(!audioReadFailed)audioFailureReason="";
+                        notifyClientVolumeStateIfChanged();
+                    }
+                    return ok;
                 }catch(Throwable t){
                     return false;
                 }
             }
             @Override public long nowMs(){ return SystemClock.elapsedRealtime(); }
             @Override public void onCapabilityFailure(String reason){
-                audioRuntimeFailed=true;
+                String r=(reason==null||reason.isEmpty())?"audio_runtime_failed":reason;
+                audioFailureReason=r;
+                if("audio_adjust_failed".equals(r)||"audio_adjust_no_effect".equals(r)){
+                    audioWriteFailed=true;
+                }else{
+                    audioReadFailed=true;
+                }
                 notifyClientVolumeStateIfChanged();
             }
         });
@@ -396,10 +531,12 @@ public final class TaskBridgeServer {
     }
     private void notifyClientVolumeStateIfChanged(){
         try{
-            JSONObject vol=buildVolumeStatusJson(volumeAssist,connected,audio,audioApi,audioRuntimeFailed,
+            JSONObject vol=buildVolumeStatusJson(volumeAssist,connected,audio,audioApi,
+                    audioReadFailed,audioWriteFailed,audioFailureReason,
                     inputReaders.size(),volumeEngine.totalAdjustments(),volumeEngine.lastStopReason());
             String key=vol.optBoolean("volumeAssistActive")+"|"+vol.optInt("volumeInputDeviceCount")
-                    +"|"+vol.optBoolean("volumeAudioReady")+"|"+vol.optString("volumeAssistReason");
+                    +"|"+vol.optBoolean("volumeAudioReady")+"|"+vol.optBoolean("volumeAudioWriteFailed")
+                    +"|"+vol.optString("volumeAssistReason");
             if(key.equals(lastPublishedVolumeKey))return;
             lastPublishedVolumeKey=key;
             IBinder target=clientLifetime;
@@ -415,15 +552,35 @@ public final class TaskBridgeServer {
             }
         }catch(Throwable ignored){}
     }
+    /** Returns currently-open reader paths that should be closed after a completed capability scan. */
+    static Set<String> devicesToRemoveAfterScan(Set<String> openPaths,Set<String> scannedCapablePaths){
+        Set<String> remove=new LinkedHashSet<>();
+        if(openPaths==null||scannedCapablePaths==null)return remove;
+        for(String path:openPaths){
+            if(!scannedCapablePaths.contains(path))remove.add(path);
+        }
+        return remove;
+    }
     private void syncVolumeReaders(){
         boolean audioCapable=isAudioControlCapable(audio,audioApi,STREAM_MUSIC);
-        if(audioCapable&&audioRuntimeFailed)audioRuntimeFailed=false;
-        if(!volumeAssist||!connected||!audioCapable){
-            stopVolumeReaders(!connected?"bridge_disconnected":!volumeAssist?"mode_disabled":"audio_unavailable");
+        // Periodic readback probe may clear transient read failures, NEVER sticky write failures!
+        if(audioCapable&&audioReadFailed){
+            audioReadFailed=false;
+            if(!audioWriteFailed)audioFailureReason="";
+        }
+        if(!volumeAssist||!connected||!audioCapable||audioWriteFailed){
+            String stopReason=!connected?"bridge_disconnected":!volumeAssist?"mode_disabled"
+                    :(audioWriteFailed?(audioFailureReason.isEmpty()?"audio_adjust_failed":audioFailureReason):"audio_unavailable");
+            stopVolumeReaders(stopReason);
             notifyClientVolumeStateIfChanged();
             return;
         }
         Set<String> capablePaths=probeVolumeCapablePathsLive();
+        if(capablePaths==null){
+            // Probe timed out or failed transiently: keep currently healthy readers intact and never disrupt bridge.
+            notifyClientVolumeStateIfChanged();
+            return;
+        }
         Set<String> present=new HashSet<>();
         for(String path:capablePaths){
             File f=new File(path);
@@ -441,12 +598,11 @@ public final class TaskBridgeServer {
                 startInputReaderThread(reader);
             }catch(Throwable ignored){}
         }
-        for(Map.Entry<String,InputReader> entry:new ArrayList<>(inputReaders.entrySet())){
-            if(!present.contains(entry.getKey())){
-                if(inputReaders.remove(entry.getKey(),entry.getValue())){
-                    entry.getValue().stop();
-                    volumeEngine.onDeviceDisconnected(entry.getKey());
-                }
+        for(String removedPath:devicesToRemoveAfterScan(inputReaders.keySet(),present)){
+            InputReader removed=inputReaders.remove(removedPath);
+            if(removed!=null){
+                removed.stop();
+                volumeEngine.onDeviceDisconnected(removedPath);
             }
         }
         notifyClientVolumeStateIfChanged();
@@ -637,14 +793,17 @@ public final class TaskBridgeServer {
         String action=request.getString("action");
         JSONObject answer;
         if(action.equals("status")){
-            JSONObject vol=buildVolumeStatusJson(volumeAssist,connected,audio,audioApi,audioRuntimeFailed,
+            JSONObject vol=buildVolumeStatusJson(volumeAssist,connected,audio,audioApi,
+                    audioReadFailed,audioWriteFailed,audioFailureReason,
                     inputReaders.size(),volumeEngine.totalAdjustments(),volumeEngine.lastStopReason());
             answer=new JSONObject().put("version",ProjectInfo.VERSION).put("wake",wakeRecovery)
                     .put("canRemove",canRemove()||canRemoveSingleStack()).put("removeMode",canRemove()?"task":canRemoveSingleStack()?"single_task_stack":"unavailable")
                     .put("lastWake",lastWake).put("lastWakeTime",lastWakeTime)
+                    .put("volumeProtocolVersion",vol.optInt("volumeProtocolVersion"))
                     .put("volumeAssist",vol.optBoolean("volumeAssist"))
                     .put("volumeAssistActive",vol.optBoolean("volumeAssistActive"))
                     .put("volumeAudioReady",vol.optBoolean("volumeAudioReady"))
+                    .put("volumeAudioWriteFailed",vol.optBoolean("volumeAudioWriteFailed"))
                     .put("volumeInputReady",vol.optBoolean("volumeInputReady"))
                     .put("volumeInputDeviceCount",vol.optInt("volumeInputDeviceCount"))
                     .put("volumeAdjustCount",vol.optLong("volumeAdjustCount"))
@@ -655,8 +814,16 @@ public final class TaskBridgeServer {
             wakeRecovery=request.optBoolean("wake",false);
             String home=request.optString("home","");
             originalHome=home.matches("[A-Za-z0-9_.]{1,200}")?home:"";
-            volumeAssist=request.optBoolean("volumeAssist",false);
-            if(volumeAssist)audioRuntimeFailed=false;
+            boolean prevAssist=volumeAssist;
+            boolean nextAssist=request.optBoolean("volumeAssist",false);
+            boolean explicitRetry=request.optBoolean("retryVolumeAssist",false);
+            volumeAssist=nextAssist;
+            // Clear sticky audio write failure ONLY on explicit retry or explicit re-enable (false -> true).
+            if(nextAssist&&(explicitRetry||!prevAssist)){
+                audioReadFailed=false;
+                audioWriteFailed=false;
+                audioFailureReason="";
+            }
             syncVolumeReaders();
             synchronized(wakeMonitor){wakeMonitor.notifyAll();}
             answer=new JSONObject();

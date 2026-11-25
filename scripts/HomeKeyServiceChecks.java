@@ -795,7 +795,7 @@ public final class HomeKeyServiceChecks {
 
         // 3. When 3A bridge volume assist IS active (with audioOk + verified volume devices), 3B yield MUST NOT drop KEY_FILTER!
         final String[] fakeBridgeReply = {
-                "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}"
+                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}"
         };
         android.os.IBinder fakeBridge = new android.os.IBinder() {
             @Override public boolean isBinderAlive() { return true; }
@@ -825,7 +825,7 @@ public final class HomeKeyServiceChecks {
 
         // Codex #2B: Live remote hot-unplug pushed by server immediately disables 3A, notifies UI, and re-enables 3B fallback!
         int beforeHotplug = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -847,7 +847,7 @@ public final class HomeKeyServiceChecks {
         SystemClock.elapsed += 5100;
         Handler.runDue();
         int beforeReplug = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -857,7 +857,7 @@ public final class HomeKeyServiceChecks {
                 && uiNotifies[0] > beforeReplug);
         // Runtime audio capability failure pushed by server -> immediately disables 3A and notifies UI!
         int beforeAudioFail = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -948,6 +948,125 @@ public final class HomeKeyServiceChecks {
         check("window_mode_never_triggers_3b_yield", !HomeKeyService.runtimeVolumeYieldActive);
         winSvc.onDestroy();
 
+        // =========================================================================
+        // Codex 82c1c8d Rework Regressions:
+        // 2B. Overwrite-install old TaskBridge reconnect -> NEVER enables legacy volumeAssist, keeps recents working!
+        // =========================================================================
+        TaskBridgeClient.resetForTest();
+        HomeKeyService oldBridgeSvc = freshService();
+        oldBridgeSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(oldBridgeSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        oldBridgeSvc.onServiceConnected();
+        final List<org.json.JSONObject> oldBridgeReqs = Collections.synchronizedList(new ArrayList<>());
+        android.os.IBinder oldLegacyBridge = new android.os.IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    org.json.JSONObject req = new org.json.JSONObject(data.readString());
+                    oldBridgeReqs.add(req);
+                    String action = req.optString("action");
+                    org.json.JSONObject ans = new org.json.JSONObject().put("ok", true);
+                    if ("status".equals(action)) {
+                        // Legacy bf797b5 / 0.21.2 bridge: NO volumeProtocolVersion, NO volumeAudioReady, claims volumeAssistActive=true!
+                        ans.put("volumeAssist", true).put("volumeAssistActive", true);
+                    } else if ("list".equals(action)) {
+                        ans.put("tasks", new org.json.JSONArray().put(new org.json.JSONObject().put("id", 77).put("pkg", "com.example.app")));
+                    }
+                    reply.writeNoException();
+                    reply.writeString(ans.toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(oldBridgeSvc, oldLegacyBridge);
+        try {
+            TaskBridgeClient.configure(oldBridgeSvc);
+            org.json.JSONObject listAns = TaskBridgeClient.request("list");
+            org.json.JSONObject lastCfg = null;
+            for (org.json.JSONObject r : oldBridgeReqs) if ("configure".equals(r.optString("action"))) lastCfg = r;
+            check("codex_2b_old_bridge_never_activates_volume_assist_and_keeps_recents",
+                    oldBridgeReqs.size() >= 2
+                    && "status".equals(oldBridgeReqs.get(0).optString("action"))
+                    && lastCfg != null && !lastCfg.optBoolean("volumeAssist", true)
+                    && !TaskBridgeClient.volumeAssistActive()
+                    && "bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
+                    && listAns.optBoolean("ok") && listAns.optJSONArray("tasks").length() == 1);
+        } catch (Exception e) { throw new RuntimeException(e); }
+        TaskBridgeClient.resetForTest();
+        oldBridgeSvc.onDestroy();
+
+        // 3A. Firmware refuses enabling KEY_FILTER -> homeBroadcast treats mode as window pullback
+        // (cancels followup when assist or recentapps arrives 50ms after homekey, NEVER hijacks them!).
+        HomeKeyService rejAssistSvc = freshService();
+        rejAssistSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(rejAssistSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        rejAssistSvc.serviceInfo.flags = 1;
+        rejAssistSvc.ignoreSetServiceInfo = true;
+        rejAssistSvc.onServiceConnected();
+        rejAssistSvc.startedActivities.clear();
+        Diagnostics.events.clear();
+        rejAssistSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        int launchesAfterHome = rejAssistSvc.startedActivities.size();
+        SystemClock.elapsed += 50;
+        rejAssistSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "assist"));
+        SystemClock.elapsed += 500;
+        Handler.runDue();
+        check("codex_3a_filter_enable_rejected_does_not_hijack_assist",
+                !HomeKeyService.runtimeKeyFilterRequested
+                && launchesAfterHome == 1
+                && rejAssistSvc.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY"));
+        // Same check for recentapps arriving 50ms after homekey!
+        rejAssistSvc.startedActivities.clear();
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 15000;
+        rejAssistSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed += 50;
+        rejAssistSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "recentapps"));
+        SystemClock.elapsed += 500;
+        Handler.runDue();
+        check("codex_3a_filter_enable_rejected_does_not_hijack_recentapps",
+                rejAssistSvc.startedActivities.size() == 1
+                && !Diagnostics.events.contains("HOME_BROADCAST_RETRY"));
+        rejAssistSvc.onDestroy();
+
+        // 3B. Firmware refuses revoking KEY_FILTER when switching to WINDOW_PULLBACK, NATIVE_KEYS_ONLY, or pausing ->
+        // emits HOME_KEY_FILTER_REVOKE_REJECTED, keeps runtimeKeyFilterRequested==true, warns truthfully!
+        HomeKeyService revokeRejSvc = freshService();
+        revokeRejSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(revokeRejSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        revokeRejSvc.onServiceConnected();
+        check("codex_3b_setup_filter_initially_on", HomeKeyService.runtimeKeyFilterRequested);
+        revokeRejSvc.ignoreSetServiceInfo = true;
+        Diagnostics.events.clear();
+        SystemIntegration.setGuardMode(revokeRejSvc, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        HomeSetupPolicy.DesktopState winStuck = SystemIntegration.desktopState(revokeRejSvc);
+        check("codex_3b_revoke_rejected_on_window_pullback_warns_truthfully",
+                HomeKeyService.runtimeKeyFilterRequested
+                && Diagnostics.events.contains("HOME_KEY_FILTER_REVOKE_REJECTED")
+                && winStuck.keyFilterStillActiveUnexpectedly
+                && winStuck.effectiveModeLabel.contains("过滤位仍开启")
+                && !winStuck.effectiveModeLabel.contains("音量和方向键交由系统处理"));
+        Diagnostics.events.clear();
+        SystemIntegration.setGuardMode(revokeRejSvc, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        HomeSetupPolicy.DesktopState nativeKeysStuck = SystemIntegration.desktopState(revokeRejSvc);
+        check("codex_3b_revoke_rejected_on_native_keys_warns_truthfully",
+                HomeKeyService.runtimeKeyFilterRequested
+                && Diagnostics.events.contains("HOME_KEY_FILTER_REVOKE_REJECTED")
+                && nativeKeysStuck.keyFilterStillActiveUnexpectedly
+                && !nativeKeysStuck.effectiveModeLabel.contains("音量和方向键交由系统处理"));
+        Diagnostics.events.clear();
+        HomeSetup.pause(revokeRejSvc, "paused");
+        HomeSetupPolicy.DesktopState pausedStuck = SystemIntegration.desktopState(revokeRejSvc);
+        check("codex_3b_revoke_rejected_on_pause_warns_truthfully",
+                HomeKeyService.runtimeKeyFilterRequested
+                && Diagnostics.events.contains("HOME_KEY_FILTER_REVOKE_REJECTED")
+                && pausedStuck.keyFilterStillActiveUnexpectedly
+                && pausedStuck.effectiveModeLabel.contains("过滤位仍开启"));
+        revokeRejSvc.onDestroy();
+
         System.out.println("OK " + passed + " HomeKeyService runtime guard mode checks");
         System.exit(0);
     }
@@ -960,7 +1079,10 @@ class Diagnostics {
     static final List<String> events = Collections.synchronizedList(new ArrayList<>());
     static void event(String e) { events.add(e); }
 }
-class TaskBridgeServer { static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1"; }
+class TaskBridgeServer {
+    static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1";
+    static final int VOLUME_PROTOCOL_VERSION = 2;
+}
 class MainActivity extends android.app.Activity {
     DefaultHomePanel defaultHome;
     HealthPanel health = new HealthPanel();
@@ -979,6 +1101,7 @@ class SettingsNavigator { void personalization(String key) {} }
 class TvDialog {
     boolean isShowing() { return false; }
     void updateMessage(String m) {}
+    void updateItems(String[] next) {}
     void onLeave(Runnable r) {}
     static class Builder {
         Builder(Context c) {}

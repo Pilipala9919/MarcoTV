@@ -42,11 +42,21 @@ final class HomeSetupPolicy {
         final boolean keyFilterExpected;
         final boolean volumeBridgeAssistExpected;
         final boolean volumeYieldMode;
+        final boolean keyFilterStillActiveUnexpectedly;
 
         DesktopState(DesktopChoice userChoice, String userChoiceLabel, String effectiveModeLabel,
                      String fallbackReason, boolean extraHomeInterceptionStopped,
                      boolean keyFilterExpected, boolean volumeBridgeAssistExpected,
                      boolean volumeYieldMode) {
+            this(userChoice, userChoiceLabel, effectiveModeLabel, fallbackReason,
+                    extraHomeInterceptionStopped, keyFilterExpected, volumeBridgeAssistExpected,
+                    volumeYieldMode, false);
+        }
+
+        DesktopState(DesktopChoice userChoice, String userChoiceLabel, String effectiveModeLabel,
+                     String fallbackReason, boolean extraHomeInterceptionStopped,
+                     boolean keyFilterExpected, boolean volumeBridgeAssistExpected,
+                     boolean volumeYieldMode, boolean keyFilterStillActiveUnexpectedly) {
             this.userChoice = userChoice;
             this.userChoiceLabel = userChoiceLabel;
             this.effectiveModeLabel = effectiveModeLabel;
@@ -55,6 +65,7 @@ final class HomeSetupPolicy {
             this.keyFilterExpected = keyFilterExpected;
             this.volumeBridgeAssistExpected = volumeBridgeAssistExpected;
             this.volumeYieldMode = volumeYieldMode;
+            this.keyFilterStillActiveUnexpectedly = keyFilterStillActiveUnexpectedly;
         }
     }
 
@@ -117,7 +128,18 @@ final class HomeSetupPolicy {
         String resolvedTarget = (currentHomeComponent == null || currentHomeComponent.isEmpty())
                 ? "原厂桌面" : currentHomeComponent;
 
+        boolean filterExpectedNow = shouldRequestKeyFilter(compatEnabled, paused, !restricted && nativeHome, mode)
+                && choice != DesktopChoice.OFF;
+        boolean filterStuckOn = serviceConnected && runtimeKeyFilterRequested && !filterExpectedNow;
+        String filterStuckWarning = "系统拒绝撤销 Marco 的按键过滤位（flags 回读仍开启），音量和方向键连发仍可能受影响；请使用下方「仅关闭 Marco 辅助服务」释放过滤位（保留其他辅助服务）。";
+
         if (!restricted && nativeHome) {
+            if (filterStuckOn) {
+                return new DesktopState(choice, choiceLabel,
+                        paused ? "系统默认桌面（守护已暂停，但按键过滤位仍开启）"
+                                : "系统默认桌面（警告：系统拒绝撤销按键过滤，过滤位仍开启）",
+                        filterStuckWarning, true, true, false, false, true);
+            }
             if (paused) {
                 return new DesktopState(choice, choiceLabel,
                         "系统默认桌面（当前系统 HOME 仍为 Marco TV；自动恢复守护已暂停）",
@@ -132,6 +154,12 @@ final class HomeSetupPolicy {
                     reason, true, false, false, false);
         }
         if (paused || choice == DesktopChoice.OFF) {
+            if (filterStuckOn) {
+                return new DesktopState(choice, choiceLabel,
+                        paused ? "守护已暂停（警告：系统拒绝撤销按键过滤，过滤位仍开启）"
+                                : "未接管（警告：系统拒绝撤销按键过滤，过滤位仍开启）",
+                        filterStuckWarning, true, true, false, false, true);
+            }
             String reason = paused
                     ? "自动恢复守护已暂停，已保留用户选择"
                     : (restricted
@@ -143,12 +171,23 @@ final class HomeSetupPolicy {
             return new DesktopState(choice, choiceLabel, eff, reason, true, false, false, false);
         }
         if (mode == GuardMode.NATIVE_KEYS_ONLY || choice == DesktopChoice.NATIVE_KEYS_ONLY) {
+            if (filterStuckOn) {
+                return new DesktopState(DesktopChoice.NATIVE_KEYS_ONLY,
+                        desktopChoiceLabel(DesktopChoice.NATIVE_KEYS_ONLY),
+                        "原厂按键（警告：系统拒绝撤销按键过滤，过滤位仍开启）",
+                        filterStuckWarning, true, true, false, false, true);
+            }
             return new DesktopState(DesktopChoice.NATIVE_KEYS_ONLY,
                     desktopChoiceLabel(DesktopChoice.NATIVE_KEYS_ONLY),
                     "原厂按键（不自动回拉，音量和方向键交由系统处理）",
                     "无（已按用户选择保留原厂按键）", true, false, false, false);
         }
         if (!compatEnabled || !serviceEnabled || !serviceConnected) {
+            if (filterStuckOn) {
+                return new DesktopState(choice, choiceLabel,
+                        "未生效（警告：系统拒绝撤销按键过滤，过滤位仍开启）",
+                        filterStuckWarning, false, true, false, false, true);
+            }
             String eff = !compatEnabled ? "未生效（Home 兼容未开启）"
                     : (!serviceEnabled ? "未生效（辅助服务未启用）" : "已写回、等待服务连接");
             String prefix = restricted
@@ -163,6 +202,11 @@ final class HomeSetupPolicy {
                     false, false, false, false);
         }
         if (mode == GuardMode.WINDOW_PULLBACK) {
+            if (filterStuckOn) {
+                return new DesktopState(choice, choiceLabel,
+                        "窗口回拉（警告：系统拒绝撤销按键过滤，过滤位仍开启）",
+                        filterStuckWarning, false, true, false, false, true);
+            }
             String reason;
             if (choice == DesktopChoice.NATIVE_HOME) {
                 reason = restricted

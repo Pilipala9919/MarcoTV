@@ -188,6 +188,8 @@ public final class HomeKeyService extends AccessibilityService {
             modeAppliedGeneration=(connected&&runtimeModeApplied)?connectionGeneration:0;
             if(expectedFilter&&!runtimeKeyFilterRequested){
                 Diagnostics.event("HOME_KEY_FILTER_APPLY_REJECTED");
+            }else if(!expectedFilter&&runtimeKeyFilterRequested){
+                Diagnostics.event("HOME_KEY_FILTER_REVOKE_REJECTED");
             }
         }
         if(!runtimeKeyFilterRequested)resetPress();
@@ -382,7 +384,8 @@ public final class HomeKeyService extends AccessibilityService {
             String reason=i.getStringExtra("reason");
             HomeSetupPolicy.GuardMode mode=guardMode();
             if(!mode.handlesHomeBroadcast())return;
-            boolean directKeyActive=mode.handlesDirectHomeKey()&&!volumeYieldActive;
+            // Drive broadcast branching strictly from the actual readback filter bit, never merely the requested mode.
+            boolean directKeyActive=runtimeKeyFilterRequested&&mode.handlesDirectHomeKey()&&!volumeYieldActive;
             if(!directKeyActive&&"assist".equals(reason)){
                 homeBroadcastSettled=true;
                 handler.removeCallbacks(fallback);
@@ -501,7 +504,7 @@ public final class HomeKeyService extends AccessibilityService {
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) return false;
         boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
         boolean nativeHome=SystemIntegration.homeIsOurs(this);
-        if(!canRedirect()||volumeYieldActive
+        if(!canRedirect()||volumeYieldActive||!runtimeKeyFilterRequested
                 ||!HomeSetupPolicy.shouldRequestKeyFilter(compat,HomeSetup.paused(this),nativeHome,guardMode())){
             resetPress();
             return false;

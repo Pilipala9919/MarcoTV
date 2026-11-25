@@ -46,8 +46,9 @@ final class DefaultHomePanel {
                 +"\n降级原因  ·  "+state.fallbackReason
                 +"\n\n"+hint;
     }
-    void show(){
+    private String[] defaultHomeItems(){
         HomeSetupPolicy.Route route=HomeSetup.route(host);
+        HomeSetupPolicy.DesktopState state=SystemIntegration.desktopState(host);
         HomeSetupPolicy.GuardMode mode=SystemIntegration.guardMode(host);
         boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
         boolean nativeActive=!BuildEdition.RESTRICTED&&SystemIntegration.homeIsOurs(host);
@@ -56,27 +57,42 @@ final class DefaultHomePanel {
                         :(!HomeKeyService.runtimeKeyFilterRequested&&!HomeKeyService.runtimeVolumeYieldActive?"（按键过滤未生效）"
                                 :(HomeKeyService.runtimeVolumeYieldFailed?"（无桥让渡受限）"
                                         :(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助） ✓"
-                                                :(HomeKeyService.runtimeVolumeYieldActive?"（无桥让渡中） ✓":"（无桥让渡） ✓")))))
-                :(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0?"（任务桥可用）":"（无桥：先点一下音量，松手后再长按）");
+                                                :(HomeKeyService.runtimeVolumeYieldActive?"（无桥让渡中） ✓"
+                                                        :("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())?"（旧版任务桥 · 无桥让渡） ✓":"（无桥让渡） ✓"))))))
+                :(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0?"（任务桥可用）"
+                        :("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())?"（旧版任务桥：需重启桥启用音量辅助）":"（无桥：先点一下音量，松手后再长按）"));
         String primary=route==HomeSetupPolicy.Route.PAUSED?"继续一键设置":ready?"检查使用效果":"一键启用 Marco TV";
+        String[] base=new String[]{
+                primary,
+                BuildEdition.RESTRICTED?"系统默认桌面（受限版不适用）":"系统默认桌面"+(nativeActive?" ✓":""),
+                "窗口回拉（兼容模式，推荐）"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&HomeSetup.prefs(host).getBoolean("home_compat",false)&&!state.keyFilterStillActiveUnexpectedly?" ✓":""),
+                "快速 Home"+fastTag,
+                "原厂按键"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY&&!state.keyFilterStillActiveUnexpectedly?" ✓":""),
+                "更多设置方式"
+        };
+        if(!state.keyFilterStillActiveUnexpectedly)return base;
+        String[] withRelease=new String[base.length+1];
+        System.arraycopy(base,0,withRelease,0,base.length);
+        withRelease[base.length]="仅关闭 Marco 辅助服务（释放按键过滤）";
+        return withRelease;
+    }
+    void show(){
         TvDialog dialog=new TvDialog.Builder(host).setPageId("default_home").setTitle("桌面启用与遥控器兼容")
                 .setMessage(defaultHomeMessage())
-                .setItems(new String[]{
-                        primary,
-                        BuildEdition.RESTRICTED?"系统默认桌面（受限版不适用）":"系统默认桌面"+(nativeActive?" ✓":""),
-                        "窗口回拉（兼容模式，推荐）"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&HomeSetup.prefs(host).getBoolean("home_compat",false)?" ✓":""),
-                        "快速 Home"+fastTag,
-                        "原厂按键"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY?" ✓":""),
-                        "更多设置方式"},(d,w)->{
+                .setItems(defaultHomeItems(),(d,w)->{
             if(w==0)start();
             else if(w==1)chooseNativeHome();
             else if(w==2)chooseWindowPullback();
             else if(w==3)chooseFastHome();
             else if(w==4)chooseNativeKeysOnly();
-            else help();
+            else if(w==5)help();
+            else if(w==6){SystemIntegration.releaseStuckKeyFilterService(host);show();}
         }).setNegativeButton("稍后",null).create();
         final Runnable listener=()->{
-            if(dialog.isShowing())dialog.updateMessage(defaultHomeMessage());
+            if(dialog.isShowing()){
+                dialog.updateMessage(defaultHomeMessage());
+                dialog.updateItems(defaultHomeItems());
+            }
         };
         TaskBridgeClient.addStateListener(listener);
         dialog.onLeave(()->TaskBridgeClient.removeStateListener(listener));
@@ -120,6 +136,7 @@ final class DefaultHomePanel {
                         "返回"},(d,w)->{
                     if(w==0){
                         SystemIntegration.setGuardMode(host,HomeSetupPolicy.GuardMode.KEY_FILTER);
+                        TaskBridgeClient.retryVolumeAssist(host);
                         if(HomeSetup.prefs(host).getBoolean("home_compat",false)&&HomeSetup.serviceEnabled(host)&&HomeKeyService.connected&&!HomeSetup.paused(host)){
                             show();
                         }else{
