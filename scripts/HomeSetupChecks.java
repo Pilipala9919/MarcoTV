@@ -287,7 +287,10 @@ public final class HomeSetupChecks {
                 &&stuckNativeHome.keyFilterStillActiveUnexpectedly
                 &&stuckNativeHome.effectiveModeLabel.contains("过滤位仍开启"));
         check("oem_exp_production_allowlist_stays_empty",
-                OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST.isEmpty());
+                OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST.isEmpty()
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.size() >= 3
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.get(0).contains("独立恢复")
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.get(1).contains("实际进入前台"));
         // Experimental OEM launcher disable policy gating
         check("oem_exp_blocks_restricted_edition",
                 OemLauncherExperimentPolicy.evaluate(true,"VerifiedTV","1.0","com.vendor.home",

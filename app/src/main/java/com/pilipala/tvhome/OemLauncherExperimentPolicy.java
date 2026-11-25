@@ -50,10 +50,29 @@ final class OemLauncherExperimentPolicy {
 
     /**
      * Verified safe allowlist of exact (model, firmware, oemPackage) entries.
-     * Kept empty by default until a specific model + firmware passes full end-to-end verification
-     * (including cold boot, foreground launch, and independent recovery verification).
+     * Kept empty by default until a specific model + firmware satisfies every gate in
+     * {@link #OPENING_PREREQUISITES} with recorded live-device evidence.
      */
     static final List<VerifiedDevice> VERIFIED_ALLOWLIST = Collections.emptyList();
+
+    /**
+     * Mandatory prerequisites before the first verified (model, firmware) entry may be added to
+     * {@link #VERIFIED_ALLOWLIST}:
+     * <ol>
+     *   <li>Independent recovery path on cancel or timeout after OEM disable (must open a fresh
+     *       recovery session instead of reusing a closed ADB wire, or preserve snapshot + verified rescue entry).</li>
+     *   <li>Live observation that Marco TV actually enters the foreground and returns from a third-party app
+     *       via physical Home after disable (never mark success from static {@code resolveActivity} alone;
+     *       unverified foreground must roll back to pre-experiment state).</li>
+     *   <li>End-to-end live-device record on the exact model + firmware covering power-off cold boot and
+     *       exact snapshot restoration of the OEM package state and prior HOME.</li>
+     * </ol>
+     */
+    static final List<String> OPENING_PREREQUISITES = Collections.unmodifiableList(java.util.Arrays.asList(
+            "停用后取消或超时的独立恢复通路（须通过独立新会话回滚并核验，不得复用已关闭会话；未核实恢复时保留快照与独立救援入口）",
+            "停用后 Marco TV 实际进入前台且可从第三方应用返回桌面的实证（不可仅凭静态 HOME 解析判成功，无法核实时须回滚至实验前状态）",
+            "具体型号与固件的断电冷启动与恢复原厂桌面回读实机验证记录"
+    ));
 
     private OemLauncherExperimentPolicy() { }
 

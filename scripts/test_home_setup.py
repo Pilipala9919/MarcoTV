@@ -372,11 +372,17 @@ assert 'flagRequestFilterKeyEvents' not in xml_text, 'home_accessibility.xml mus
 assert 'android:canRequestFilterKeyEvents="true"' in xml_text, 'home_accessibility.xml must keep canRequestFilterKeyEvents for explicit opt-in'
 assert 'typeWindowStateChanged' in xml_text, 'home_accessibility.xml must keep typeWindowStateChanged for OEM window pullback'
 print('PASS home_accessibility_xml_defaults_without_key_filter')
-for rel in ['app/src/main/java/com/pilipala/tvhome/SettingsTaxonomy.java', 'app/src/main/java/com/pilipala/tvhome/SystemIntegration.java', 'app/src/main/java/com/pilipala/tvhome/DefaultHomePanel.java']:
+for rel in [
+    'app/src/main/java/com/pilipala/tvhome/SettingsTaxonomy.java',
+    'app/src/main/java/com/pilipala/tvhome/SystemIntegration.java',
+    'app/src/main/java/com/pilipala/tvhome/DefaultHomePanel.java',
+    'app/src/main/java/com/pilipala/tvhome/HealthPanel.java',
+]:
     src=(ROOT/rel).read_text(encoding='utf8')
     assert '可保证蓝牙' not in src and '蓝牙长按正常' not in src, f'{rel} must not overclaim Bluetooth repeat guarantee'
     assert '绝不黑屏' not in src, f'{rel} must never promise 绝不黑屏'
-    if not rel.endswith('DefaultHomePanel.java'):
+    assert '不闪原厂桌面' not in src and '避免闪出原厂桌面' not in src and '避免闪现原厂桌面' not in src, f'{rel} must not overclaim zero-flash without screen-video proof'
+    if rel.endswith('SettingsTaxonomy.java') or rel.endswith('SystemIntegration.java'):
         assert '音量和方向键交由系统处理' in src, f'{rel} must state volume and D-pad keys are handled by the system'
 print('PASS settings_wording_states_system_key_handling')
 

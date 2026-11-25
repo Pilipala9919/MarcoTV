@@ -104,17 +104,120 @@ final class TvDialog extends Dialog {
         if(messageView!=null)messageView.setText(value);
     }
     void updateItems(String[] nextItems){
-        if(nextItems==null||spec.items==null||nextItems.length!=spec.items.length)return;
+        if(nextItems==null||spec.items==null)return;
+        if(spec.orderKey!=null&&nextItems.length!=spec.items.length)return;
         spec.items=nextItems;
-        for(TextView item:itemViews){
-            if(item.getTag() instanceof Integer){
-                int idx=(Integer)item.getTag();
-                if(idx>=0&&idx<nextItems.length){
-                    item.setText(nextItems[idx]);
-                    item.setContentDescription(nextItems[idx]);
+        if(body==null)return;
+        if(spec.orderKey!=null){
+            for(TextView item:itemViews){
+                if(item.getTag() instanceof Integer){
+                    int idx=(Integer)item.getTag();
+                    if(idx>=0&&idx<nextItems.length){
+                        item.setText(nextItems[idx]);
+                        item.setContentDescription(nextItems[idx]);
+                    }
                 }
             }
+            return;
         }
+        int oldCount=itemViews.size();
+        int common=Math.min(oldCount,nextItems.length);
+        for(int i=0;i<common;i++){
+            TextView item=itemViews.get(i);
+            item.setText(nextItems[i]);
+            item.setContentDescription(nextItems[i]);
+        }
+        if(nextItems.length>oldCount){
+            int choicePrefix=spec.view!=null?1:0;
+            for(int idx=oldCount;idx<nextItems.length;idx++){
+                TextView item=buildItemRow(idx);
+                itemViews.add(item);
+                if(itemOrder!=null)itemOrder.add(idx);
+                body.addView(item,Math.min(body.getChildCount(),itemsOffset+idx),rowParams());
+                choices.add(Math.min(choices.size(),choicePrefix+idx),item);
+            }
+        }else if(nextItems.length<oldCount){
+            View focused=getCurrentFocus();
+            boolean focusRemoved=false;
+            for(int idx=oldCount-1;idx>=nextItems.length;idx--){
+                TextView removed=itemViews.remove(idx);
+                if(removed==focused||removed==savedFocus)focusRemoved=true;
+                if(removed==savedFocus)savedFocus=null;
+                body.removeView(removed);
+                choices.remove(removed);
+                if(itemOrder!=null&&idx<itemOrder.size())itemOrder.remove(idx);
+            }
+            if(lastItem>=itemViews.size())lastItem=Math.max(0,itemViews.size()-1);
+            if(focusRemoved||(focused==null&&isShowing())){
+                View fallback=!itemViews.isEmpty()?itemViews.get(itemViews.size()-1)
+                        :(!choices.isEmpty()?choices.get(0):null);
+                if(fallback!=null)fallback.requestFocus();
+            }
+        }
+    }
+    private TextView buildItemRow(final int index){
+        TextView item=row(spec.items[index],spec.single&&index==spec.selected);
+        if(spec.icons!=null&&index<spec.icons.length&&spec.icons[index]!=null){
+            android.graphics.drawable.Drawable icon=spec.icons[index];
+            icon.setBounds(0,0,dp(32),dp(32));
+            item.setCompoundDrawables(icon,null,null,null);
+            item.setCompoundDrawablePadding(dp(14));
+            item.setMaxLines(2);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        }
+        if(spec.signals!=null&&index<spec.signals.length&&spec.signals[index]>=0){
+            item.setSingleLine(true);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            SignalDrawable signal=new SignalDrawable(spec.signals[index],spec.secured!=null&&spec.secured[index],spec.connected!=null&&spec.connected[index]);
+            signal.setBounds(0,0,dp(spec.network?68:28),dp(24));
+            item.setCompoundDrawables(null,null,signal,null);
+            item.setCompoundDrawablePadding(dp(spec.network?8:20));
+            item.setContentDescription(spec.items[index]+"，信号"+new String[]{"弱","一般","良好","强"}[spec.signals[index]]);
+        }
+        if(spec.single)item.setAccessibilityDelegate(new View.AccessibilityDelegate(){
+            @Override public void onInitializeAccessibilityNodeInfo(View host,android.view.accessibility.AccessibilityNodeInfo info){
+                super.onInitializeAccessibilityNodeInfo(host,info);
+                info.setCheckable(true);
+                info.setChecked(index==spec.selected);
+            }
+        });
+        if(spec.network&&index==0&&spec.wifiEnabled!=null){
+            ToggleDrawable toggle=new ToggleDrawable(spec.wifiEnabled);
+            toggle.setBounds(0,0,dp(52),dp(32));
+            item.setCompoundDrawables(null,null,toggle,null);
+            item.setCompoundDrawablePadding(dp(12));
+            item.setContentDescription("Wi-Fi，"+(spec.wifiEnabled?"已开启":"已关闭"));
+            item.setAccessibilityDelegate(new View.AccessibilityDelegate(){
+                @Override public void onInitializeAccessibilityNodeInfo(View view,android.view.accessibility.AccessibilityNodeInfo info){
+                    super.onInitializeAccessibilityNodeInfo(view,info);
+                    info.setClassName("android.widget.Switch");
+                    info.setCheckable(true);
+                    info.setChecked(spec.wifiEnabled);
+                }
+            });
+        }
+        item.setOnClickListener(v->{
+            if(!isShowing())return;
+            if(spec.items==null||index<0||index>=spec.items.length)return;
+            savedFocus=item;
+            // Close before invoking a callback so nested panels retain their focus/lifecycle.
+            forwardDismiss=true;
+            dismiss();
+            if(spec.itemClick!=null)spec.itemClick.onClick(this,index);
+        });
+        item.setTag(index);
+        if(spec.orderKey!=null)item.setOnLongClickListener(v->{
+            beginMove(index,true);
+            return true;
+        });
+        if(spec.network){
+            item.setTextSize(14);
+            item.setSingleLine(true);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setMinHeight(dp(37));
+            item.setPadding(dp(10),dp(6),dp(10),dp(6));
+        }
+        return item;
     }
     private int moving=-1, lastItem, itemsOffset;
     private boolean swallowMoveRelease;
@@ -253,67 +356,8 @@ final class TvDialog extends Dialog {
         }
         if (spec.items != null) for (int position = 0; position < itemOrder.size(); position++) {
             final int index = itemOrder.get(position);
-            TextView item = row(spec.items[index], spec.single && index == spec.selected);
-            if(spec.icons!=null&&index<spec.icons.length&&spec.icons[index]!=null){
-                android.graphics.drawable.Drawable icon=spec.icons[index];
-                icon.setBounds(0,0,dp(32),dp(32));
-                item.setCompoundDrawables(icon,null,null,null);
-                item.setCompoundDrawablePadding(dp(14));
-                item.setMaxLines(2);
-                item.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            }
-            if (spec.signals != null && index < spec.signals.length && spec.signals[index] >= 0) {
-                item.setSingleLine(true);
-                item.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                SignalDrawable signal = new SignalDrawable(spec.signals[index],spec.secured!=null&&spec.secured[index],spec.connected!=null&&spec.connected[index]);
-                signal.setBounds(0, 0, dp(spec.network?68:28), dp(24));
-                item.setCompoundDrawables(null, null, signal, null);
-                item.setCompoundDrawablePadding(dp(spec.network?8:20));
-                item.setContentDescription(spec.items[index] + "，信号" + new String[]{"弱", "一般", "良好", "强"}[spec.signals[index]]);
-            }
-            if (spec.single) item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info);
-                    info.setCheckable(true);
-                    info.setChecked(index == spec.selected);
-                }
-            });
-            if(spec.network&&index==0&&spec.wifiEnabled!=null){
-                ToggleDrawable toggle=new ToggleDrawable(spec.wifiEnabled);
-                toggle.setBounds(0,0,dp(52),dp(32));
-                item.setCompoundDrawables(null,null,toggle,null);
-                item.setCompoundDrawablePadding(dp(12));
-                item.setContentDescription("Wi-Fi，"+(spec.wifiEnabled?"已开启":"已关闭"));
-                item.setAccessibilityDelegate(new View.AccessibilityDelegate(){
-                    @Override public void onInitializeAccessibilityNodeInfo(View view,android.view.accessibility.AccessibilityNodeInfo info){
-                        super.onInitializeAccessibilityNodeInfo(view,info);
-                        info.setClassName("android.widget.Switch");
-                        info.setCheckable(true);
-                        info.setChecked(spec.wifiEnabled);
-                    }
-                });
-            }
-            item.setOnClickListener(v -> {
-                if(!isShowing())return;
-                savedFocus=item;
-                // Close before invoking a callback so nested panels retain their focus/lifecycle.
-                forwardDismiss=true;
-                dismiss();
-                if (spec.itemClick != null) spec.itemClick.onClick(this, index);
-            });
-            item.setTag(index);
+            TextView item = buildItemRow(index);
             itemViews.add(item);
-            if(spec.orderKey!=null)item.setOnLongClickListener(v->{
-                beginMove(index,true);
-                return true;
-            });
-            if(spec.network){
-                item.setTextSize(14);
-                item.setSingleLine(true);
-                item.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                item.setMinHeight(dp(37));
-                item.setPadding(dp(10),dp(6),dp(10),dp(6));
-            }
             body.addView(item,rowParams());
             choices.add(item);
         }

@@ -9,22 +9,24 @@ import android.os.*;
 
 /** Shell-only Binder handoff. No files, task data, or commands are exposed by this provider. */
 public final class TaskBridgeProvider extends ContentProvider {
-    private final Binder lifetime=new Binder(){
-        @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
-            if(code==TaskBridgeServer.EVENT_VOLUME_STATE){
-                if(Binder.getCallingUid()!=2000)throw new SecurityException("shell setup only");
-                data.enforceInterface(TaskBridgeServer.DESCRIPTOR);
-                String json=data.readString();
-                if(json!=null&&json.length()<=8192){
-                    try{
-                        TaskBridgeClient.onServerStateChanged(getContext(),new org.json.JSONObject(json));
-                    }catch(Exception ignored){}
+    private Binder createLifetimeBinder(final IBinder peer){
+        return new Binder(){
+            @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
+                if(code==TaskBridgeServer.EVENT_VOLUME_STATE){
+                    if(Binder.getCallingUid()!=2000)throw new SecurityException("shell setup only");
+                    data.enforceInterface(TaskBridgeServer.DESCRIPTOR);
+                    String json=data.readString();
+                    if(json!=null&&json.length()<=8192){
+                        try{
+                            TaskBridgeClient.onServerStateChanged(getContext(),peer,new org.json.JSONObject(json));
+                        }catch(Exception ignored){}
+                    }
+                    return true;
                 }
-                return true;
+                return super.onTransact(code,data,reply,flags);
             }
-            return super.onTransact(code,data,reply,flags);
-        }
-    };
+        };
+    }
     @Override public boolean onCreate(){
         return true;
     }
@@ -35,7 +37,7 @@ public final class TaskBridgeProvider extends ContentProvider {
         TaskBridgeClient.attach(getContext(),service);
         TaskBridgeClient.sync(getContext());
         Bundle reply=new Bundle();
-        reply.putBinder("lifetime",lifetime);
+        reply.putBinder("lifetime",createLifetimeBinder(service));
         return reply;
     }
     @Override public Cursor query(Uri u,String[] p,String s,String[] a,String sort){

@@ -292,13 +292,16 @@ final class SystemIntegration {
         }
         String resolved = currentHome(context);
         boolean validHome = OemLauncherExperimentPolicy.isValidPostDisableHome(resolved, context.getPackageName());
-        boolean canForeground = foregroundOkOverride != null ? foregroundOkOverride : canLaunchMarcoForeground(context);
+        boolean staticLaunchable = canLaunchMarcoForeground(context);
         if (!validHome) {
             return "停用后系统未将 HOME 解析为 Marco TV（当前解析："
                     + (resolved.isEmpty() ? "空 / 解析异常" : resolved) + "）";
         }
-        if (!canForeground) {
+        if (!staticLaunchable) {
             return "停用后 Marco TV 无法进入前台";
+        }
+        if (!Boolean.TRUE.equals(foregroundOkOverride)) {
+            return "停用后仅观察到静态 HOME 解析，未核实 Marco TV 实际进入前台与可返回桌面（开放首个机型前须补齐实机前台核验）";
         }
         return null;
     }
@@ -1342,23 +1345,32 @@ final class SystemIntegration {
         HomeSetupPolicy.DesktopState state = desktopState(activity);
         String action = p.getString("home_long_action", "system");
         boolean nativeActive = !BuildEdition.RESTRICTED && homeIsOurs(activity);
-        boolean bridgeReadyForFast = TaskBridgeClient.volumeAssistActive()
+        boolean bridgeConnected = TaskBridgeClient.connected();
+        boolean bridgeOld = bridgeConnected && "bridge_update_required".equals(TaskBridgeClient.volumeAssistReason());
+        boolean bridgeWriteFailed = bridgeConnected && TaskBridgeClient.volumeAudioWriteFailed();
+        boolean bridgeVolumeVerified = TaskBridgeClient.volumeAssistActive()
                 || (TaskBridgeClient.volumeAudioReady() && TaskBridgeClient.volumeInputDeviceCount() > 0);
+        boolean bridgeConnectedUnverified = bridgeConnected && !bridgeOld && !bridgeWriteFailed && !bridgeVolumeVerified;
         String fastHomeSuffix = mode == HomeSetupPolicy.GuardMode.KEY_FILTER && !nativeActive && !HomeSetup.paused(activity)
                 ? (!HomeKeyService.connected || !HomeSetup.serviceEnabled(activity) ? "（等待服务连接）"
                         : (!HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive ? "（按键过滤未生效）"
                                 : (HomeKeyService.runtimeVolumeYieldFailed ? "（无桥让渡受限）"
-                                        : (TaskBridgeClient.volumeAssistActive() ? "（任务桥辅助 · 推荐） ✓"
+                                        : (TaskBridgeClient.volumeAssistActive() ? "（任务桥辅助已验证） ✓"
                                                 : (HomeKeyService.runtimeVolumeYieldActive ? "（无桥让渡中） ✓"
-                                                        : ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
-                                                                ? "（旧版任务桥 · 无桥让渡） ✓" : "（无桥让渡） ✓"))))))
-                : (bridgeReadyForFast
-                        ? "（任务桥已就绪 · 推荐，不闪原厂桌面）"
-                        : ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
-                                ? "（旧版任务桥：需重启桥启用音量辅助）"
-                                : "（配任务桥不闪原厂桌面；无桥需点一下再长按）"));
-        String windowLabel = bridgeReadyForFast
-                ? "窗口回拉（兼容模式，会闪原厂桌面）"
+                                                        : (bridgeOld ? "（旧版任务桥 · 无桥让渡） ✓"
+                                                                : (bridgeWriteFailed ? "（任务桥调音受限 · 无桥让渡） ✓"
+                                                                        : (bridgeConnected ? "（任务桥已连接 · 音量辅助未就绪，无桥让渡） ✓" : "（无桥让渡） ✓"))))))))
+                : (bridgeVolumeVerified
+                        ? "（任务桥音量辅助已验证 · 推荐）"
+                        : (bridgeConnectedUnverified
+                                ? "（任务桥已连接，切换快速 Home 后验证音量辅助）"
+                                : (bridgeOld
+                                        ? "（旧版任务桥：需重启桥启用音量辅助）"
+                                        : (bridgeWriteFailed
+                                                ? "（任务桥已连接 · 上次调音写入受限，切换可重试）"
+                                                : "（未连桥：无桥需先点一下再长按）"))));
+        String windowLabel = bridgeVolumeVerified
+                ? "窗口回拉（兼容模式，部分固件可能短暂闪过原厂桌面）"
                 : "窗口回拉（兼容模式，无桥推荐）";
         String[] base = new String[]{
                 (BuildEdition.RESTRICTED ? "系统默认桌面（受限版不适用）" : "系统默认桌面" + (nativeActive ? " ✓" : "")),
@@ -1376,7 +1388,13 @@ final class SystemIntegration {
         withRelease[base.length] = "仅关闭 Marco 辅助服务（释放按键过滤）";
         return withRelease;
     }
-    static void releaseStuckKeyFilterService(Activity activity) {
+    static boolean releaseStuckKeyFilterService(Activity activity) {
+        HomeSetupPolicy.DesktopState current = desktopState(activity);
+        if (!current.keyFilterStillActiveUnexpectedly) {
+            android.widget.Toast.makeText(activity, "按键过滤异常已恢复，已保留当前桌面守护与开机回桌设置", android.widget.Toast.LENGTH_LONG).show();
+            TaskBridgeClient.notifyStateChanged();
+            return false;
+        }
         disableHomeCompat(activity);
         if (HomeSetup.serviceEnabled(activity)) {
             try {
@@ -1388,6 +1406,7 @@ final class SystemIntegration {
         } else {
             android.widget.Toast.makeText(activity, "已仅关闭 Marco TV 辅助服务并释放按键过滤，其他辅助服务未改动", android.widget.Toast.LENGTH_LONG).show();
         }
+        return true;
     }
     static void homeGestures(Activity activity,DialogHost host){
         SharedPreferences p=prefs(activity);
@@ -1443,16 +1462,45 @@ final class SystemIntegration {
         if(HomeKeyService.runtimeKeyFilterRequested){
             if(TaskBridgeClient.volumeAssistActive())return "已连接并应用模式 · 快速 Home＋任务桥音量辅助";
             if("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason()))return "已连接旧版任务桥 · 需重启任务桥启用音量辅助（最近任务正常）";
+            if(TaskBridgeClient.volumeAudioWriteFailed())return "已连接并应用模式 · 任务桥调音写入受限，当前为无桥模式";
+            if(TaskBridgeClient.connected())return "已连接并应用模式 · 任务桥已连接（音量辅助未就绪），当前为无桥模式";
             return "已连接并应用模式 · 快速 Home（无桥模式）";
         }
+        if(TaskBridgeClient.connected()){
+            if("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason()))return "已连接并应用模式 · 未请求按键过滤（已连接旧版任务桥）";
+            if(TaskBridgeClient.volumeAudioWriteFailed())return "已连接并应用模式 · 未请求按键过滤（任务桥调音写入曾被拒）";
+            if(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0)return "已连接并应用模式 · 未请求按键过滤（任务桥音量辅助已验证）";
+            return "已连接并应用模式 · 未请求按键过滤（任务桥已连接，切换快速 Home 后验证音量辅助）";
+        }
         return "已连接并应用模式 · 未请求按键过滤";
+    }
+    static String bridgeStatusLabel(Context context) {
+        if (!TaskBridgeClient.connected()) return "未连接";
+        if ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())) {
+            return "已连接旧版任务桥（最近任务正常，需重启更新以启用音量辅助）";
+        }
+        if (TaskBridgeClient.volumeAudioWriteFailed()) {
+            return "已连接 · 上次调音写入被系统拒绝（切换快速 Home 可重试）";
+        }
+        if (TaskBridgeClient.volumeAssistActive()
+                || (TaskBridgeClient.volumeAudioReady() && TaskBridgeClient.volumeInputDeviceCount() > 0)) {
+            return "已连接 · 音量辅助已验证";
+        }
+        boolean activeKeyFilter = !BuildEdition.RESTRICTED && !homeIsOurs(context) && !HomeSetup.paused(context)
+                && guardMode(context) == HomeSetupPolicy.GuardMode.KEY_FILTER
+                && HomeKeyService.connected && HomeKeyService.runtimeKeyFilterRequested;
+        if (activeKeyFilter) {
+            return "已连接 · 音量辅助未就绪（当前按无桥让渡运行）";
+        }
+        return "任务桥已连接，切换快速 Home 后验证音量辅助";
     }
     private static String homeGesturesMessage(Activity activity,HomeSetupPolicy.DesktopState state,String runtime){
         return "用户选择："+state.userChoiceLabel
                 +"\n当前实际生效："+state.effectiveModeLabel
                 +"\n降级原因："+state.fallbackReason
                 +"\n服务状态："+runtime
-                +"\n\n「窗口回拉（兼容模式）」无需任务桥，音量和方向键交由系统处理，但回桌会短暂闪过原厂桌面；若电视锁定原厂桌面且希望不闪原厂桌面并保留首次长按音量连调，推荐配合任务桥使用「快速 Home」（无任务桥时请先点一下音量、松手后再长按，让渡 5 秒后自动恢复）。";
+                +"\n任务桥状态："+bridgeStatusLabel(activity)
+                +"\n\n「窗口回拉（兼容模式）」无需任务桥，音量和方向键交由系统处理（部分固件回桌可能短暂闪过原厂桌面）；「快速 Home」直接拦截实体 Home（在支持的固件上可减少切回原厂桌面；是否完全无闪屏以具体固件与实机画面录像为准），配合任务桥可尝试首次长按音量连调（无任务桥时请先点一下音量、松手后再长按，让渡 5 秒后自动恢复）。";
     }
     private static void status(Activity activity, DialogHost host) {
         if(activity instanceof MainActivity)((MainActivity)activity).health.status();

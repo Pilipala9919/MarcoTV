@@ -58,6 +58,39 @@ final class LocalHomeAuthorizer {
     void disableOemExperiment(Result callback) { runOemExperiment(false, callback); }
     void restoreOemExperiment(Result callback) { runOemExperiment(true, callback); }
 
+    private OemShellSession openOemRollbackSession() {
+        if (oemSessionFactory != null) return oemSessionFactory.create();
+        return new OemShellSession() {
+            private volatile LocalAdbWire wire;
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                final long rollbackDeadline = SystemClock.elapsedRealtime() + 15000L;
+                File folder = new File(context.getNoBackupFilesDir(), "home-setup");
+                if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
+                LocalAdbWire w = new LocalAdbWire();
+                wire = w;
+                java.security.KeyPair key = LocalAdbWire.key(folder);
+                w.connect("127.0.0.1", 5555, key, status -> { });
+                HomeShellSetup commands = new HomeShellSetup(command -> {
+                    if (SystemClock.elapsedRealtime() >= rollbackDeadline) throw new IOException("Rollback timed out");
+                    return w.shell(command);
+                }, userId);
+                commands.authenticate();
+                return commands;
+            }
+            @Override public void close() {
+                LocalAdbWire w = wire;
+                if (w != null) w.close();
+            }
+        };
+    }
+
+    private <T> T onMainUnchecked(Callable<T> operation) throws Exception {
+        FutureTask<T> task = new FutureTask<>(operation);
+        main.post(task);
+        try { return task.get(5, TimeUnit.SECONDS); }
+        catch (Exception e) { task.cancel(false); throw e; }
+    }
+
     private OemShellSession openOemSession() {
         if (oemSessionFactory != null) return oemSessionFactory.create();
         return new OemShellSession() {
@@ -147,14 +180,26 @@ final class LocalHomeAuthorizer {
                         } catch (Exception e) {
                             if (cancelled || expired) {
                                 if (disableIssued) {
-                                    // Best-effort rollback on same session if still alive, otherwise keep snapshot and warn!
+                                    // Original session was closed by cancel()/timeout; open a fresh independent
+                                    // recovery session so rollback commands actually reach ADB instead of writing 0 commands.
+                                    OemShellSession rollbackSession = null;
                                     try {
-                                        commands.restoreOemPackageState(snap.oemPackage, snap.priorState);
-                                        commands.selectHome(snap.priorHome);
-                                    } catch (Exception ignored) { }
+                                        rollbackSession = openOemRollbackSession();
+                                        HomeShellSetup rollbackCommands = rollbackSession.connect(userId);
+                                        rollbackCommands.restoreOemPackageState(snap.oemPackage, snap.priorState);
+                                        rollbackCommands.selectHome(snap.priorHome);
+                                    } catch (Exception ignored) {
+                                    } finally {
+                                        if (rollbackSession != null) rollbackSession.close();
+                                    }
                                     try {
-                                        if (onMain(() -> SystemIntegration.isOemExperimentRestoreVerified(context, snap))) {
-                                            onMain(() -> { SystemIntegration.clearOemExperimentSnapshot(context); return null; });
+                                        boolean restoredOk = onMainUnchecked(() ->
+                                                SystemIntegration.isOemExperimentRestoreVerified(context, snap));
+                                        if (restoredOk) {
+                                            onMainUnchecked(() -> {
+                                                SystemIntegration.clearOemExperimentSnapshot(context);
+                                                return null;
+                                            });
                                         }
                                     } catch (Exception ignored) { }
                                 }
@@ -196,7 +241,8 @@ final class LocalHomeAuthorizer {
     }
 
     private void check() throws IOException {
-        if (cancelled || expired || SystemClock.elapsedRealtime() >= deadline)
+        if (SystemClock.elapsedRealtime() >= deadline) expired = true;
+        if (cancelled || expired)
             throw new IOException("Operation ended");
     }
 

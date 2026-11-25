@@ -126,6 +126,7 @@ public final class HomeKeyService extends AccessibilityService {
         boolean prevModeApplied=runtimeModeApplied;
         boolean prevYield=runtimeVolumeYieldActive;
         boolean prevYieldFailed=runtimeVolumeYieldFailed;
+        int prevFlags=runtimeFlags;
         HomeSetupPolicy.GuardMode mode=guardMode();
         boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
         boolean paused=HomeSetup.paused(this);
@@ -146,6 +147,7 @@ public final class HomeKeyService extends AccessibilityService {
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
             clearLocalVolumeYieldState();
+            if(prevKeyFilter||prevModeApplied||prevYield||prevYieldFailed||prevFlags!=0)TaskBridgeClient.notifyStateChanged();
             return;
         }
         int nextFlags=expectedFilter
@@ -162,6 +164,7 @@ public final class HomeKeyService extends AccessibilityService {
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
             clearLocalVolumeYieldState();
+            if(prevKeyFilter||prevModeApplied||prevYield||prevYieldFailed||prevFlags!=0)TaskBridgeClient.notifyStateChanged();
             return;
         }
         int effectiveFlags=applied.flags;
@@ -195,7 +198,8 @@ public final class HomeKeyService extends AccessibilityService {
         if(!runtimeKeyFilterRequested)resetPress();
         if(connected&&runtimeModeApplied)SystemIntegration.markHomeServiceRebindConnected(this);
         if(prevKeyFilter!=runtimeKeyFilterRequested||prevModeApplied!=runtimeModeApplied
-                ||prevYield!=runtimeVolumeYieldActive||prevYieldFailed!=runtimeVolumeYieldFailed){
+                ||prevYield!=runtimeVolumeYieldActive||prevYieldFailed!=runtimeVolumeYieldFailed
+                ||prevFlags!=runtimeFlags){
             TaskBridgeClient.sync(this);
             TaskBridgeClient.notifyStateChanged();
         }
@@ -631,6 +635,7 @@ public final class HomeKeyService extends AccessibilityService {
             modeAppliedGeneration=0;
             markServiceStoppedCleanly();
             TaskBridgeClient.sync(this);
+            TaskBridgeClient.notifyStateChanged();
         }
         return super.onUnbind(intent);
     }
@@ -647,6 +652,7 @@ public final class HomeKeyService extends AccessibilityService {
             instance=null;
             markServiceStoppedCleanly();
             TaskBridgeClient.sync(this);
+            TaskBridgeClient.notifyStateChanged();
         }
         handler.removeCallbacksAndMessages(null);
         if (receiverRegistered) unregisterReceiver(homeBroadcast);

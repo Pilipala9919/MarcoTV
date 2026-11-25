@@ -306,7 +306,8 @@ public final class TaskBridgeServer {
     /**
      * Reads stdout/stderr from a child process with a strict wall-clock deadline that also aborts
      * blocking reads and never uses API 26+ {@code Process.waitFor(long, TimeUnit)} (API 23+ safe).
-     * Returns {@code null} on timeout or I/O failure so callers can distinguish probe failure from 0 devices.
+     * Returns {@code null} on non-zero exit code, timeout, truncation, or I/O failure so callers can
+     * reliably distinguish a failed probe from a clean scan returning 0 devices.
      */
     static String readProcessOutputWithTimeout(final java.lang.Process process,long timeoutMs,final int maxBytes){
         if(process==null)return null;
@@ -356,8 +357,8 @@ public final class TaskBridgeServer {
             }
             while(true){
                 try{
-                    process.exitValue();
-                    return out.toString("UTF-8");
+                    int exitCode=process.exitValue();
+                    return exitCode==0?out.toString("UTF-8"):null;
                 }catch(IllegalThreadStateException stillRunning){
                     long leftNs=deadlineNs-System.nanoTime();
                     if(leftNs<=0){
@@ -461,6 +462,14 @@ public final class TaskBridgeServer {
             writeFailed=false;
             failureReason="";
         }
+        void onConfigure(boolean nextAssist,boolean explicitRetry){
+            // Only an explicit user retry may clear sticky audio write failure; passive false -> true
+            // transitions (such as 5s no-bridge yield expiry or periodic scans) MUST preserve it.
+            if(shouldClearAudioFailureOnConfigure(nextAssist,explicitRetry))onExplicitRetry();
+        }
+    }
+    static boolean shouldClearAudioFailureOnConfigure(boolean nextAssist,boolean explicitRetry){
+        return nextAssist&&explicitRetry;
     }
     private TaskBridgeServer(int uid,int userId)throws Exception{
         appUid=uid;
@@ -814,12 +823,12 @@ public final class TaskBridgeServer {
             wakeRecovery=request.optBoolean("wake",false);
             String home=request.optString("home","");
             originalHome=home.matches("[A-Za-z0-9_.]{1,200}")?home:"";
-            boolean prevAssist=volumeAssist;
             boolean nextAssist=request.optBoolean("volumeAssist",false);
             boolean explicitRetry=request.optBoolean("retryVolumeAssist",false);
             volumeAssist=nextAssist;
-            // Clear sticky audio write failure ONLY on explicit retry or explicit re-enable (false -> true).
-            if(nextAssist&&(explicitRetry||!prevAssist)){
+            // Clear sticky audio write failure ONLY on explicit user retry; never on passive false -> true
+            // transitions (e.g. 5s no-bridge volume yield expiry, mode toggles, or periodic scans).
+            if(shouldClearAudioFailureOnConfigure(nextAssist,explicitRetry)){
                 audioReadFailed=false;
                 audioWriteFailed=false;
                 audioFailureReason="";

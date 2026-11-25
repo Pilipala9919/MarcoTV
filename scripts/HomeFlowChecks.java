@@ -3379,16 +3379,102 @@ public final class HomeFlowChecks {
                 && !openPanel.items[3].contains("任务桥辅助")
                 && openPanel.message.contains("先点一下音量，松手后再长按"));
         // Verify dynamic recommendation shifts to 快速 Home when TaskBridge audio+input is ready in WINDOW_PULLBACK!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}";
         SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
-        TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
-                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}"));
+        drainBridgeSync();
+        TaskBridgeClient.configure(livePanelHost);
         livePanelHost.defaultHome.show();
         TvDialog recDlg = livePanelHost.dialogs.active();
         check("ux_bridge_ready_recommends_fast_home_and_notes_window_flash",
-                recDlg.items[2].contains("会闪原厂桌面")
+                recDlg.items[2].contains("部分固件可能短暂闪过原厂桌面")
                 && recDlg.items[3].contains("推荐")
-                && recDlg.message.contains("快速 Home ＋ 任务桥"));
+                && recDlg.message.contains("快速 Home ＋ 任务桥")
+                && !recDlg.items[3].contains("不闪原厂桌面")
+                && !recDlg.message.contains("不闪原厂桌面"));
+        // f0983a3 P2 #4: Window mode + connected v2 TaskBridge (volumeInputDeviceCount == 0 because window mode
+        // does not open input readers) MUST display "任务桥已连接，切换快速 Home 后验证音量辅助" and NEVER "当前未连接任务桥"!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"disabled\"}";
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog winConnDlg = livePanelHost.dialogs.active();
+        String winConnMsg = winConnDlg.message;
+        String winConnFastItem = winConnDlg.items[3];
+        winConnDlg.clickItem(3); // open chooseFastHome confirm page
+        TvDialog fastConfirmDlg = livePanelHost.dialogs.active();
+        String fastConfirmMsg = fastConfirmDlg.message;
+        SystemIntegration.homeGestures(livePanelHost, livePanelHost.dialogs::show);
+        TvDialog gestConnDlg = livePanelHost.dialogs.active();
+        String gestConnMsg = gestConnDlg.message;
+        String gestConnFastItem = gestConnDlg.items[2];
+        check("f0983a3_p2_window_mode_connected_bridge_zero_readers_copy_truthful",
+                winConnMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && winConnFastItem.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && fastConfirmMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && !fastConfirmMsg.contains("当前未连接任务桥")
+                && !fastConfirmMsg.contains("不闪原厂桌面")
+                && !fastConfirmMsg.contains("避免闪出原厂桌面")
+                && gestConnMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && gestConnFastItem.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && !gestConnMsg.contains("不闪原厂桌面"));
         TaskBridgeClient.resetForTest();
+
+        // f0983a3 P2 #2 [StuckActionProbe]: BOTH DefaultHomePanel AND SystemIntegration.homeGestures MUST:
+        // 1) Keep dialog open -> anomaly starts -> dynamically ADD release button (6->7 / 8->9)
+        // 2) Keep dialog open -> anomaly self-recovers -> dynamically REMOVE release button (7->6 / 9->8)
+        // 3) Clicking stale release action after self-recovery -> ZERO writes (guard, service, boot_home stay ON)!
+        MainActivity probeHost = freshEnv();
+        probeHost.secureAuthorized = true;
+        probeHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                "com.xiaomi.voicecontrol/.VoiceAccessibilityService:" + HomeSetup.SERVICE);
+        SystemIntegration.setGuardMode(probeHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        HomeKeyService.connected = true;
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        probeHost.defaultHome.show();
+        TvDialog dhLive = probeHost.dialogs.active();
+        int dhInitialRows = dhLive.items.length;
+        // Become stuck WITHOUT closing dialog!
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        int dhStuckRows = dhLive.items.length;
+        boolean dhStuckWarn = dhLive.message.contains("过滤位仍开启") && dhLive.items[6].contains("仅关闭 Marco 辅助服务");
+        // Self-recover WITHOUT closing dialog!
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        int dhRecoveredRows = dhLive.items.length;
+        boolean dhRecoveredNoWarn = !dhLive.message.contains("过滤位仍开启");
+        // Simulate clicking stale release index 6 after self-recovery!
+        dhLive.clickItem(6);
+        boolean dhPreservedAll = !HomeSetup.paused(probeHost)
+                && probeHost.sysPrefs.getBoolean("home_compat", false)
+                && probeHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(probeHost);
+        check("f0983a3_p2_default_home_panel_live_add_remove_and_stale_release_noop",
+                dhInitialRows == 6 && dhStuckRows == 7 && dhStuckWarn
+                && dhRecoveredRows == 6 && dhRecoveredNoWarn && dhPreservedAll);
+
+        // Repeat exact same lifecycle for SystemIntegration.homeGestures (8 -> 9 -> 8 -> stale click 8)!
+        SystemIntegration.homeGestures(probeHost, probeHost.dialogs::show);
+        TvDialog hgLive = probeHost.dialogs.active();
+        int hgInitialRows = hgLive.items.length;
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        int hgStuckRows = hgLive.items.length;
+        boolean hgStuckWarn = hgLive.message.contains("过滤位仍开启") && hgLive.items[8].contains("仅关闭 Marco 辅助服务");
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        int hgRecoveredRows = hgLive.items.length;
+        boolean hgRecoveredNoWarn = !hgLive.message.contains("过滤位仍开启");
+        hgLive.clickItem(8);
+        boolean hgPreservedAll = !HomeSetup.paused(probeHost)
+                && probeHost.sysPrefs.getBoolean("home_compat", false)
+                && probeHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(probeHost);
+        check("f0983a3_p2_home_gestures_live_add_remove_and_stale_release_noop",
+                hgInitialRows == 8 && hgStuckRows == 9 && hgStuckWarn
+                && hgRecoveredRows == 8 && hgRecoveredNoWarn && hgPreservedAll);
+        probeHost.closeMenus();
 
         // 3B UI: When system refuses to revoke filter bit, DefaultHomePanel shows one-click release action
         // that disables ONLY Marco's accessibility service while preserving XiaoAi!
@@ -3530,6 +3616,175 @@ public final class HomeFlowChecks {
                 !SystemIntegration.hasIndependentRecoveryPath(noIndepHost)
                 && !noIndepPlan.allowed()
                 && noIndepPlan.blockedMessage != null && noIndepPlan.blockedMessage.contains("恢复途径"));
+
+        // f0983a3 #5 [OemWireReview]: Under injected allowlist, verify:
+        // (a) cancel after disable opens a FRESH independent recovery session and restores OEM package + HOME;
+        // (b) timeout/deadline after disable opens a FRESH independent recovery session and restores OEM package + HOME;
+        // (c) static HOME resolve without actual foreground observation rolls back and NEVER reports success!
+        MainActivity oemCancelHost = freshEnv();
+        oemCancelHost.pm.homes.clear();
+        ResolveInfo oemCancelPkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        oemCancelHost.pm.homes.add(oemCancelPkg);
+        oemCancelHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        oemCancelHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        final AtomicInteger oemCancelSessions = new AtomicInteger();
+        final AtomicInteger oemCancelRestoreCmds = new AtomicInteger();
+        final AtomicInteger oemCancelCallbacks = new AtomicInteger();
+        final CountDownLatch oemDisabledLatch = new CountDownLatch(1);
+        final CountDownLatch oemRollbackDoneLatch = new CountDownLatch(1);
+        final LocalHomeAuthorizer[] cancelAuthHolder = {null};
+        cancelAuthHolder[0] = new LocalHomeAuthorizer(oemCancelHost, () -> {
+            final int sid = oemCancelSessions.incrementAndGet();
+            final boolean[] closed = {false};
+            return new LocalHomeAuthorizer.OemShellSession() {
+                @Override public HomeShellSetup connect(int userId) throws Exception {
+                    HomeShellSetup s = new HomeShellSetup(cmd -> {
+                        if (closed[0]) throw new java.io.IOException("session closed");
+                        if ("id -u".equals(cmd)) return "2000";
+                        if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                        if (cmd.contains("pm disable-user")) {
+                            oemCancelPkg.activityInfo.applicationInfo.enabled = false;
+                            oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                            oemCancelHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                            oemDisabledLatch.countDown();
+                            // Cancel immediately after disable while primary session gets closed!
+                            cancelAuthHolder[0].cancel();
+                        } else if (cmd.contains("pm default-state")) {
+                            oemCancelRestoreCmds.incrementAndGet();
+                            oemCancelPkg.activityInfo.applicationInfo.enabled = true;
+                            oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                        } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                            oemCancelRestoreCmds.incrementAndGet();
+                            oemCancelHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                            if (sid >= 2) oemRollbackDoneLatch.countDown();
+                        }
+                        return "";
+                    }, userId);
+                    s.authenticate();
+                    return s;
+                }
+                @Override public void close() { closed[0] = true; }
+            };
+        }, testAllowlist);
+        cancelAuthHolder[0].disableOemExperiment(res -> oemCancelCallbacks.incrementAndGet());
+        check("f0983a3_oem_cancel_after_disable_rolls_back_via_independent_session",
+                oemDisabledLatch.await(3, TimeUnit.SECONDS)
+                && oemRollbackDoneLatch.await(3, TimeUnit.SECONDS)
+                && oemCancelSessions.get() >= 2
+                && oemCancelRestoreCmds.get() >= 2
+                && oemCancelCallbacks.get() == 0
+                && oemCancelHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(oemCancelHost.pm.currentHome));
+
+        // (b) Deadline/timeout after disable opens a FRESH independent recovery session and restores OEM package + HOME!
+        MainActivity oemDeadlineHost = freshEnv();
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        oemDeadlineHost.pm.homes.clear();
+        ResolveInfo oemDeadlinePkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        oemDeadlineHost.pm.homes.add(oemDeadlinePkg);
+        oemDeadlineHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        oemDeadlineHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final AtomicInteger oemDeadlineSessions = new AtomicInteger();
+        final AtomicInteger oemDeadlineRestoreCmds = new AtomicInteger();
+        final CountDownLatch oemDeadlineCallbackLatch = new CountDownLatch(1);
+        final String[] oemDeadlineOutcome = {null};
+        LocalHomeAuthorizer deadlineAuth = new LocalHomeAuthorizer(oemDeadlineHost, () -> {
+            oemDeadlineSessions.incrementAndGet();
+            final boolean[] closed = {false};
+            return new LocalHomeAuthorizer.OemShellSession() {
+                @Override public HomeShellSetup connect(int userId) throws Exception {
+                    HomeShellSetup s = new HomeShellSetup(cmd -> {
+                        if (closed[0]) throw new java.io.IOException("session closed");
+                        if ("id -u".equals(cmd)) return "2000";
+                        if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                        if (cmd.contains("pm disable-user")) {
+                            oemDeadlinePkg.activityInfo.applicationInfo.enabled = false;
+                            oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                            oemDeadlineHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                            // Trigger the 90s timeout runnable right after disable, closing session #1!
+                            SystemClock.elapsed += 95000L;
+                            Handler.runDue();
+                        } else if (cmd.contains("pm default-state")) {
+                            oemDeadlineRestoreCmds.incrementAndGet();
+                            oemDeadlinePkg.activityInfo.applicationInfo.enabled = true;
+                            oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                        } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                            oemDeadlineRestoreCmds.incrementAndGet();
+                            oemDeadlineHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                        }
+                        return "";
+                    }, userId);
+                    s.authenticate();
+                    return s;
+                }
+                @Override public void close() { closed[0] = true; }
+            };
+        }, testAllowlist);
+        deadlineAuth.disableOemExperiment(res -> { oemDeadlineOutcome[0] = res; oemDeadlineCallbackLatch.countDown(); });
+        check("f0983a3_oem_deadline_after_disable_rolls_back_via_independent_session",
+                oemDeadlineCallbackLatch.await(5, TimeUnit.SECONDS)
+                && oemDeadlineSessions.get() >= 2
+                && oemDeadlineRestoreCmds.get() >= 2
+                && deadlineAuth.issue() == HomeDeviceGuide.Issue.TIMEOUT
+                && oemDeadlineOutcome[0] != null && !oemDeadlineOutcome[0].contains("已停用原厂桌面")
+                && oemDeadlineHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(oemDeadlineHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(oemDeadlineHost, 0));
+
+        // (c) Disable without actual foreground observation rolls back and NEVER reports success!
+        MainActivity noFgHost = freshEnv();
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        noFgHost.pm.homes.clear();
+        ResolveInfo noFgPkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        noFgHost.pm.homes.add(noFgPkg);
+        noFgHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        noFgHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final CountDownLatch noFgLatch = new CountDownLatch(1);
+        final String[] noFgOutcome = {null};
+        final AtomicInteger noFgRestoreCmds = new AtomicInteger();
+        LocalHomeAuthorizer noFgAuth = new LocalHomeAuthorizer(noFgHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                HomeShellSetup s = new HomeShellSetup(cmd -> {
+                    if ("id -u".equals(cmd)) return "2000";
+                    if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                    if (cmd.contains("pm disable-user")) {
+                        noFgPkg.activityInfo.applicationInfo.enabled = false;
+                        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                        noFgHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                    } else if (cmd.contains("pm default-state")) {
+                        noFgRestoreCmds.incrementAndGet();
+                        noFgPkg.activityInfo.applicationInfo.enabled = true;
+                        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                    } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                        noFgRestoreCmds.incrementAndGet();
+                        noFgHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                    }
+                    return "";
+                }, userId);
+                s.authenticate();
+                return s;
+            }
+            @Override public void close() {}
+        }, testAllowlist);
+        noFgAuth.disableOemExperiment(res -> { noFgOutcome[0] = res; noFgLatch.countDown(); });
+        check("f0983a3_oem_disable_without_actual_foreground_rolls_back_never_reports_success",
+                noFgLatch.await(5, TimeUnit.SECONDS)
+                && noFgRestoreCmds.get() >= 2
+                && noFgOutcome[0] != null
+                && !noFgOutcome[0].contains("已停用原厂桌面")
+                && noFgOutcome[0].contains("已自动恢复原厂桌面")
+                && noFgHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(noFgHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(noFgHost, 0));
+        Build.MODEL = "MiTV";
+        Build.DISPLAY = "PPR1";
 
         android.os.Process.uid = 1012345; // restore default stub uid
     }

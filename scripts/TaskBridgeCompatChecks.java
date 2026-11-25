@@ -210,6 +210,15 @@ public final class TaskBridgeCompatChecks {
             System.out.flush();
             return;
         }
+        if (args.length == 1 && "--child-fail".equals(args[0])) {
+            System.out.print("getevent: cannot enumerate devices\n");
+            System.out.flush();
+            System.exit(1);
+        }
+        if (args.length == 1 && "--child-empty-ok".equals(args[0])) {
+            System.out.flush();
+            return;
+        }
         final String atm = FakeActivityTaskManager.class.getName();
         final String am = FakeActivityManager.class.getName();
         final String amNoGet = FakeActivityManagerNoGetService.class.getName();
@@ -733,9 +742,44 @@ public final class TaskBridgeCompatChecks {
         check("codex_1b_probe_process_endless_output_aborts_cleanly_at_limit",
                 floodOut == null && floodMs < 4000L && !floodProc.isAlive());
 
-        // 2A. Sticky write failure stays degraded across periodic readback scans; only explicit retry or write success clears it!
+        // f0983a3 P2 [ProcReview]: Non-zero exit code with error text MUST return null and preserve open readers,
+        // whereas clean exit 0 with empty output returns "" and removes truly unplugged devices!
+        java.lang.Process failProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-fail")
+                .redirectErrorStream(true).start();
+        String failOut = TaskBridgeServer.readProcessOutputWithTimeout(failProc, 5000L, 65536);
+        java.util.Set<String> removedOnFail = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, failOut == null ? null : TaskBridgeServer.parseVolumeCapableEventPaths(failOut));
+        check("f0983a3_p2_probe_nonzero_exit_returns_null_and_preserves_readers",
+                failOut == null && removedOnFail.isEmpty());
+
+        java.lang.Process emptyOkProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-empty-ok")
+                .redirectErrorStream(true).start();
+        String emptyOkOut = TaskBridgeServer.readProcessOutputWithTimeout(emptyOkProc, 5000L, 65536);
+        java.util.Set<String> removedOnCleanEmpty = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, emptyOkOut == null ? null : TaskBridgeServer.parseVolumeCapableEventPaths(emptyOkOut));
+        dirs.clear();
+        vol[0] = 40;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 41;
+        sched.advanceBy(600);
+        int stepsBeforeCleanEmpty = dirs.size();
+        for (String p : removedOnCleanEmpty) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500);
+        check("f0983a3_p2_probe_clean_zero_devices_removes_reader_and_stops_hold",
+                emptyOkOut != null
+                && emptyOkOut.isEmpty()
+                && removedOnCleanEmpty.contains("/dev/input/event5")
+                && stepsBeforeCleanEmpty == 1
+                && dirs.size() == stepsBeforeCleanEmpty
+                && !engine.isHolding()
+                && "device_disconnected".equals(engine.lastStopReason()));
+
+        // 2A + f0983a3 P1: Sticky write failure stays degraded across periodic scans AND passive false->true
+        // configure cycles (such as 5s no-bridge yield expiry); only explicit retry or confirmed write success clears it!
         TaskBridgeServer.AudioHealthState health = new TaskBridgeServer.AudioHealthState();
         health.recordFailure("audio_adjust_failed");
+        health.onConfigure(false, false); // 5s yield pauses volumeAssist
+        health.onConfigure(true, false);  // 5s yield expires -> passive configure(volumeAssist=true) without retry
         health.onPeriodicReadProbe(true);
         health.onPeriodicReadProbe(true);
         org.json.JSONObject stWriteDenied = TaskBridgeServer.buildVolumeStatusJson(
@@ -743,17 +787,24 @@ public final class TaskBridgeCompatChecks {
                 health.readFailed, health.writeFailed, health.failureReason, 2, 0, "audio_adjust_failed");
         check("codex_2a_write_failure_not_cleared_by_periodic_read_probe",
                 health.writeFailed
+                && !TaskBridgeServer.shouldClearAudioFailureOnConfigure(true, false)
+                && !TaskBridgeServer.shouldClearAudioFailureOnConfigure(false, true)
+                && TaskBridgeServer.shouldClearAudioFailureOnConfigure(true, true)
                 && !stWriteDenied.optBoolean("volumeAssistActive")
                 && !stWriteDenied.optBoolean("volumeAudioReady")
                 && stWriteDenied.optBoolean("volumeAudioWriteFailed")
                 && stWriteDenied.optInt("volumeProtocolVersion") == TaskBridgeServer.VOLUME_PROTOCOL_VERSION
                 && "audio_adjust_failed".equals(stWriteDenied.optString("volumeAssistReason")));
-        health.onExplicitRetry();
+        health.onConfigure(true, true);
         org.json.JSONObject stAfterRetry = TaskBridgeServer.buildVolumeStatusJson(
                 true, true, aBoth, AudioBothStreams.class,
                 health.readFailed, health.writeFailed, health.failureReason, 2, 0, "idle");
         check("codex_2a_explicit_retry_restores_ready_and_read_failure_auto_recovers",
                 !health.writeFailed && stAfterRetry.optBoolean("volumeAssistActive") && "ready".equals(stAfterRetry.optString("volumeAssistReason")));
+        health.recordFailure("audio_adjust_failed");
+        health.recordWriteSuccess();
+        check("f0983a3_p1_confirmed_write_success_also_clears_write_failure",
+                !health.writeFailed && health.failureReason.isEmpty());
         health.recordFailure("audio_read_unavailable");
         health.onPeriodicReadProbe(true);
         check("codex_2a_transient_read_failure_recovers_on_read_probe", !health.readFailed && !health.writeFailed);
