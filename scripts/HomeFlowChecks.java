@@ -3351,7 +3351,7 @@ public final class HomeFlowChecks {
         SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
         HomeKeyService.simulateConnect(livePanelHost);
         final String[] liveReply = {
-                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}"
+                "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}"
         };
         IBinder liveBridge = new IBinder() {
             @Override public boolean isBinderAlive() { return true; }
@@ -3371,15 +3371,40 @@ public final class HomeFlowChecks {
         boolean beforeDropShowedBridge = openPanel.items[3].contains("任务桥辅助") && openPanel.message.contains("任务桥");
         // Now push bridge drop / device disconnect while dialog remains open!
         TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
-                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}"));
-        // Open DefaultHomePanel with TaskBridge ready in WINDOW_PULLBACK -> recommends 快速 Home + warns window flashes OEM!
+                "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}"));
+        // e33d5ae P3: Already in KEY_FILTER + connected bridge + 0 volume input devices (both Standard & Restricted)
+        // MUST NOT claim "当前窗口模式" or "切换快速 Home 后验证"!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog fastNoInputStd = livePanelHost.dialogs.active();
+        String stdBridgeLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+        fastNoInputStd.clickItem(3); // chooseFastHome confirm page while ALREADY in KEY_FILTER
+        String stdFastGuide = livePanelHost.dialogs.active().message;
+        BuildEdition.RESTRICTED = true;
+        String restrictedBridgeLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+        livePanelHost.defaultHome.show();
+        livePanelHost.dialogs.active().clickItem(3);
+        String restrictedFastGuide = livePanelHost.dialogs.active().message;
+        BuildEdition.RESTRICTED = false;
+        check("e33d5ae_p3_fast_home_connected_zero_inputs_copy_accurate_for_standard_and_restricted",
+                stdBridgeLabel.contains("未检测到可用音量输入源")
+                && !stdBridgeLabel.contains("切换快速 Home 后验证")
+                && stdFastGuide.contains("未检测到可用的音量键输入源")
+                && stdFastGuide.contains("先点一下音量，松手后再长按")
+                && !stdFastGuide.contains("当前窗口模式")
+                && restrictedBridgeLabel.contains("未检测到可用音量输入源")
+                && !restrictedBridgeLabel.contains("切换快速 Home 后验证")
+                && restrictedFastGuide.contains("未检测到可用的音量键输入源")
+                && !restrictedFastGuide.contains("当前窗口模式"));
+        // Open DefaultHomePanel with TaskBridge ready in WINDOW_PULLBACK -> recommends 快速 Home + notes window flash!
         check("codex82_ui_open_default_home_panel_updates_items_and_message_on_bridge_drop",
                 beforeDropShowedBridge
                 && openPanel.items[3].contains("无桥让渡")
                 && !openPanel.items[3].contains("任务桥辅助")
                 && openPanel.message.contains("先点一下音量，松手后再长按"));
         // Verify dynamic recommendation shifts to 快速 Home when TaskBridge audio+input is ready in WINDOW_PULLBACK!
-        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}";
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}";
         SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
         drainBridgeSync();
         TaskBridgeClient.configure(livePanelHost);
@@ -3391,9 +3416,9 @@ public final class HomeFlowChecks {
                 && recDlg.message.contains("快速 Home ＋ 任务桥")
                 && !recDlg.items[3].contains("不闪原厂桌面")
                 && !recDlg.message.contains("不闪原厂桌面"));
-        // f0983a3 P2 #4: Window mode + connected v2 TaskBridge (volumeInputDeviceCount == 0 because window mode
+        // f0983a3 P2 #4: Window mode + connected v3 TaskBridge (volumeInputDeviceCount == 0 because window mode
         // does not open input readers) MUST display "任务桥已连接，切换快速 Home 后验证音量辅助" and NEVER "当前未连接任务桥"!
-        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"disabled\"}";
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"disabled\"}";
         TaskBridgeClient.configure(livePanelHost);
         livePanelHost.defaultHome.show();
         TvDialog winConnDlg = livePanelHost.dialogs.active();
@@ -3475,6 +3500,125 @@ public final class HomeFlowChecks {
                 hgInitialRows == 8 && hgStuckRows == 9 && hgStuckWarn
                 && hgRecoveredRows == 8 && hgRecoveredNoWarn && hgPreservedAll);
         probeHost.closeMenus();
+
+        // e33d5ae P2 #4: Anomaly appearing OR clearing WHILE user is on a child dialog MUST immediately
+        // refresh parent rows, message, and focus when Back returns to the reused parent dialog!
+        probeHost.defaultHome.show();
+        TvDialog dhParent = probeHost.dialogs.active();
+        check("e33d5ae_p2_dh_parent_initial_6_rows", dhParent.items.length == 6);
+        dhParent.clickItem(3); // open child page (home_fast_mode_confirm); dhParent is now hidden underneath
+        HomeKeyService.runtimeKeyFilterRequested = true; // anomaly happens while child is visible!
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back(); // Back reuses dhParent!
+        boolean dhAddedOnReturn = probeHost.dialogs.active() == dhParent
+                && dhParent.items.length == 7
+                && dhParent.message.contains("过滤位仍开启")
+                && dhParent.items[6].contains("仅关闭 Marco 辅助服务");
+        dhParent.clickItem(3); // open child again
+        HomeKeyService.runtimeKeyFilterRequested = false; // anomaly clears while child is visible!
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back(); // Back reuses dhParent!
+        boolean dhRemovedOnReturn = probeHost.dialogs.active() == dhParent
+                && dhParent.items.length == 6
+                && !dhParent.message.contains("过滤位仍开启");
+        check("e33d5ae_p2_default_home_parent_refreshes_on_back_from_child",
+                dhAddedOnReturn && dhRemovedOnReturn);
+        probeHost.closeMenus();
+
+        SystemIntegration.homeGestures(probeHost, probeHost.dialogs::show);
+        TvDialog hgParent = probeHost.dialogs.active();
+        check("e33d5ae_p2_hg_parent_initial_8_rows", hgParent.items.length == 8);
+        probeHost.dialogs.show(new TvDialog.Builder(probeHost).setPageId("child_sub").setTitle("子页").create());
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back();
+        boolean hgAddedOnReturn = probeHost.dialogs.active() == hgParent
+                && hgParent.items.length == 9
+                && hgParent.message.contains("过滤位仍开启")
+                && hgParent.items[8].contains("仅关闭 Marco 辅助服务");
+        probeHost.dialogs.show(new TvDialog.Builder(probeHost).setPageId("child_sub2").setTitle("子页2").create());
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back();
+        boolean hgRemovedOnReturn = probeHost.dialogs.active() == hgParent
+                && hgParent.items.length == 8
+                && !hgParent.message.contains("过滤位仍开启");
+        check("e33d5ae_p2_home_gestures_parent_refreshes_on_back_from_child",
+                hgAddedOnReturn && hgRemovedOnReturn);
+        probeHost.closeMenus();
+
+        // e33d5ae P2 #2 (UI entries): Clicking "启用快速 Home" in DefaultHomePanel OR "快速 Home" in
+        // SystemIntegration.homeGestures DURING 5s yield retains pending retry and recovers after yield expires!
+        for (int entry = 0; entry < 2; entry++) {
+            TaskBridgeClient.resetForTest();
+            MainActivity uiRetryHost = freshEnv();
+            uiRetryHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(uiRetryHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(uiRetryHost);
+            final boolean[] uiWriteFailed = {true};
+            final boolean[] uiAssistCfg = {false};
+            final AtomicInteger uiRetryCount = new AtomicInteger();
+            IBinder uiRetryBridge = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("configure".equals(act)) {
+                            boolean next = req.optBoolean("volumeAssist", false);
+                            boolean retry = req.optBoolean("retryVolumeAssist", false);
+                            uiAssistCfg[0] = next;
+                            if (next && retry) {
+                                uiRetryCount.incrementAndGet();
+                                uiWriteFailed[0] = false;
+                            }
+                        } else if ("status".equals(act)) {
+                            boolean active = uiAssistCfg[0] && !uiWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3)
+                                    .put("volumeAssist", uiAssistCfg[0])
+                                    .put("volumeAssistActive", active)
+                                    .put("volumeAudioReady", !uiWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", uiWriteFailed[0])
+                                    .put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 2 : 0)
+                                    .put("volumeAssistReason", !uiAssistCfg[0] ? "disabled" : (uiWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(uiRetryHost, uiRetryBridge);
+            TaskBridgeClient.configure(uiRetryHost);
+            // Enter 5s yield state
+            HomeKeyService.runtimeVolumeYieldActive = true;
+            HomeKeyService.runtimeKeyFilterRequested = false;
+            TaskBridgeClient.configure(uiRetryHost);
+            // User explicitly clicks retry via entry 0 (DefaultHomePanel) or entry 1 (homeGestures) DURING 5s yield!
+            if (entry == 0) {
+                uiRetryHost.defaultHome.show();
+                uiRetryHost.dialogs.active().clickItem(3); // 快速 Home
+                uiRetryHost.dialogs.active().clickItem(0); // 启用快速 Home
+            } else {
+                SystemIntegration.homeGestures(uiRetryHost, uiRetryHost.dialogs::show);
+                uiRetryHost.dialogs.active().clickItem(2); // 快速 Home
+            }
+            drainBridgeSync();
+            // Now 5s yield ends -> passive sync fires deferred one-shot retry and recovers!
+            HomeKeyService.runtimeVolumeYieldActive = false;
+            HomeKeyService.runtimeKeyFilterRequested = true;
+            TaskBridgeClient.sync(uiRetryHost);
+            drainBridgeSync();
+            check("e33d5ae_p2_ui_entry_" + entry + "_retry_during_yield_recovers_after_yield_expiry",
+                    uiRetryCount.get() == 1 && !uiWriteFailed[0] && TaskBridgeClient.volumeAssistActive());
+            uiRetryHost.closeMenus();
+        }
+        TaskBridgeClient.resetForTest();
 
         // 3B UI: When system refuses to revoke filter bit, DefaultHomePanel shows one-click release action
         // that disables ONLY Marco's accessibility service while preserving XiaoAi!
@@ -3881,7 +4025,7 @@ class AmbientIntegration { static void configure(Context c) { } }
 class Diagnostics { static final List<String> events = Collections.synchronizedList(new ArrayList<>()); static void event(String e) { events.add(e); } }
 class TaskBridgeServer {
     static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1";
-    static final int VOLUME_PROTOCOL_VERSION = 2;
+    static final int VOLUME_PROTOCOL_VERSION = 3;
 }
 class HealthPanel {
     static String date(long s) { return s == 0 ? "尚无记录" : String.valueOf(s); }
@@ -3928,6 +4072,7 @@ class TvDialog {
     String[] items;
     final DialogInterface.OnClickListener itemClick, positive, neutral, negative;
     Runnable leaveAction;
+    Runnable returnAction;
     boolean showing;
     TvDialog(Builder b) {
         pageId = b.pageId != null ? b.pageId : b.title;
@@ -3939,6 +4084,8 @@ class TvDialog {
     void updateMessage(String m) { message = m; }
     void updateItems(String[] next) { if (next != null) items = next; }
     void onLeave(Runnable r) { leaveAction = r; }
+    void onReturn(Runnable r) { returnAction = r; }
+    void runReturn() { if (returnAction != null) returnAction.run(); }
     void leave() { if (leaveAction != null) { Runnable r = leaveAction; leaveAction = null; r.run(); } }
     void clickItem(int i) { if (itemClick != null) itemClick.onClick(null, i); }
     void clickPositive() { if (positive != null) positive.onClick(null, DialogInterface.BUTTON_POSITIVE); }
@@ -3976,10 +4123,16 @@ class DialogStack {
     boolean open() { return activeDialog != null; }
     TvDialog active() { return activeDialog; }
     boolean isPage(String id) { TvDialog d = activeDialog; return d != null && id.equals(d.pageKey()); }
-    synchronized void show(TvDialog d) { activeDialog = d; d.showing = true; history.add(d); }
+    synchronized void show(TvDialog d) {
+        if (activeDialog != null) activeDialog.showing = false;
+        activeDialog = d;
+        d.showing = true;
+        history.add(d);
+    }
     synchronized void replace(TvDialog old, TvDialog next) {
         if (activeDialog == old && !history.isEmpty()) {
             history.remove(history.size() - 1);
+            old.showing = false;
             old.leave();
             show(next);
             CountDownLatch l = resultLatch;
@@ -3989,14 +4142,22 @@ class DialogStack {
     synchronized void back() {
         if (history.isEmpty()) return;
         TvDialog leaving = history.remove(history.size() - 1);
+        leaving.showing = false;
         activeDialog = history.isEmpty() ? null : history.get(history.size() - 1);
+        if (activeDialog != null) {
+            activeDialog.runReturn();
+            activeDialog.showing = true;
+        }
         leaving.leave();
     }
     synchronized void close() {
         List<TvDialog> leaving = new ArrayList<>(history);
         history.clear();
         activeDialog = null;
-        for (int i = leaving.size() - 1; i >= 0; i--) leaving.get(i).leave();
+        for (int i = leaving.size() - 1; i >= 0; i--) {
+            leaving.get(i).showing = false;
+            leaving.get(i).leave();
+        }
     }
 }
 class MainActivity extends Activity {

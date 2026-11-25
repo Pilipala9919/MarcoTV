@@ -78,6 +78,7 @@ final class SystemIntegration {
                 .putString(PREF_USER_DESKTOP_CHOICE, choice.prefValue)
                 .putBoolean("home_native_keys", target == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
                 .commit();
+        if (target != HomeSetupPolicy.GuardMode.KEY_FILTER) TaskBridgeClient.clearPendingVolumeAssistRetry();
         HomeKeyService.syncRuntimeKeyFilter(context);
         TaskBridgeClient.sync(context);
         Diagnostics.event("HOME_GUARD_MODE_" + target.name());
@@ -89,6 +90,7 @@ final class SystemIntegration {
                 .putString(PREF_GUARD_MODE, target.prefValue)
                 .putBoolean("home_native_keys", target == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
                 .commit();
+        if (target != HomeSetupPolicy.GuardMode.KEY_FILTER) TaskBridgeClient.clearPendingVolumeAssistRetry();
         HomeKeyService.syncRuntimeKeyFilter(context);
         TaskBridgeClient.sync(context);
         Diagnostics.event("HOME_GUARD_FALLBACK_" + target.name());
@@ -1433,12 +1435,14 @@ final class SystemIntegration {
             else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w-4]).apply();
             homeGestures(activity,host);
         }).setNegativeButton("返回",null).create();
-        final Runnable refreshListener=()->{
-            if(dialog.isShowing()){
-                dialog.updateMessage(homeGesturesMessage(activity,desktopState(activity),homeGesturesRuntimeText(activity)));
-                dialog.updateItems(homeGesturesItems(activity));
-            }
+        final Runnable refresh=()->{
+            dialog.updateMessage(homeGesturesMessage(activity,desktopState(activity),homeGesturesRuntimeText(activity)));
+            dialog.updateItems(homeGesturesItems(activity));
         };
+        final Runnable refreshListener=()->{
+            if(dialog.isShowing())refresh.run();
+        };
+        dialog.onReturn(refresh);
         TaskBridgeClient.addStateListener(refreshListener);
         dialog.onLeave(()->TaskBridgeClient.removeStateListener(refreshListener));
         host.show(dialog);
@@ -1474,6 +1478,16 @@ final class SystemIntegration {
         }
         return "已连接并应用模式 · 未请求按键过滤";
     }
+    static boolean isFastHomeActive(Context context) {
+        boolean nativeActive = !BuildEdition.RESTRICTED && homeIsOurs(context);
+        return !nativeActive
+                && !HomeSetup.paused(context)
+                && prefs(context).getBoolean("home_compat", false)
+                && guardMode(context) == HomeSetupPolicy.GuardMode.KEY_FILTER
+                && HomeSetup.serviceEnabled(context)
+                && HomeKeyService.connected
+                && (HomeKeyService.runtimeKeyFilterRequested || HomeKeyService.runtimeVolumeYieldActive);
+    }
     static String bridgeStatusLabel(Context context) {
         if (!TaskBridgeClient.connected()) return "未连接";
         if ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())) {
@@ -1486,11 +1500,8 @@ final class SystemIntegration {
                 || (TaskBridgeClient.volumeAudioReady() && TaskBridgeClient.volumeInputDeviceCount() > 0)) {
             return "已连接 · 音量辅助已验证";
         }
-        boolean activeKeyFilter = !BuildEdition.RESTRICTED && !homeIsOurs(context) && !HomeSetup.paused(context)
-                && guardMode(context) == HomeSetupPolicy.GuardMode.KEY_FILTER
-                && HomeKeyService.connected && HomeKeyService.runtimeKeyFilterRequested;
-        if (activeKeyFilter) {
-            return "已连接 · 音量辅助未就绪（当前按无桥让渡运行）";
+        if (isFastHomeActive(context)) {
+            return "已连接 · 未检测到可用音量输入源（当前按无桥让渡运行）";
         }
         return "任务桥已连接，切换快速 Home 后验证音量辅助";
     }

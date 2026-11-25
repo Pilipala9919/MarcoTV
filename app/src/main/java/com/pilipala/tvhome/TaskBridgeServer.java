@@ -17,7 +17,8 @@ import java.util.concurrent.*;
 public final class TaskBridgeServer {
     static final String DESCRIPTOR="com.pilipala.tvhome.TaskBridge.v1";
     static final int EVENT_VOLUME_STATE=IBinder.FIRST_CALL_TRANSACTION+1;
-    static final int VOLUME_PROTOCOL_VERSION=2;
+    // Protocol v3 distinguishes fixed sticky-write-failure + per-node scan tolerance from f0983a3/e33d5ae v2 bridges.
+    static final int VOLUME_PROTOCOL_VERSION=3;
     static final int STREAM_MUSIC=3;
     private static final int USE_DEFAULT_STREAM_TYPE=Integer.MIN_VALUE;
     private static final int FLAG_SHOW_UI=1;
@@ -245,21 +246,77 @@ public final class TaskBridgeServer {
             return -1;
         }
     }
+    private static final java.util.regex.Pattern EVENT_PATH_PATTERN=
+            java.util.regex.Pattern.compile("(/dev/input/event[0-9]+)");
+    private static final java.util.regex.Pattern INPUT_CHILD_PATH_PATTERN=
+            java.util.regex.Pattern.compile("/dev/input/[A-Za-z0-9_.-]+");
+    private static final java.util.regex.Pattern INPUT_DIR_ONLY_PATTERN=
+            java.util.regex.Pattern.compile("/dev/input(?![/A-Za-z0-9_.-])");
+    /** Structured outcome of a single `getevent -p` scan, separating capable nodes from per-node read errors. */
+    static final class VolumeScanResult {
+        final Set<String> capablePaths;
+        final Set<String> unreadablePaths;
+        final boolean directoryFailed;
+        VolumeScanResult(Set<String> capablePaths,Set<String> unreadablePaths,boolean directoryFailed){
+            this.capablePaths=capablePaths;
+            this.unreadablePaths=unreadablePaths;
+            this.directoryFailed=directoryFailed;
+        }
+    }
     /**
-     * Parses `getevent -p` (or `getevent -lp`) output and returns only `/dev/input/event*` paths
-     * whose EV_KEY (0001) capability table declares BOTH KEY_VOLUMEDOWN (0072) and KEY_VOLUMEUP (0073).
+     * Parses `getevent -p` (or `getevent -lp`) output into capable volume-key nodes plus any individual
+     * `/dev/input/event*` nodes that could not be inspected (e.g. `could not open /dev/input/event5, Permission denied`)
+     * so healthy already-open readers are preserved when a single node fails transiently during an exit-0 scan.
+     * Non-event nodes such as `/dev/input/mice` or `/dev/input/mouse0` ("Not a typewriter") are ignored
+     * and never treated as a `/dev/input` directory scan failure.
      */
-    static Set<String> parseVolumeCapableEventPaths(String geteventOutput){
-        Set<String> result=new LinkedHashSet<>();
-        if(geteventOutput==null||geteventOutput.isEmpty())return result;
+    static VolumeScanResult parseVolumeScanOutput(String geteventOutput){
+        Set<String> capable=new LinkedHashSet<>();
+        Set<String> unreadable=new LinkedHashSet<>();
+        boolean directoryFailed=false;
+        if(geteventOutput==null||geteventOutput.isEmpty()){
+            return new VolumeScanResult(capable,unreadable,false);
+        }
         String currentPath=null;
         boolean inKeySection=false;
         boolean hasVolDown=false;
         boolean hasVolUp=false;
         for(String raw:geteventOutput.split("\\r?\\n")){
             String trimmed=raw.trim();
+            if(trimmed.isEmpty())continue;
+            int errStart=findPerDeviceScanErrorStart(trimmed);
+            if(errStart>=0){
+                // Preserve any key tokens emitted on stdout before an interleaved stderr message on the same line.
+                if(errStart>0&&currentPath!=null){
+                    String prefix=trimmed.substring(0,errStart).trim();
+                    if(prefix.startsWith("KEY (0001):")){
+                        inKeySection=true;
+                        prefix=prefix.substring("KEY (0001):".length());
+                    }
+                    if(inKeySection){
+                        if(containsKeyToken(prefix,"0072","KEY_VOLUMEDOWN"))hasVolDown=true;
+                        if(containsKeyToken(prefix,"0073","KEY_VOLUMEUP"))hasVolUp=true;
+                    }
+                }
+                String errText=trimmed.substring(errStart);
+                String lower=errText.toLowerCase(Locale.US);
+                boolean nodeGone=lower.contains("no such file")||lower.contains("no such device");
+                java.util.regex.Matcher evMatcher=EVENT_PATH_PATTERN.matcher(errText);
+                boolean matchedEventNode=false;
+                while(evMatcher.find()){
+                    matchedEventNode=true;
+                    if(!nodeGone)unreadable.add(evMatcher.group(1));
+                }
+                if(!matchedEventNode){
+                    boolean mentionsOtherChild=INPUT_CHILD_PATH_PATTERN.matcher(errText).find();
+                    if(!mentionsOtherChild&&INPUT_DIR_ONLY_PATTERN.matcher(errText).find()&&!nodeGone){
+                        directoryFailed=true;
+                    }
+                }
+                continue;
+            }
             if(trimmed.startsWith("add device ")){
-                if(currentPath!=null&&hasVolDown&&hasVolUp)result.add(currentPath);
+                if(currentPath!=null&&hasVolDown&&hasVolUp)capable.add(currentPath);
                 currentPath=null;
                 inKeySection=false;
                 hasVolDown=false;
@@ -289,8 +346,29 @@ public final class TaskBridgeServer {
                 if(containsKeyToken(trimmed,"0073","KEY_VOLUMEUP"))hasVolUp=true;
             }
         }
-        if(currentPath!=null&&hasVolDown&&hasVolUp)result.add(currentPath);
-        return result;
+        if(currentPath!=null&&hasVolDown&&hasVolUp)capable.add(currentPath);
+        return new VolumeScanResult(capable,unreadable,directoryFailed);
+    }
+    private static int findPerDeviceScanErrorStart(String trimmed){
+        if(trimmed.startsWith("name:")||trimmed.startsWith("events:")||trimmed.startsWith("input props:")
+                ||trimmed.startsWith("add device ")){
+            return -1;
+        }
+        String lower=trimmed.toLowerCase(Locale.US);
+        String[] markers={"could not ","cannot ","open_device","scan_dir","failed to ","permission denied","error:"};
+        int earliest=-1;
+        for(String marker:markers){
+            int pos=lower.indexOf(marker);
+            if(pos>=0&&(earliest<0||pos<earliest))earliest=pos;
+        }
+        return earliest;
+    }
+    /**
+     * Parses `getevent -p` (or `getevent -lp`) output and returns only `/dev/input/event*` paths
+     * whose EV_KEY (0001) capability table declares BOTH KEY_VOLUMEDOWN (0072) and KEY_VOLUMEUP (0073).
+     */
+    static Set<String> parseVolumeCapableEventPaths(String geteventOutput){
+        return parseVolumeScanOutput(geteventOutput).capablePaths;
     }
     private static boolean containsKeyToken(String line,String hexCode,String symbolName){
         if(line==null||line.isEmpty())return false;
@@ -387,12 +465,12 @@ public final class TaskBridgeServer {
         try{ p.getOutputStream().close(); }catch(Throwable ignored){}
         try{ p.getErrorStream().close(); }catch(Throwable ignored){}
     }
-    private static Set<String> probeVolumeCapablePathsLive(){
+    private static VolumeScanResult probeVolumeScanLive(){
         try{
             java.lang.Process p=new ProcessBuilder("/system/bin/getevent","-p").redirectErrorStream(true).start();
             String output=readProcessOutputWithTimeout(p,3000L,262144);
             if(output==null)return null;
-            return parseVolumeCapableEventPaths(output);
+            return parseVolumeScanOutput(output);
         }catch(Throwable ignored){
             return null;
         }
@@ -563,12 +641,25 @@ public final class TaskBridgeServer {
     }
     /** Returns currently-open reader paths that should be closed after a completed capability scan. */
     static Set<String> devicesToRemoveAfterScan(Set<String> openPaths,Set<String> scannedCapablePaths){
+        return devicesToRemoveAfterScan(openPaths,scannedCapablePaths,Collections.<String>emptySet());
+    }
+    static Set<String> devicesToRemoveAfterScan(Set<String> openPaths,Set<String> scannedCapablePaths,Set<String> unreadablePaths){
         Set<String> remove=new LinkedHashSet<>();
         if(openPaths==null||scannedCapablePaths==null)return remove;
         for(String path:openPaths){
-            if(!scannedCapablePaths.contains(path))remove.add(path);
+            if(!scannedCapablePaths.contains(path)&&(unreadablePaths==null||!unreadablePaths.contains(path))){
+                remove.add(path);
+            }
         }
         return remove;
+    }
+    static Set<String> devicesToRemoveAfterScan(Set<String> openPaths,VolumeScanResult scan){
+        if(openPaths==null||scan==null||scan.directoryFailed)return new LinkedHashSet<>();
+        return devicesToRemoveAfterScan(openPaths,scan.capablePaths,scan.unreadablePaths);
+    }
+    static Set<String> devicesToRemoveAfterScan(Set<String> openPaths,String rawGeteventOutput){
+        if(openPaths==null||rawGeteventOutput==null)return new LinkedHashSet<>();
+        return devicesToRemoveAfterScan(openPaths,parseVolumeScanOutput(rawGeteventOutput));
     }
     private void syncVolumeReaders(){
         boolean audioCapable=isAudioControlCapable(audio,audioApi,STREAM_MUSIC);
@@ -584,14 +675,14 @@ public final class TaskBridgeServer {
             notifyClientVolumeStateIfChanged();
             return;
         }
-        Set<String> capablePaths=probeVolumeCapablePathsLive();
-        if(capablePaths==null){
-            // Probe timed out or failed transiently: keep currently healthy readers intact and never disrupt bridge.
+        VolumeScanResult scan=probeVolumeScanLive();
+        if(scan==null||scan.directoryFailed){
+            // Probe timed out, exited non-zero, or directory scan failed: preserve currently healthy readers.
             notifyClientVolumeStateIfChanged();
             return;
         }
         Set<String> present=new HashSet<>();
-        for(String path:capablePaths){
+        for(String path:scan.capablePaths){
             File f=new File(path);
             if(!f.exists())continue;
             present.add(path);
@@ -607,7 +698,7 @@ public final class TaskBridgeServer {
                 startInputReaderThread(reader);
             }catch(Throwable ignored){}
         }
-        for(String removedPath:devicesToRemoveAfterScan(inputReaders.keySet(),present)){
+        for(String removedPath:devicesToRemoveAfterScan(inputReaders.keySet(),present,scan.unreadablePaths)){
             InputReader removed=inputReaders.remove(removedPath);
             if(removed!=null){
                 removed.stop();

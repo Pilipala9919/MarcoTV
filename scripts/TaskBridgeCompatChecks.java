@@ -219,6 +219,14 @@ public final class TaskBridgeCompatChecks {
             System.out.flush();
             return;
         }
+        if (args.length == 1 && "--child-partial-error".equals(args[0])) {
+            System.out.print("could not open /dev/input/event5, Permission denied\n"
+                    + "add device 2: /dev/input/event12\n"
+                    + "  events:\n"
+                    + "    KEY (0001): 0067 006c\n");
+            System.out.flush();
+            return;
+        }
         final String atm = FakeActivityTaskManager.class.getName();
         final String am = FakeActivityManager.class.getName();
         final String amNoGet = FakeActivityManagerNoGetService.class.getName();
@@ -773,6 +781,71 @@ public final class TaskBridgeCompatChecks {
                 && dirs.size() == stepsBeforeCleanEmpty
                 && !engine.isHolding()
                 && "device_disconnected".equals(engine.lastStopReason()));
+
+        // e33d5ae P2 #3: Exit-0 getevent scan where ONE already-open node hits Permission denied while
+        // other nodes list normally MUST preserve that healthy open node (and keep long-press running),
+        // while still removing genuinely unplugged nodes (absent from scan or ENOENT/ENODEV)!
+        java.lang.Process partialProc = new ProcessBuilder(javaBin, "-cp", selfCp, TaskBridgeCompatChecks.class.getName(), "--child-partial-error")
+                .redirectErrorStream(true).start();
+        String partialOut = TaskBridgeServer.readProcessOutputWithTimeout(partialProc, 5000L, 65536);
+        TaskBridgeServer.VolumeScanResult partialScan = TaskBridgeServer.parseVolumeScanOutput(partialOut);
+        java.util.Set<String> twoOpenReaders = new java.util.LinkedHashSet<>(Arrays.asList("/dev/input/event5", "/dev/input/event7"));
+        java.util.Set<String> removedPartialSingle = TaskBridgeServer.devicesToRemoveAfterScan(openReaders, partialScan);
+        java.util.Set<String> removedPartialTwo = TaskBridgeServer.devicesToRemoveAfterScan(twoOpenReaders, partialScan);
+        dirs.clear();
+        vol[0] = 20;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 21;
+        sched.advanceBy(600);
+        for (String p : removedPartialSingle) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500);
+        int stepsAcrossPartialErr = dirs.size();
+        // Now remote genuinely unplugs (clean exit-0 scan omits event5, or reports No such device) -> stops immediately!
+        java.util.Set<String> removedAfterRealUnplug = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, "add device 2: /dev/input/event12\n  events:\n    KEY (0001): 0067 006c\n");
+        java.util.Set<String> removedOnEnoent = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, "could not open /dev/input/event5, No such file or directory\n");
+        java.util.Set<String> removedOnDirDenied = TaskBridgeServer.devicesToRemoveAfterScan(
+                openReaders, "could not open /dev/input, Permission denied\n");
+        for (String p : removedAfterRealUnplug) engine.onDeviceDisconnected(p);
+        sched.advanceBy(500);
+        check("e33d5ae_p2_partial_node_error_preserves_open_reader_and_real_unplug_still_stops",
+                partialOut != null
+                && partialScan.unreadablePaths.contains("/dev/input/event5")
+                && !partialScan.directoryFailed
+                && removedPartialSingle.isEmpty()
+                && !removedPartialTwo.contains("/dev/input/event5")
+                && removedPartialTwo.contains("/dev/input/event7")
+                && stepsAcrossPartialErr == 11
+                && removedAfterRealUnplug.contains("/dev/input/event5")
+                && removedOnEnoent.contains("/dev/input/event5")
+                && removedOnDirDenied.isEmpty()
+                && dirs.size() == stepsAcrossPartialErr
+                && !engine.isHolding()
+                && "device_disconnected".equals(engine.lastStopReason()));
+
+        // Real Android TV getevent -p output includes `/dev/input/mice` & `/dev/input/mouse0` ("Not a typewriter"),
+        // sometimes interleaved mid-line with KEY tokens; MUST NOT set directoryFailed and MUST discover event0/event5!
+        String realTvGetevent =
+                "could not get driver version for /dev/input/mice, Not a typewriter\n"
+                + "add device 1: /dev/input/event5\n"
+                + "  name:     \"Xiaomi BT Remote\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 0071  0072  0073could not get driver version for /dev/input/mouse0, Not a typewriter\n"
+                + "                0074\n"
+                + "add device 5: /dev/input/event0\n"
+                + "  name:     \"aml_keypad\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 0072  0073\n";
+        TaskBridgeServer.VolumeScanResult realTvScan = TaskBridgeServer.parseVolumeScanOutput(realTvGetevent);
+        check("e33d5ae_real_tv_mice_and_interleaved_mouse0_never_trip_directory_failure",
+                !realTvScan.directoryFailed
+                && realTvScan.unreadablePaths.isEmpty()
+                && realTvScan.capablePaths.contains("/dev/input/event5")
+                && realTvScan.capablePaths.contains("/dev/input/event0")
+                && TaskBridgeServer.devicesToRemoveAfterScan(
+                        new java.util.LinkedHashSet<>(Arrays.asList("/dev/input/event5", "/dev/input/event9")),
+                        realTvScan).equals(Collections.singleton("/dev/input/event9")));
 
         // 2A + f0983a3 P1: Sticky write failure stays degraded across periodic scans AND passive false->true
         // configure cycles (such as 5s no-bridge yield expiry); only explicit retry or confirmed write success clears it!

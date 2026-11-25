@@ -69,7 +69,7 @@ final class OemLauncherExperimentPolicy {
      * </ol>
      */
     static final List<String> OPENING_PREREQUISITES = Collections.unmodifiableList(java.util.Arrays.asList(
-            "停用后取消或超时的独立恢复通路（须通过独立新会话回滚并核验，不得复用已关闭会话；未核实恢复时保留快照与独立救援入口）",
+            "停用后（含首次普通回滚阶段）取消或超时的独立恢复通路（须通过独立新会话回滚并核验，不得复用已关闭会话；未核实恢复时保留快照与独立救援入口）",
             "停用后 Marco TV 实际进入前台且可从第三方应用返回桌面的实证（不可仅凭静态 HOME 解析判成功，无法核实时须回滚至实验前状态）",
             "具体型号与固件的断电冷启动与恢复原厂桌面回读实机验证记录"
     ));

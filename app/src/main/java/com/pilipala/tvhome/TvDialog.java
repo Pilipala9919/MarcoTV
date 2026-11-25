@@ -25,6 +25,7 @@ final class TvDialog extends Dialog {
     private LinearLayout body;
     private LinearLayout panel;
     private boolean returning;
+    private boolean shownOnce;
     private PanelWindow surface;
     private boolean showing;
     private View savedFocus;
@@ -64,7 +65,8 @@ final class TvDialog extends Dialog {
     @Override public void show(){
         forwardDismiss=false;
         if(panel==null)super.create();
-        if(returning&&returnAction!=null)returnAction.run();
+        if((returning||shownOnce)&&returnAction!=null)returnAction.run();
+        shownOnce=true;
         surface=((MainActivity)spec.activity).panelWindow();
         showing=true;
         surface.present(this,panel,spec.preview!=null,spec.centered,spec.network);
@@ -151,7 +153,10 @@ final class TvDialog extends Dialog {
             if(focusRemoved||(focused==null&&isShowing())){
                 View fallback=!itemViews.isEmpty()?itemViews.get(itemViews.size()-1)
                         :(!choices.isEmpty()?choices.get(0):null);
-                if(fallback!=null)fallback.requestFocus();
+                if(fallback!=null){
+                    if(focusRemoved)savedFocus=fallback;
+                    if(isShowing())fallback.requestFocus();
+                }
             }
         }
     }

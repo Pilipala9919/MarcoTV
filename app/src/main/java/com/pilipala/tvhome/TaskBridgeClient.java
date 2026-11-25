@@ -19,6 +19,7 @@ final class TaskBridgeClient {
     private static volatile Context appContext;
     private static final java.util.concurrent.atomic.AtomicLong attachGeneration=new java.util.concurrent.atomic.AtomicLong();
     private static volatile ConnectionSlot currentSlot=new ConnectionSlot(0L,null);
+    private static volatile long pendingRetryGeneration=-1L;
     private static volatile boolean volumeAssistReady;
     private static volatile boolean volumeAudioReady;
     private static volatile boolean volumeAudioWriteFailed;
@@ -74,6 +75,7 @@ final class TaskBridgeClient {
             long gen=attachGeneration.incrementAndGet();
             service=null;
             currentSlot=new ConnectionSlot(gen,null);
+            pendingRetryGeneration=-1L;
             appContext=null;
             volumeAssistReady=false;
             volumeAudioReady=false;
@@ -93,6 +95,7 @@ final class TaskBridgeClient {
             if(context!=null)appContext=context.getApplicationContext();
             service=binder;
             currentSlot=new ConnectionSlot(boundGen,binder);
+            pendingRetryGeneration=-1L;
             volumeAssistReady=false;
             volumeAudioReady=false;
             volumeAudioWriteFailed=false;
@@ -111,6 +114,7 @@ final class TaskBridgeClient {
                         long nextGen=attachGeneration.incrementAndGet();
                         service=null;
                         currentSlot=new ConnectionSlot(nextGen,null);
+                        pendingRetryGeneration=-1L;
                         volumeAssistReady=false;
                         volumeAudioReady=false;
                         volumeAudioWriteFailed=false;
@@ -131,6 +135,7 @@ final class TaskBridgeClient {
                     long nextGen=attachGeneration.incrementAndGet();
                     service=null;
                     currentSlot=new ConnectionSlot(nextGen,null);
+                    pendingRetryGeneration=-1L;
                     volumeAssistReady=false;
                     volumeAudioReady=false;
                     volumeAudioWriteFailed=false;
@@ -208,7 +213,22 @@ final class TaskBridgeClient {
         sync(c,false);
     }
     static void retryVolumeAssist(Context c){
+        synchronized(slotLock){
+            if(currentSlot.binder!=null&&currentSlot.binder.isBinderAlive()){
+                pendingRetryGeneration=currentSlot.gen;
+            }
+        }
         sync(c,true);
+    }
+    static void clearPendingVolumeAssistRetry(){
+        synchronized(slotLock){
+            pendingRetryGeneration=-1L;
+        }
+    }
+    private static boolean isKeyFilterTargetActive(Context context){
+        return !HomeSetup.paused(context)
+                &&!SystemIntegration.homeIsOurs(context)
+                &&SystemIntegration.guardMode(context)==HomeSetupPolicy.GuardMode.KEY_FILTER;
     }
     private static void sync(Context c,final boolean explicitRetry){
         Context app=c.getApplicationContext();
@@ -329,6 +349,18 @@ final class TaskBridgeClient {
             String homePkg=configuredHomePackage(context);
             boolean wake=shouldEnableWake(context);
             boolean wantsVolAssist=shouldEnableVolumeAssist(context);
+            boolean keyFilterTarget=isKeyFilterTargetActive(context);
+            boolean shouldRetry;
+            synchronized(slotLock){
+                if(currentSlot.gen==gen&&currentSlot.binder==pinned){
+                    if(explicitRetryVolumeAssist&&keyFilterTarget){
+                        pendingRetryGeneration=gen;
+                    }else if(!keyFilterTarget&&pendingRetryGeneration==gen){
+                        pendingRetryGeneration=-1L;
+                    }
+                }
+                shouldRetry=(explicitRetryVolumeAssist&&keyFilterTarget)||(pendingRetryGeneration==gen&&keyFilterTarget);
+            }
             try{
                 // Pin protocol probe, configure write, and status readback to ONE (gen, IBinder).
                 // If peer is replaced mid-handshake, discard stale result and re-handshake for the new connection.
@@ -337,10 +369,22 @@ final class TaskBridgeClient {
                     if(currentSlot.binder==null)throw new IOException("任务服务连接已变更");
                     continue;
                 }
-                boolean peerSupportsV2=supportsVolumeAssistProtocol(preStatus);
-                boolean sendVolAssist=peerSupportsV2&&wantsVolAssist;
+                boolean peerSupportsCurrent=supportsVolumeAssistProtocol(preStatus);
+                boolean sendVolAssist=peerSupportsCurrent&&wantsVolAssist;
+                boolean sendRetry=false;
+                synchronized(slotLock){
+                    if(currentSlot.gen==gen&&currentSlot.binder==pinned){
+                        if(!peerSupportsCurrent){
+                            if(pendingRetryGeneration==gen)pendingRetryGeneration=-1L;
+                        }else if(sendVolAssist&&(explicitRetryVolumeAssist||pendingRetryGeneration==gen)&&keyFilterTarget){
+                            // Atomically claim the one-shot retry so concurrent sync/configure calls never fire it twice.
+                            sendRetry=true;
+                            if(pendingRetryGeneration==gen)pendingRetryGeneration=-1L;
+                        }
+                    }
+                }
                 JSONObject req=new JSONObject().put("action","configure").put("wake",wake).put("home",homePkg).put("volumeAssist",sendVolAssist);
-                if(explicitRetryVolumeAssist&&sendVolAssist)req.put("retryVolumeAssist",true);
+                if(sendRetry)req.put("retryVolumeAssist",true);
                 callOn(pinned,req);
                 if(isSlotStale(gen,pinned)){
                     if(currentSlot.binder==null)throw new IOException("任务服务连接已变更");

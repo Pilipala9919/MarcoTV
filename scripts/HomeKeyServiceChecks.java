@@ -25,6 +25,13 @@ public final class HomeKeyServiceChecks {
         System.out.println("PASS " + name);
     }
 
+    static void drainBridgeSync() throws Exception {
+        java.lang.reflect.Field f = TaskBridgeClient.class.getDeclaredField("worker");
+        f.setAccessible(true);
+        java.util.concurrent.ExecutorService ex = (java.util.concurrent.ExecutorService) f.get(null);
+        ex.submit(() -> { }).get(5, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
     static ResolveInfo homeEntry(String pkg, String cls) {
         ResolveInfo r = new ResolveInfo();
         r.activityInfo = new ActivityInfo();
@@ -795,7 +802,7 @@ public final class HomeKeyServiceChecks {
 
         // 3. When 3A bridge volume assist IS active (with audioOk + verified volume devices), 3B yield MUST NOT drop KEY_FILTER!
         final String[] fakeBridgeReply = {
-                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}"
+                "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}"
         };
         android.os.IBinder fakeBridge = new android.os.IBinder() {
             @Override public boolean isBinderAlive() { return true; }
@@ -825,7 +832,7 @@ public final class HomeKeyServiceChecks {
 
         // Codex #2B: Live remote hot-unplug pushed by server immediately disables 3A, notifies UI, and re-enables 3B fallback!
         int beforeHotplug = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -847,7 +854,7 @@ public final class HomeKeyServiceChecks {
         SystemClock.elapsed += 5100;
         Handler.runDue();
         int beforeReplug = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -857,7 +864,7 @@ public final class HomeKeyServiceChecks {
                 && uiNotifies[0] > beforeReplug);
         // Runtime audio capability failure pushed by server -> immediately disables 3A and notifies UI!
         int beforeAudioFail = uiNotifies[0];
-        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
         try {
             TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
         } catch (Exception e) { throw new RuntimeException(e); }
@@ -1101,7 +1108,7 @@ public final class HomeKeyServiceChecks {
                     } else if ("status".equals(action)) {
                         boolean writeFailed = serverAudioWriteFailed[0];
                         boolean active = serverAssistConfigured[0] && !writeFailed;
-                        ans.put("volumeProtocolVersion", 2)
+                        ans.put("volumeProtocolVersion", 3)
                                 .put("volumeAssist", serverAssistConfigured[0])
                                 .put("volumeAssistActive", active)
                                 .put("volumeAudioReady", !writeFailed)
@@ -1142,7 +1149,7 @@ public final class HomeKeyServiceChecks {
         // Simulate periodic scan push from server (read ok, write still denied)
         try {
             TaskBridgeClient.onServerStateChanged(faultSvc, faultBridge,
-                    new org.json.JSONObject().put("volumeProtocolVersion", 2).put("volumeAssist", true)
+                    new org.json.JSONObject().put("volumeProtocolVersion", 3).put("volumeAssist", true)
                             .put("volumeAssistActive", false).put("volumeAudioReady", false)
                             .put("volumeAudioWriteFailed", true).put("volumeInputDeviceCount", 0)
                             .put("volumeAssistReason", "audio_adjust_failed"));
@@ -1222,7 +1229,7 @@ public final class HomeKeyServiceChecks {
                         TaskBridgeClient.attach(handoffSvc, oldPeerBridge);
                     }
                     org.json.JSONObject ans = new org.json.JSONObject().put("ok", true)
-                            .put("volumeProtocolVersion", 2).put("volumeAssist", true).put("volumeAssistActive", true)
+                            .put("volumeProtocolVersion", 3).put("volumeAssist", true).put("volumeAssistActive", true)
                             .put("volumeAudioReady", true).put("volumeInputDeviceCount", 2).put("volumeAssistReason", "ready");
                     reply.writeNoException();
                     reply.writeString(ans.toString());
@@ -1244,7 +1251,7 @@ public final class HomeKeyServiceChecks {
             }
             // Stale ONEWAY state push from already-replaced v2PeerBridge MUST be ignored!
             TaskBridgeClient.onServerStateChanged(handoffSvc, v2PeerBridge,
-                    new org.json.JSONObject().put("volumeProtocolVersion", 2).put("volumeAssist", true)
+                    new org.json.JSONObject().put("volumeProtocolVersion", 3).put("volumeAssist", true)
                             .put("volumeAssistActive", true).put("volumeAudioReady", true)
                             .put("volumeInputDeviceCount", 2).put("volumeAssistReason", "ready"));
             check("f0983a3_p2_mid_handshake_peer_swap_never_enables_old_bridge_and_keeps_recents",
@@ -1258,6 +1265,235 @@ public final class HomeKeyServiceChecks {
         } catch (Exception e) { throw new RuntimeException(e); }
         TaskBridgeClient.resetForTest();
         handoffSvc.onDestroy();
+
+        // =========================================================================
+        // e33d5ae P1: f0983a3 v2 bridge (volumeProtocolVersion=2 with !prevAssist bug) MUST be rejected
+        // across ALL THREE cases (stable connection, mid-handshake swap, 5s yield expiry):
+        // old v2 bridge receives ZERO volumeAssist=true commands, recents still work, 3B fallback active,
+        // and switching to new v3 bridge restores volume assist!
+        // =========================================================================
+        TaskBridgeClient.resetForTest();
+        HomeKeyService v2CompatSvc = freshService();
+        v2CompatSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(v2CompatSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        v2CompatSvc.onServiceConnected();
+        final List<org.json.JSONObject> f098Reqs = Collections.synchronizedList(new ArrayList<>());
+        final boolean[] f098VolAssist = {false};
+        final boolean[] f098WriteFailed = {true};
+        final android.os.IBinder f098OldBridge = new android.os.IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    org.json.JSONObject req = new org.json.JSONObject(data.readString());
+                    f098Reqs.add(req);
+                    String action = req.optString("action");
+                    org.json.JSONObject ans = new org.json.JSONObject().put("ok", true);
+                    if ("configure".equals(action)) {
+                        boolean prev = f098VolAssist[0];
+                        boolean next = req.optBoolean("volumeAssist", false);
+                        boolean retry = req.optBoolean("retryVolumeAssist", false);
+                        f098VolAssist[0] = next;
+                        if (next && (retry || !prev)) f098WriteFailed[0] = false; // f0983a3 bug!
+                    } else if ("status".equals(action)) {
+                        boolean active = f098VolAssist[0] && !f098WriteFailed[0];
+                        ans.put("volumeProtocolVersion", 2)
+                                .put("volumeAssist", f098VolAssist[0])
+                                .put("volumeAssistActive", active)
+                                .put("volumeAudioReady", !f098WriteFailed[0])
+                                .put("volumeAudioWriteFailed", f098WriteFailed[0])
+                                .put("volumeInputReady", active)
+                                .put("volumeInputDeviceCount", active ? 1 : 0)
+                                .put("volumeAssistReason", !f098VolAssist[0] ? "disabled" : (f098WriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                    } else if ("list".equals(action)) {
+                        ans.put("tasks", new org.json.JSONArray().put(new org.json.JSONObject().put("id", 55).put("pkg", "com.demo.recents")));
+                    }
+                    reply.writeNoException();
+                    reply.writeString(ans.toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        // Case 1: Stable connection to f0983a3 v2 bridge
+        TaskBridgeClient.attach(v2CompatSvc, f098OldBridge);
+        try {
+            TaskBridgeClient.configure(v2CompatSvc);
+            org.json.JSONObject recents = TaskBridgeClient.request("list");
+            // Case 2: 5s no-bridge yield cycle + expiry against f0983a3 v2 bridge
+            v2CompatSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                    .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 10)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 11));
+            TaskBridgeClient.configure(v2CompatSvc);
+            boolean yieldedOnF098 = HomeKeyService.runtimeVolumeYieldActive && !HomeKeyService.runtimeKeyFilterRequested;
+            SystemClock.elapsed += 5100;
+            Handler.runDue();
+            TaskBridgeClient.configure(v2CompatSvc);
+            int f098TrueAfterYield = 0;
+            for (org.json.JSONObject r : f098Reqs) {
+                if ("configure".equals(r.optString("action")) && r.optBoolean("volumeAssist", false)) f098TrueAfterYield++;
+            }
+            check("e33d5ae_p1_f0983a3_v2_bridge_stable_and_5s_yield_zero_enable_keeps_recents",
+                    yieldedOnF098
+                    && f098TrueAfterYield == 0
+                    && !TaskBridgeClient.volumeAssistActive()
+                    && "bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
+                    && recents.optBoolean("ok") && recents.optJSONArray("tasks").length() == 1);
+            // Case 3: Mid-handshake swap from v3 bridge -> f0983a3 v2 bridge
+            f098Reqs.clear();
+            final boolean[] swappedToF098 = {false};
+            android.os.IBinder v3BeforeSwap = new android.os.IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        org.json.JSONObject req = new org.json.JSONObject(data.readString());
+                        if (!swappedToF098[0] && "status".equals(req.optString("action"))) {
+                            swappedToF098[0] = true;
+                            TaskBridgeClient.attach(v2CompatSvc, f098OldBridge);
+                        }
+                        org.json.JSONObject ans = new org.json.JSONObject().put("ok", true)
+                                .put("volumeProtocolVersion", 3).put("volumeAssist", true).put("volumeAssistActive", true)
+                                .put("volumeAudioReady", true).put("volumeInputDeviceCount", 2).put("volumeAssistReason", "ready");
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(v2CompatSvc, v3BeforeSwap);
+            TaskBridgeClient.configure(v2CompatSvc);
+            int f098TrueAfterSwap = 0;
+            for (org.json.JSONObject r : f098Reqs) {
+                if ("configure".equals(r.optString("action")) && r.optBoolean("volumeAssist", false)) f098TrueAfterSwap++;
+            }
+            check("e33d5ae_p1_f0983a3_v2_bridge_mid_handshake_swap_zero_enable",
+                    swappedToF098[0]
+                    && f098TrueAfterSwap == 0
+                    && !TaskBridgeClient.volumeAssistActive()
+                    && "bridge_update_required".equals(TaskBridgeClient.volumeAssistReason()));
+            // Upgrade to real v3 bridge -> volume assist activates cleanly!
+            android.os.IBinder v3Upgraded = new android.os.IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    data.readString();
+                    reply.writeNoException();
+                    reply.writeString("{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}");
+                    return true;
+                }
+            };
+            TaskBridgeClient.attach(v2CompatSvc, v3Upgraded);
+            TaskBridgeClient.configure(v2CompatSvc);
+            check("e33d5ae_p1_restarted_v3_bridge_activates_volume_assist",
+                    TaskBridgeClient.volumeAssistActive() && "ready".equals(TaskBridgeClient.volumeAssistReason()));
+        } catch (Exception e) { throw new RuntimeException(e); }
+        TaskBridgeClient.resetForTest();
+        v2CompatSvc.onDestroy();
+
+        // =========================================================================
+        // e33d5ae P2 #2: Explicit user retry clicked DURING 5s no-bridge yield MUST fire ONCE
+        // after yield expires and recover volume assist, while an unclicked control stays degraded!
+        // =========================================================================
+        TaskBridgeClient.resetForTest();
+        HomeKeyService retryYieldSvc = freshService();
+        retryYieldSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(retryYieldSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        retryYieldSvc.onServiceConnected();
+        final boolean[] ryAssist = {false};
+        final boolean[] ryWriteFailed = {true};
+        final int[] ryRetryFlagsSent = {0};
+        android.os.IBinder ryBridge = new android.os.IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    org.json.JSONObject req = new org.json.JSONObject(data.readString());
+                    String action = req.optString("action");
+                    org.json.JSONObject ans = new org.json.JSONObject().put("ok", true);
+                    if ("configure".equals(action)) {
+                        boolean next = req.optBoolean("volumeAssist", false);
+                        boolean retry = req.optBoolean("retryVolumeAssist", false);
+                        ryAssist[0] = next;
+                        if (next && retry) {
+                            ryRetryFlagsSent[0]++;
+                            ryWriteFailed[0] = false;
+                        }
+                    } else if ("status".equals(action)) {
+                        boolean active = ryAssist[0] && !ryWriteFailed[0];
+                        ans.put("volumeProtocolVersion", 3)
+                                .put("volumeAssist", ryAssist[0])
+                                .put("volumeAssistActive", active)
+                                .put("volumeAudioReady", !ryWriteFailed[0])
+                                .put("volumeAudioWriteFailed", ryWriteFailed[0])
+                                .put("volumeInputReady", active)
+                                .put("volumeInputDeviceCount", active ? 2 : 0)
+                                .put("volumeAssistReason", !ryAssist[0] ? "disabled" : (ryWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                    }
+                    reply.writeNoException();
+                    reply.writeString(ans.toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(retryYieldSvc, ryBridge);
+        try {
+            TaskBridgeClient.configure(retryYieldSvc);
+            // Control: enter 5s yield WITHOUT clicking retry -> expires -> stays degraded!
+            retryYieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                    .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 15)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 16));
+            TaskBridgeClient.configure(retryYieldSvc);
+            SystemClock.elapsed += 5100;
+            Handler.runDue();
+            drainBridgeSync();
+            TaskBridgeClient.configure(retryYieldSvc);
+            check("e33d5ae_p2_control_yield_without_user_retry_stays_degraded",
+                    ryRetryFlagsSent[0] == 0
+                    && ryWriteFailed[0]
+                    && !TaskBridgeClient.volumeAssistActive());
+            // Active user retry DURING 5s yield -> deferred until yield ends, then executes ONCE and recovers!
+            retryYieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                    .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 16)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 17));
+            drainBridgeSync();
+            TaskBridgeClient.configure(retryYieldSvc, true); // user clicks "启用快速 Home" during 5s yield
+            boolean stillYieldingNoPrematureRetry = HomeKeyService.runtimeVolumeYieldActive
+                    && ryRetryFlagsSent[0] == 0 && ryWriteFailed[0];
+            SystemClock.elapsed += 5100;
+            Handler.runDue();
+            drainBridgeSync();
+            TaskBridgeClient.configure(retryYieldSvc); // passive sync on yield expiry picks up pending one-shot retry!
+            check("e33d5ae_p2_user_retry_during_yield_executes_once_on_restore_and_recovers",
+                    stillYieldingNoPrematureRetry
+                    && ryRetryFlagsSent[0] == 1
+                    && !ryWriteFailed[0]
+                    && TaskBridgeClient.volumeAssistActive()
+                    && "ready".equals(TaskBridgeClient.volumeAssistReason()));
+            // One-shot check: if write fails again later and another 5s yield expires without new click, no retry fires!
+            ryWriteFailed[0] = true;
+            TaskBridgeClient.configure(retryYieldSvc);
+            retryYieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                    .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 17)
+                    .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 18));
+            drainBridgeSync();
+            TaskBridgeClient.configure(retryYieldSvc);
+            SystemClock.elapsed += 5100;
+            Handler.runDue();
+            drainBridgeSync();
+            TaskBridgeClient.configure(retryYieldSvc);
+            check("e33d5ae_p2_pending_retry_is_strictly_one_shot",
+                    ryRetryFlagsSent[0] == 1 && ryWriteFailed[0] && !TaskBridgeClient.volumeAssistActive());
+        } catch (Exception e) { throw new RuntimeException(e); }
+        TaskBridgeClient.resetForTest();
+        retryYieldSvc.onDestroy();
 
         System.out.println("OK " + passed + " HomeKeyService runtime guard mode checks");
         System.exit(0);
@@ -1273,7 +1509,7 @@ class Diagnostics {
 }
 class TaskBridgeServer {
     static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1";
-    static final int VOLUME_PROTOCOL_VERSION = 2;
+    static final int VOLUME_PROTOCOL_VERSION = 3;
 }
 class MainActivity extends android.app.Activity {
     DefaultHomePanel defaultHome;
@@ -1295,6 +1531,7 @@ class TvDialog {
     void updateMessage(String m) {}
     void updateItems(String[] next) {}
     void onLeave(Runnable r) {}
+    void onReturn(Runnable r) {}
     static class Builder {
         Builder(Context c) {}
         Builder setPageId(String id) { return this; }
