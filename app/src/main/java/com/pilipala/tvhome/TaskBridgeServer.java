@@ -16,14 +16,38 @@ import java.util.concurrent.*;
 /** Started explicitly as shell by the setup tool. Binder UID authentication, fixed operations only. */
 public final class TaskBridgeServer {
     static final String DESCRIPTOR="com.pilipala.tvhome.TaskBridge.v1";
+    private static final int STREAM_MUSIC=3;
+    private static final int USE_DEFAULT_STREAM_TYPE=Integer.MIN_VALUE;
+    private static final int FLAG_SHOW_UI=1;
     private final int appUid,user;
-    private final Object manager,power;
-    private final Class<?> api,powerApi;
+    private final Object manager,power,audio;
+    private final Class<?> api,powerApi,audioApi;
     private volatile boolean wakeRecovery;
+    private volatile boolean volumeAssist;
     private volatile String originalHome="",lastWake="尚无唤醒记录";
     private long lastWakeTime;
     private volatile boolean connected;
     private final Object wakeMonitor=new Object();
+    private final ScheduledExecutorService volumeScheduler=Executors.newSingleThreadScheduledExecutor(r->{
+        Thread t=new Thread(r,"MarcoTV-vol-repeat");
+        t.setDaemon(true);
+        return t;
+    });
+    private final ConcurrentHashMap<String,InputReader> inputReaders=new ConcurrentHashMap<>();
+    private final VolumeRepeatEngine volumeEngine;
+    private static final class InputReader {
+        final String path;
+        volatile boolean stopped;
+        volatile FileInputStream stream;
+        InputReader(String path){ this.path=path; }
+        void stop(){
+            stopped=true;
+            FileInputStream s=stream;
+            if(s!=null){
+                try{ s.close(); }catch(IOException ignored){}
+            }
+        }
+    }
     private final Binder binder=new Binder(){
         @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
             if(code==INTERFACE_TRANSACTION){
@@ -102,15 +126,178 @@ public final class TaskBridgeServer {
         }
         return Collections.emptyList();
     }
+    static boolean invokeAdjustSuggestedVolume(Object audio,Class<?> audioApi,int direction,
+            int streamType,int flags,String callingPkg,String caller,int callerUid)throws Exception{
+        if(audio==null||audioApi==null)return false;
+        for(Method method:audioApi.getMethods())if(method.getName().equals("adjustSuggestedStreamVolume")){
+            Class<?>[] types=method.getParameterTypes();
+            if(types.length==5&&types[0]==int.class&&types[1]==int.class&&types[2]==int.class
+                    &&types[3]==String.class&&types[4]==String.class){
+                method.invoke(audio,direction,streamType,flags,callingPkg,caller);
+                return true;
+            }
+            if(types.length==6&&types[0]==int.class&&types[1]==int.class&&types[2]==int.class
+                    &&types[3]==String.class&&types[4]==String.class&&types[5]==int.class){
+                method.invoke(audio,direction,streamType,flags,callingPkg,caller,callerUid);
+                return true;
+            }
+            if(types.length==6&&types[0]==int.class&&types[1]==int.class&&types[2]==int.class
+                    &&types[3]==String.class&&types[4]==String.class&&types[5]==String.class){
+                method.invoke(audio,direction,streamType,flags,callingPkg,caller,null);
+                return true;
+            }
+            if(types.length==7&&types[0]==int.class&&types[1]==int.class&&types[2]==int.class
+                    &&types[3]==String.class&&types[4]==String.class&&types[5]==int.class&&types[6]==boolean.class){
+                method.invoke(audio,direction,streamType,flags,callingPkg,caller,callerUid,false);
+                return true;
+            }
+        }
+        int fallbackStream=streamType==USE_DEFAULT_STREAM_TYPE?STREAM_MUSIC:streamType;
+        for(Method method:audioApi.getMethods())if(method.getName().equals("adjustStreamVolume")){
+            Class<?>[] types=method.getParameterTypes();
+            if(types.length==4&&types[0]==int.class&&types[1]==int.class&&types[2]==int.class&&types[3]==String.class){
+                method.invoke(audio,fallbackStream,direction,flags,callingPkg);
+                return true;
+            }
+        }
+        return false;
+    }
+    static int invokeGetStreamVolume(Object audio,Class<?> audioApi,int streamType){
+        if(audio==null||audioApi==null)return -1;
+        try{
+            Object v=audioApi.getMethod("getStreamVolume",int.class).invoke(audio,streamType);
+            return v instanceof Number?((Number)v).intValue():-1;
+        }catch(Exception ignored){
+            return -1;
+        }
+    }
+    static int invokeGetStreamMaxVolume(Object audio,Class<?> audioApi,int streamType){
+        if(audio==null||audioApi==null)return -1;
+        try{
+            Object v=audioApi.getMethod("getStreamMaxVolume",int.class).invoke(audio,streamType);
+            return v instanceof Number?((Number)v).intValue():-1;
+        }catch(Exception ignored){
+            return -1;
+        }
+    }
     private TaskBridgeServer(int uid,int userId)throws Exception{
         appUid=uid;
         user=userId;
         manager=taskManager();
         api=Class.forName(Build.VERSION.SDK_INT>=29?"android.app.IActivityTaskManager":"android.app.IActivityManager");
-        Object binder=Class.forName("android.os.ServiceManager").getMethod("getService",String.class)
+        Object powerBinder=Class.forName("android.os.ServiceManager").getMethod("getService",String.class)
                 .invoke(null,"power");
-        power=Class.forName("android.os.IPowerManager$Stub").getMethod("asInterface",IBinder.class).invoke(null,binder);
+        power=Class.forName("android.os.IPowerManager$Stub").getMethod("asInterface",IBinder.class).invoke(null,powerBinder);
         powerApi=Class.forName("android.os.IPowerManager");
+        Object resolvedAudio=null;
+        Class<?> resolvedAudioApi=null;
+        try{
+            Object audioBinder=Class.forName("android.os.ServiceManager").getMethod("getService",String.class)
+                    .invoke(null,"audio");
+            if(audioBinder!=null){
+                resolvedAudio=Class.forName("android.media.IAudioService$Stub").getMethod("asInterface",IBinder.class)
+                        .invoke(null,audioBinder);
+                resolvedAudioApi=Class.forName("android.media.IAudioService");
+            }
+        }catch(Throwable ignored){}
+        audio=resolvedAudio;
+        audioApi=resolvedAudioApi;
+        volumeEngine=new VolumeRepeatEngine((task,delayMs)->{
+            ScheduledFuture<?> future=volumeScheduler.schedule(task,Math.max(0L,delayMs),TimeUnit.MILLISECONDS);
+            return ()->future.cancel(false);
+        },new VolumeRepeatEngine.Callbacks(){
+            @Override public boolean isEnabled(){ return volumeAssist; }
+            @Override public boolean isConnected(){ return connected; }
+            @Override public boolean isInteractive(){ return interactive(); }
+            @Override public int readStreamVolume(){ return invokeGetStreamVolume(audio,audioApi,STREAM_MUSIC); }
+            @Override public int readStreamMaxVolume(){ return invokeGetStreamMaxVolume(audio,audioApi,STREAM_MUSIC); }
+            @Override public boolean adjustVolume(int direction){
+                try{
+                    return invokeAdjustSuggestedVolume(audio,audioApi,direction,USE_DEFAULT_STREAM_TYPE,
+                            FLAG_SHOW_UI,"com.android.shell","MarcoTV",android.os.Process.myUid());
+                }catch(Throwable t){
+                    return false;
+                }
+            }
+            @Override public long nowMs(){ return SystemClock.elapsedRealtime(); }
+        });
+    }
+    private boolean is64BitProcess(){
+        try{
+            return android.os.Process.is64Bit();
+        }catch(Throwable ignored){
+            String arch=System.getProperty("os.arch","");
+            return arch!=null&&(arch.contains("64"));
+        }
+    }
+    private void syncVolumeReaders(){
+        if(!volumeAssist||!connected||audio==null){
+            stopVolumeReaders(!connected?"bridge_disconnected":"mode_disabled");
+            return;
+        }
+        File dir=new File("/dev/input");
+        File[] files=dir.listFiles();
+        if(files==null)return;
+        Arrays.sort(files,(a,b)->a.getName().compareTo(b.getName()));
+        Set<String> present=new HashSet<>();
+        for(File f:files){
+            String name=f.getName();
+            if(!name.startsWith("event"))continue;
+            String path=f.getAbsolutePath();
+            present.add(path);
+            if(inputReaders.containsKey(path))continue;
+            try{
+                FileInputStream fis=new FileInputStream(f);
+                InputReader reader=new InputReader(path);
+                reader.stream=fis;
+                if(inputReaders.putIfAbsent(path,reader)!=null){
+                    try{ fis.close(); }catch(IOException ignored){}
+                    continue;
+                }
+                startInputReaderThread(reader);
+            }catch(Throwable ignored){}
+        }
+        for(Map.Entry<String,InputReader> entry:new ArrayList<>(inputReaders.entrySet())){
+            if(!present.contains(entry.getKey())){
+                if(inputReaders.remove(entry.getKey(),entry.getValue())){
+                    entry.getValue().stop();
+                    volumeEngine.onDeviceDisconnected(entry.getKey());
+                }
+            }
+        }
+    }
+    private void stopVolumeReaders(String reason){
+        volumeEngine.cancelActive(reason);
+        for(Map.Entry<String,InputReader> entry:new ArrayList<>(inputReaders.entrySet())){
+            if(inputReaders.remove(entry.getKey(),entry.getValue())){
+                entry.getValue().stop();
+            }
+        }
+    }
+    private void startInputReaderThread(InputReader reader){
+        final boolean is64=is64BitProcess();
+        final int evSize=VolumeRepeatEngine.eventSize(is64);
+        Thread thread=new Thread(()->{
+            byte[] buf=new byte[evSize];
+            try(FileInputStream fis=reader.stream){
+                while(!reader.stopped&&volumeAssist&&connected){
+                    int offset=0;
+                    while(offset<evSize){
+                        int n=fis.read(buf,offset,evSize-offset);
+                        if(n<0)return;
+                        offset+=n;
+                    }
+                    VolumeRepeatEngine.InputKeyEvent ev=VolumeRepeatEngine.parseInputEvent(buf,is64);
+                    if(ev!=null)volumeEngine.onKeyEvent(reader.path,ev.type,ev.code,ev.value);
+                }
+            }catch(Throwable ignored){
+            }finally{
+                inputReaders.remove(reader.path,reader);
+                volumeEngine.onDeviceDisconnected(reader.path);
+            }
+        },"MarcoTV-ev-"+new File(reader.path).getName());
+        thread.setDaemon(true);
+        thread.start();
     }
     private boolean interactive(){
         try{
@@ -263,13 +450,25 @@ public final class TaskBridgeServer {
     private JSONObject handle(JSONObject request)throws Exception{
         String action=request.getString("action");
         JSONObject answer;
-        if(action.equals("status"))answer=new JSONObject().put("version",ProjectInfo.VERSION).put("wake",wakeRecovery)
-                .put("canRemove",canRemove()||canRemoveSingleStack()).put("removeMode",canRemove()?"task":canRemoveSingleStack()?"single_task_stack":"unavailable")
-                .put("lastWake",lastWake).put("lastWakeTime",lastWakeTime);
+        if(action.equals("status")){
+            int inputCount=inputReaders.size();
+            boolean volActive=volumeAssist&&connected&&audio!=null&&inputCount>0;
+            answer=new JSONObject().put("version",ProjectInfo.VERSION).put("wake",wakeRecovery)
+                    .put("canRemove",canRemove()||canRemoveSingleStack()).put("removeMode",canRemove()?"task":canRemoveSingleStack()?"single_task_stack":"unavailable")
+                    .put("lastWake",lastWake).put("lastWakeTime",lastWakeTime)
+                    .put("volumeAssist",volumeAssist)
+                    .put("volumeAssistActive",volActive)
+                    .put("volumeInputReady",inputCount>0)
+                    .put("volumeInputDeviceCount",inputCount)
+                    .put("volumeAdjustCount",volumeEngine.totalAdjustments())
+                    .put("volumeLastStopReason",volumeEngine.lastStopReason());
+        }
         else if(action.equals("configure")){
             wakeRecovery=request.optBoolean("wake",false);
             String home=request.optString("home","");
             originalHome=home.matches("[A-Za-z0-9_.]{1,200}")?home:"";
+            volumeAssist=request.optBoolean("volumeAssist",false);
+            syncVolumeReaders();
             synchronized(wakeMonitor){wakeMonitor.notifyAll();}
             answer=new JSONObject();
         }
@@ -347,6 +546,7 @@ public final class TaskBridgeServer {
                 connected=true;
                 lifetime.linkToDeath(()->{
                     connected=false;
+                    stopVolumeReaders("bridge_disconnected");
                     synchronized(wakeMonitor){wakeMonitor.notifyAll();}
                 },0);
             }
@@ -367,16 +567,24 @@ public final class TaskBridgeServer {
     private void watchWake(){
         Thread thread=new Thread(()->{
             boolean was=interactive(),wasMonitoring=false;
-            long ready=0,lastPublish=0;
+            long ready=0,lastPublish=0,lastInputScan=0;
             while(true){
                 try{
                     boolean activeMonitor=wakeRecovery&&!originalHome.isEmpty();
-                    long sleepMs=(connected&&!activeMonitor&&ready==0)?5000L:500L;
+                    boolean volMonitor=volumeAssist&&connected;
+                    long sleepMs=(connected&&!activeMonitor&&ready==0)?(volMonitor?2500L:5000L):500L;
                     synchronized(wakeMonitor){wakeMonitor.wait(sleepMs);}
                     long now=SystemClock.elapsedRealtime();
                     if(!connected&&now-lastPublish>5000){
                         publish();
                         lastPublish=now;
+                    }
+                    if(volumeAssist&&connected&&now-lastInputScan>=2500){
+                        syncVolumeReaders();
+                        lastInputScan=now;
+                    }
+                    if(volumeEngine.isHolding()&&!interactive()){
+                        volumeEngine.cancelActive("screen_off");
                     }
                     if(!(wakeRecovery&&!originalHome.isEmpty())&&ready==0){
                         wasMonitoring=false;

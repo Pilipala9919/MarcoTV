@@ -23,6 +23,7 @@ classpath = os.pathsep.join([str(ANDROID), str(jar)])
 sources = [
     ROOT / 'app/src/main/java/com/pilipala/tvhome/BuildEdition.java',
     ROOT / 'app/src/main/java/com/pilipala/tvhome/ProjectInfo.java',
+    ROOT / 'app/src/main/java/com/pilipala/tvhome/VolumeRepeatEngine.java',
     ROOT / 'app/src/main/java/com/pilipala/tvhome/TaskBridgeServer.java',
     ROOT / 'scripts/TaskBridgeCompatChecks.java',
 ]

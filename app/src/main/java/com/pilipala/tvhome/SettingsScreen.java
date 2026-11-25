@@ -606,16 +606,23 @@ final class SettingsScreen extends LinearLayout {
                 break;
             case SettingsTaxonomy.HOME:
                 if (SystemIntegration.homeIsOurs(host)) {
-                    text = "● 默认桌面：Marco TV";
+                    text = "● 系统默认桌面";
                     fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
+                } else if (HomeSetup.paused(host)) {
+                    text = "● 已暂停接管";
+                    fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
                 } else if (HomeKeyService.connected) {
-                    text = "● Home 兼容已连接";
+                    HomeSetupPolicy.GuardMode bm = SystemIntegration.guardMode(host);
+                    if (bm == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) {
+                        text = "● 原厂按键";
+                    } else if (bm == HomeSetupPolicy.GuardMode.KEY_FILTER) {
+                        text = TaskBridgeClient.volumeAssistActive() ? "● 快速 Home · 任务桥" : "● 快速 Home · 无桥";
+                    } else {
+                        text = "● 窗口回拉（兼容模式）";
+                    }
                     fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
                 } else if (HomeSetup.serviceEnabled(host)) {
                     text = "● Home 服务未绑定";
-                    fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
-                } else if (HomeSetup.paused(host)) {
-                    text = "● 已暂停接管";
                     fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
                 } else {
                     text = BuildEdition.RESTRICTED ? "● 受限兼容版" : "● 原厂桌面";
@@ -695,17 +702,24 @@ final class SettingsScreen extends LinearLayout {
             case "playback_restore":
                 return "点击恢复";
             case "default_home":
-                if (SystemIntegration.homeIsOurs(host)) return "Marco TV 默认";
-                if (HomeKeyService.connected) return "Home 兼容已就绪";
-                if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
+                if (SystemIntegration.homeIsOurs(host)) return "系统默认桌面";
                 if (HomeSetup.paused(host)) return "已暂停";
+                if (HomeKeyService.connected) {
+                    HomeSetupPolicy.GuardMode dm = SystemIntegration.guardMode(host);
+                    if (dm == HomeSetupPolicy.GuardMode.KEY_FILTER) {
+                        return TaskBridgeClient.volumeAssistActive() ? "快速 Home · 任务桥" : "快速 Home · 无桥";
+                    }
+                    if (dm == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";
+                    return "窗口回拉";
+                }
+                if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
                 return BuildEdition.RESTRICTED ? "受限兼容 · 未启用" : "未启用";
             case "home_gestures": {
+                if (SystemIntegration.homeIsOurs(host)) return "系统默认桌面";
                 HomeSetupPolicy.GuardMode mode = SystemIntegration.guardMode(host);
                 if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";
                 if (mode == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK) return "窗口回拉";
-                String a = sys.getString("home_long_action", "system");
-                return "直接拦截 · " + ("marco".equals(a) ? "长按 Marco" : "none".equals(a) ? "长按无操作" : "长按系统任务");
+                return TaskBridgeClient.volumeAssistActive() ? "快速 Home · 任务桥" : "快速 Home · 无桥";
             }
             case "restore_home":
                 return "切回原厂";

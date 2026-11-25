@@ -17,7 +17,7 @@ public final class TaskBridgeProvider extends ContentProvider {
         if(Binder.getCallingUid()!=2000||!"connect".equals(method)||extras==null)throw new SecurityException("shell setup only");
         IBinder service=extras.getBinder("service");
         if(service==null)throw new IllegalArgumentException("missing service");
-        TaskBridgeClient.attach(service);
+        TaskBridgeClient.attach(getContext(),service);
         TaskBridgeClient.sync(getContext());
         Bundle reply=new Bundle();
         reply.putBinder("lifetime",lifetime);

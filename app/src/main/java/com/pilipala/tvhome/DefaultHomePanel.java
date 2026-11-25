@@ -25,7 +25,10 @@ final class DefaultHomePanel {
     }
     void show(){
         HomeSetupPolicy.Route route=HomeSetup.route(host);
+        HomeSetupPolicy.DesktopState state=SystemIntegration.desktopState(host);
+        HomeSetupPolicy.GuardMode mode=SystemIntegration.guardMode(host);
         boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
+        boolean nativeActive=!BuildEdition.RESTRICTED&&SystemIntegration.homeIsOurs(host)&&!HomeSetup.paused(host);
         boolean allowedUnbound=HomeSetup.prefs(host).getBoolean("home_compat",false)
                 &&HomeSetup.serviceEnabled(host)&&!HomeKeyService.connected;
         String hint;
@@ -39,11 +42,85 @@ final class DefaultHomePanel {
         else hint=(BuildEdition.RESTRICTED
                 ?"受限兼容版不含系统默认桌面声明，且本机未检测到直接的辅助功能入口；点击主按钮查看探测结果与调试／手动指引。"
                 :"本机未检测到默认桌面选择页或直接辅助功能入口；点击主按钮查看本机探测结果，以及普通网络调试和手动指引。");
-        host.showDialog(new TvDialog.Builder(host).setPageId("default_home").setTitle("桌面启用")
-                .setMessage(deviceSummary()+"\n\n"+hint)
-                .setItems(new String[]{route==HomeSetupPolicy.Route.PAUSED?"继续一键设置":ready?"检查使用效果":"一键启用 Marco TV","更多设置方式"},(d,w)->{
-            if(w==0)start();else help();
+        String fastTag=mode==HomeSetupPolicy.GuardMode.KEY_FILTER&&!nativeActive
+                ?(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助） ✓":"（无桥让渡） ✓")
+                :(TaskBridgeClient.connected()?"（任务桥可用）":"（无桥：先点一下音量，松手后再长按）");
+        String primary=route==HomeSetupPolicy.Route.PAUSED?"继续一键设置":ready?"检查使用效果":"一键启用 Marco TV";
+        host.showDialog(new TvDialog.Builder(host).setPageId("default_home").setTitle("桌面启用与遥控器兼容")
+                .setMessage(deviceSummary()
+                        +"\n用户选择  ·  "+state.userChoiceLabel
+                        +"\n当前生效  ·  "+state.effectiveModeLabel
+                        +"\n降级原因  ·  "+state.fallbackReason
+                        +"\n\n"+hint)
+                .setItems(new String[]{
+                        primary,
+                        BuildEdition.RESTRICTED?"系统默认桌面（受限版不适用）":"系统默认桌面"+(nativeActive?" ✓":""),
+                        "窗口回拉（兼容模式，推荐）"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&HomeSetup.prefs(host).getBoolean("home_compat",false)?" ✓":""),
+                        "快速 Home"+fastTag,
+                        "原厂按键"+(!nativeActive&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY?" ✓":""),
+                        "更多设置方式"},(d,w)->{
+            if(w==0)start();
+            else if(w==1)chooseNativeHome();
+            else if(w==2)chooseWindowPullback();
+            else if(w==3)chooseFastHome();
+            else if(w==4)chooseNativeKeysOnly();
+            else help();
         }).setNegativeButton("稍后",null).create());
+    }
+    private void chooseNativeHome(){
+        if(BuildEdition.RESTRICTED){
+            host.toast("受限兼容版不含系统默认桌面声明，请使用窗口回拉（兼容模式）或快速 Home");
+            show();
+            return;
+        }
+        SystemIntegration.setDesktopChoice(host,HomeSetupPolicy.DesktopChoice.NATIVE_HOME);
+        if(SystemIntegration.homeIsOurs(host)){
+            if(HomeSetup.paused(host)||!HomeSetup.prefs(host).getBoolean("setup_requested",false))HomeSetup.begin(host);
+            HomeSetup.acceptNative(host);
+            verification();
+        }else if(HomeSetup.hasPicker(host)){
+            request();
+        }else{
+            localAuthorization();
+        }
+    }
+    private void chooseWindowPullback(){
+        SystemIntegration.setGuardMode(host,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        if(HomeSetup.prefs(host).getBoolean("home_compat",false)&&HomeSetup.serviceEnabled(host)&&HomeKeyService.connected&&!HomeSetup.paused(host)){
+            show();
+        }else{
+            compatibility();
+        }
+    }
+    private void chooseFastHome(){
+        boolean bridgeReady=TaskBridgeClient.volumeAssistActive();
+        String guide=bridgeReady
+                ?"任务桥音量长按辅助已就绪：短按音量交由系统处理，第一次长按即可连续调节，松手即停。\n若任务桥断开或重启，将自动退回无桥模式或可切回窗口回拉。"
+                :"当前未连接任务桥（无桥模式）：\n调节音量请「先点一下音量，松手后再长按」。Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n注意：部分固件在音量已到上限或下限时无法触发让渡；若希望第一次长按即连调，请启动任务桥或改用「窗口回拉（兼容模式）」。";
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_fast_mode_confirm").setTitle("快速 Home")
+                .setMessage(guide)
+                .setItems(new String[]{
+                        "启用快速 Home",
+                        "改用窗口回拉（兼容模式，推荐）",
+                        "返回"},(d,w)->{
+                    if(w==0){
+                        SystemIntegration.setGuardMode(host,HomeSetupPolicy.GuardMode.KEY_FILTER);
+                        if(HomeSetup.prefs(host).getBoolean("home_compat",false)&&HomeSetup.serviceEnabled(host)&&HomeKeyService.connected&&!HomeSetup.paused(host)){
+                            show();
+                        }else{
+                            compatibility();
+                        }
+                    }else if(w==1){
+                        chooseWindowPullback();
+                    }else{
+                        show();
+                    }
+                }).setNegativeButton("取消",null).create());
+    }
+    private void chooseNativeKeysOnly(){
+        SystemIntegration.setGuardMode(host,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        host.toast("已切换为原厂按键（保留所有原厂按键手感，重启与唤醒后保持不变）");
+        show();
     }
     void start(){
         HomeSetupPolicy.Route current=HomeSetup.route(host);
@@ -397,9 +474,12 @@ final class DefaultHomePanel {
         if(authorizer!=null){authorizer.cancel();authorizer=null;}
     }
     void help(){
+        boolean hasDisabledOem=!BuildEdition.RESTRICTED&&SystemIntegration.hasDisabledOemExperiment(host);
         String[] items=BuildEdition.RESTRICTED
                 ?new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","本机调试操作指引","恢复设置前的桌面"}
-                :new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","系统默认桌面选择（无需调试）","本机调试操作指引","恢复设置前的桌面"};
+                :hasDisabledOem
+                        ?new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","系统默认桌面选择（无需调试）","本机调试操作指引","恢复设置前的桌面","停用原厂桌面（高级实验）","恢复原厂桌面"}
+                        :new String[]{"打开电视系统设置","用手机查看设置向导","启用 Home 兼容","一键自动设置","暂停自动恢复","系统默认桌面选择（无需调试）","本机调试操作指引","恢复设置前的桌面","停用原厂桌面（高级实验）"};
         host.showDialog(new TvDialog.Builder(host).setPageId("default_home_help").setTitle("更多设置方式")
                 .setMessage((BuildEdition.RESTRICTED?"受限兼容版不含系统默认桌面声明，请使用 Home 兼容；开机和唤醒效果仍需在电视上检查。":"不想使用调试时，可直接打开系统默认桌面选择，或在辅助功能中启用 Home 兼容。")
                         +"\n本机自动设置支持普通网络调试（5555 端口），不支持无线配对码；仅提供配对码时请改用手动辅助功能或电脑 Android Platform Tools（安装助手 1.0.1 仅用于普通网络 ADB 安装和打开应用）。")
@@ -417,8 +497,71 @@ final class DefaultHomePanel {
             else if(w==4)pause();
             else if(!BuildEdition.RESTRICTED&&w==5)request();
             else if((BuildEdition.RESTRICTED&&w==5)||(!BuildEdition.RESTRICTED&&w==6))deviceGuide(HomeDeviceGuide.Issue.NONE);
-            else restore();
+            else if((BuildEdition.RESTRICTED&&w==6)||(!BuildEdition.RESTRICTED&&w==7))restore();
+            else if(!BuildEdition.RESTRICTED&&w==8)oemExperiment();
+            else if(!BuildEdition.RESTRICTED&&w==9)runOemExperiment(true);
         }).setNegativeButton("返回",null).create());
+    }
+    void oemExperiment(){
+        if(BuildEdition.RESTRICTED){
+            host.toast("受限兼容版不支持停用原厂桌面实验");
+            return;
+        }
+        String pkg=SystemIntegration.oemExperimentCandidatePackage(host);
+        OemLauncherExperimentPolicy.Decision decision=OemLauncherExperimentPolicy.evaluate(
+                false,Build.MODEL,Build.DISPLAY,pkg);
+        boolean disabled=SystemIntegration.hasDisabledOemExperiment(host);
+        String msg="【高级实验 · 仅 Standard 版 · 不参与自动降级】\n"
+                +"设备："+Build.MODEL+" / "+Build.DISPLAY
+                +"\n识别原厂包名："+(pkg.isEmpty()?"未识别":pkg)
+                +"\n白名单核验："+decision.reason
+                +"\n\n风险提示：部分电视停用原厂桌面后可能出现 FallbackHome、无法进入桌面甚至持续黑屏，本功能无法保证不出现黑屏。操作前会记录原用户、原 HOME 与启用状态并在回读异常时尝试自动回滚，但仍需保持独立恢复途径（如 ADB）。";
+        String[] items=disabled
+                ?new String[]{"恢复原厂桌面","返回"}
+                :decision.allowed()
+                        ?new String[]{"我已了解风险，继续停用原厂桌面","恢复原厂桌面","改用窗口回拉（兼容模式）"}
+                        :new String[]{"改用窗口回拉（兼容模式）","恢复原厂桌面","返回"};
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_oem_experiment").setTitle("停用原厂桌面（高级实验）")
+                .setMessage(msg)
+                .setItems(items,(d,w)->{
+                    if(disabled){
+                        if(w==0)runOemExperiment(true);
+                        else help();
+                    }else if(decision.allowed()){
+                        if(w==0)confirmOemExperimentDisable(pkg);
+                        else if(w==1)runOemExperiment(true);
+                        else chooseWindowPullback();
+                    }else{
+                        if(w==0)chooseWindowPullback();
+                        else if(w==1)runOemExperiment(true);
+                        else help();
+                    }
+                }).setNegativeButton("返回",null).create());
+    }
+    private void confirmOemExperimentDisable(String pkg){
+        host.showDialog(new TvDialog.Builder(host).setPageId("home_oem_experiment_confirm").setTitle("再次确认停用原厂桌面？")
+                .setMessage("即将通过本机 ADB 对原厂桌面包 "+pkg+" 执行停用，并在停用后立即回读系统 HOME 解析和前台可启动性；若落回 FallbackHome 或解析异常将自动尝试恢复。\n\n此实验无法保证所有固件不发生黑屏，请确认当前具备独立 ADB 恢复能力后再继续。")
+                .setPositiveButton("确认执行",(d,w)->runOemExperiment(false))
+                .setNegativeButton("取消",null).create());
+    }
+    private void runOemExperiment(boolean restoreOem){
+        TvDialog progress=new TvDialog.Builder(host).setPageId("home_oem_experiment_running")
+                .setTitle(restoreOem?"正在恢复原厂桌面":"正在执行停用原厂桌面实验")
+                .setMessage("正在连接本机 ADB 并核验系统状态，请稍候…")
+                .setNegativeButton("取消",null).create();
+        destroy();authorizer=new LocalHomeAuthorizer(host);
+        final LocalHomeAuthorizer active=authorizer;
+        progress.onLeave(active::cancel);
+        host.showDialog(progress);
+        LocalHomeAuthorizer.Result cb=result->{
+            if(authorizer!=active||!host.foreground||!host.isPage("home_oem_experiment_running"))return;
+            host.dialogs.replace(progress,new TvDialog.Builder(host).setPageId("home_oem_experiment_result")
+                    .setTitle(restoreOem?"恢复原厂桌面结果":"停用原厂桌面实验结果")
+                    .setMessage(result)
+                    .setPositiveButton("返回",(d,w)->show()).create());
+        };
+        if(restoreOem)active.restoreOemExperiment(cb);
+        else active.disableOemExperiment(cb);
     }
     void assistant(){
         android.widget.LinearLayout box=new android.widget.LinearLayout(host);

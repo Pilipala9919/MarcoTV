@@ -32,6 +32,62 @@ final class LocalHomeAuthorizer {
     void start(Result callback) { start(false, callback); }
     void restore(Result callback) { start(true, callback); }
 
+    /** Standard-only experimental flow, never invoked by start() or automatic fallback. */
+    void disableOemExperiment(Result callback) { runOemExperiment(false, callback); }
+    void restoreOemExperiment(Result callback) { runOemExperiment(true, callback); }
+
+    private void runOemExperiment(boolean restoreOem, Result callback) {
+        deadline = SystemClock.elapsedRealtime() + 90000;
+        main.postDelayed(timeout, 90000);
+        worker.execute(() -> {
+            String result;
+            try {
+                check();
+                if (!restoreOem && BuildEdition.RESTRICTED) {
+                    result = "受限兼容版不含系统默认桌面声明，不支持停用原厂桌面实验。";
+                } else {
+                    File folder = new File(context.getNoBackupFilesDir(), "home-setup");
+                    if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
+                    LocalAdbWire wire = new LocalAdbWire();
+                    connection = wire;
+                    check();
+                    java.security.KeyPair key = LocalAdbWire.key(folder);
+                    check();
+                    issue = HomeDeviceGuide.Issue.CONNECTION;
+                    wire.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
+                    issue = HomeDeviceGuide.Issue.SYSTEM;
+                    check();
+                    int userId = android.os.Process.myUid() / 100000;
+                    HomeShellSetup commands = new HomeShellSetup(command -> {
+                        check();
+                        String output = wire.shell(command);
+                        check();
+                        return output;
+                    }, userId);
+                    commands.authenticate();
+                    result = onMain(() -> restoreOem
+                            ? SystemIntegration.executeOemExperimentRestore(context, commands)
+                            : SystemIntegration.executeOemExperimentDisable(context, commands, userId,
+                                    android.os.Build.MODEL, android.os.Build.DISPLAY,
+                                    OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST, null));
+                }
+                issue = HomeDeviceGuide.Issue.NONE;
+            } catch (Exception e) {
+                if (expired) issue = HomeDeviceGuide.Issue.TIMEOUT;
+                else if (issue == HomeDeviceGuide.Issue.NONE) issue = HomeDeviceGuide.Issue.SYSTEM;
+                result = (restoreOem ? "恢复原厂桌面未完成。\n" : "停用原厂桌面实验未完成。\n")
+                        + HomeDeviceGuide.explanation(issue);
+            } finally {
+                main.removeCallbacks(timeout);
+                LocalAdbWire wire = connection;
+                if (wire != null) wire.close();
+                worker.shutdown();
+            }
+            final String outcome = result;
+            if (!cancelled) main.post(() -> { if (!cancelled) callback.complete(outcome); });
+        });
+    }
+
     private void check() throws IOException {
         if (cancelled || expired || SystemClock.elapsedRealtime() >= deadline)
             throw new IOException("Operation ended");

@@ -20,15 +20,23 @@ final class StatusSnapshot {
                 ?"已失效（"+SystemIntegration.trackedHomeInvalidName(c)+"），无可靠替代，已停止窗口回拉"
                 :tracked.isEmpty()?"未记录":tracked;
         String confirmed=HomeSetup.bootConfirmationStatus(c);
-        return "原生默认桌面："+(BuildEdition.RESTRICTED?"受限兼容版不含 HOME 声明":SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面（"+(currentHome.isEmpty()?"未指定":currentHome)+"）")
+        HomeSetupPolicy.DesktopState state=SystemIntegration.desktopState(c);
+        String oemExp=SystemIntegration.hasDisabledOemExperiment(c)
+                ?"已停用原厂桌面（"+SystemIntegration.disabledOemExperimentPackage(c)+"），可随时恢复"
+                :"未启用";
+        return "用户选择："+state.userChoiceLabel
+                +"\n当前实际生效："+state.effectiveModeLabel
+                +"\n降级原因："+state.fallbackReason
+                +"\n原生默认桌面："+(BuildEdition.RESTRICTED?"受限兼容版不含 HOME 声明":SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面（"+(currentHome.isEmpty()?"未指定":currentHome)+"）")
                 +"\n系统设置授权："+(SystemIntegration.authorized(c)?"已授权":"未授权")
                 +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务："+HomeSetup.serviceStatusLabel(c)
                 +"\n兼容回拉目标："+trackedLine
                 +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
                 +"\nHome 守护模式："+SystemIntegration.guardModeLabel(SystemIntegration.guardMode(c))
                 +" / 状态："+SystemIntegration.rebindStatusLabel(c)
-                +" / 按键过滤："+(HomeKeyService.connected?(HomeKeyService.runtimeKeyFilterRequested?"已请求":"未请求"):"未绑定")
+                +" / 按键过滤："+(HomeKeyService.connected?(HomeKeyService.runtimeVolumeYieldActive?"无桥临时让渡中":HomeKeyService.runtimeKeyFilterRequested?"已请求":"未请求"):"未绑定")
                 +"（flags="+HomeKeyService.runtimeFlags+"） / 长按："+p.getString("home_long_action","system")
+                +"\n停用原厂桌面实验："+oemExp
                 +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)
                 +(confirmed.isEmpty()?"":"\n开机人工确认："+confirmed)
                 +"\nADB 自动恢复："+SystemIntegration.adbRestoreLabel(c)+" / 调试开关"+(adb?"已打开":"已关闭")
@@ -49,8 +57,13 @@ final class StatusSnapshot {
         String state="本机 5555 端口："+(reachable?"可连接（不等于局域网 ADB 已通过）":"未监听或使用其他端口");
         try{
             JSONObject task=TaskBridgeClient.request("status");
+            boolean volCfg=task.optBoolean("volumeAssist",false);
+            boolean volAct=task.optBoolean("volumeAssistActive",false);
+            int devCount=task.optInt("volumeInputDeviceCount",0);
             state+="\n任务服务：已连接\n任务服务版本："+task.optString("version")
                     +"\n任务服务唤醒恢复："+(task.optBoolean("wake")?"已启用":"未启用")
+                    +"\n任务桥音量长按辅助："+(volAct?"已生效（可读输入设备 "+devCount+" 个，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（输入设备 "+devCount+" 个）":"未启用")
+                    +"\n音量补偿最近停止原因："+task.optString("volumeLastStopReason","idle")
                     +"\n清除单个任务："+(task.optBoolean("canRemove")?("task".equals(task.optString("removeMode"))?"接口可用，需实际测试":"仅独立任务可清除"):"系统未开放")
                     +"\n最近唤醒结果："+task.optString("lastWake","尚无记录");
         }catch(Exception e){

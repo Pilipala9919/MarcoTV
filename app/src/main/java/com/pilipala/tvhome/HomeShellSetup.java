@@ -50,6 +50,22 @@ final class HomeShellSetup {
         return true; // Issued, NOT verified. Caller must read actual system state.
     }
 
+    /** Standard-only experimental flow: disables an allowlisted OEM launcher package for the current user. */
+    boolean disableOemPackage(String pkg) throws Exception {
+        if (!authenticated) throw new IOException("Authorization required");
+        if (!OemLauncherExperimentPolicy.validOemPackage(pkg)) throw new IllegalArgumentException("OEM package");
+        shell.run("pm disable-user --user " + user + " '" + pkg + "'");
+        return true; // Issued, NOT verified. Caller must read back actual system HOME & package state.
+    }
+
+    /** Restores a disabled OEM launcher package for the current user (with legacy pm enable fallback). */
+    boolean enableOemPackage(String pkg) throws Exception {
+        if (!authenticated) throw new IOException("Authorization required");
+        if (!OemLauncherExperimentPolicy.validOemPackage(pkg)) throw new IllegalArgumentException("OEM package");
+        shell.run("pm enable --user " + user + " '" + pkg + "' 2>/dev/null || pm enable '" + pkg + "'");
+        return true;
+    }
+
     static boolean supports(String help) {
         return help != null && java.util.regex.Pattern.compile("(?m)^\\s*set-home-activity(?:\\s|$)")
                 .matcher(help).find();

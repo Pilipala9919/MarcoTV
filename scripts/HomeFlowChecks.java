@@ -1947,7 +1947,7 @@ public final class HomeFlowChecks {
                 && !host.sysPrefs.getBoolean("home_native_keys", true)
                 && HomeKeyService.runtimeKeyFilterRequested
                 && HomeKeyService.runtimeFlags == 32
-                && StatusSnapshot.local(host).contains("直接拦截 Home 键（请求按键过滤）")
+                && StatusSnapshot.local(host).contains("快速 Home（请求按键过滤）")
                 && StatusSnapshot.local(host).contains("按键过滤：已请求"));
 
         SystemIntegration.setGuardMode(host, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
@@ -1957,7 +1957,7 @@ public final class HomeFlowChecks {
                 && !host.sysPrefs.getBoolean("home_native_keys", true)
                 && !HomeKeyService.runtimeKeyFilterRequested
                 && HomeKeyService.runtimeFlags == 0
-                && StatusSnapshot.local(host).contains("窗口回拉（不拦截按键）")
+                && StatusSnapshot.local(host).contains("窗口回拉（兼容模式，不拦截按键）")
                 && StatusSnapshot.local(host).contains("按键过滤：未请求"));
 
         // P1 #1 + P2 #2 repro: upgrade unbinds Marco; 50ms later reconcile() runs (e.g. settings resume) and
@@ -2877,6 +2877,196 @@ public final class HomeFlowChecks {
                 && !HomeSetup.serviceEnabled(secExRestoreRevoke));
     }
 
+    static void testDesktopModesAndOemExperiment() throws Exception {
+        // 1. DefaultHomePanel.show() integrates all 4 clear entries + User Choice / Effective Mode / Fallback Reason!
+        MainActivity host = freshEnv();
+        setService(true, true);
+        HomeKeyService.simulateConnect(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        host.defaultHome.show();
+        TvDialog dlg = host.dialogs.active();
+        check("feat_default_home_has_four_clear_entries_and_status_lines",
+                dlg.items.length == 6
+                && dlg.items[1].contains("系统默认桌面")
+                && dlg.items[2].contains("窗口回拉（兼容模式")
+                && dlg.items[3].contains("快速 Home")
+                && dlg.items[4].contains("原厂按键")
+                && dlg.message.contains("用户选择")
+                && dlg.message.contains("当前生效")
+                && dlg.message.contains("降级原因"));
+
+        // Selecting 快速 Home without bridge shows explicit tap-then-hold instruction + switch to 窗口回拉!
+        dlg.clickItem(3);
+        TvDialog fastDlg = host.dialogs.active();
+        check("feat_fast_home_no_bridge_shows_tap_then_hold_and_window_fallback",
+                "home_fast_mode_confirm".equals(fastDlg.pageKey())
+                && fastDlg.message.contains("先点一下音量，松手后再长按")
+                && fastDlg.items[1].contains("窗口回拉"));
+
+        // 2. Selecting NATIVE_KEYS_ONLY or disabling guard survives reboot, upgrade, standby wake, and TaskBridge reconnect!
+        MainActivity nativeKeysHost = freshEnv();
+        nativeKeysHost.secureAuthorized = true;
+        nativeKeysHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        setService(true, true);
+        HomeKeyService.simulateConnect(nativeKeysHost);
+        SystemIntegration.setGuardMode(nativeKeysHost, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        // Upgrade broadcast
+        new BootReceiver().onReceive(nativeKeysHost, new Intent(Intent.ACTION_MY_PACKAGE_REPLACED));
+        SystemClock.elapsed += 350; Handler.runDue();
+        // Reboot broadcast
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-native-keys";
+        new BootReceiver().onReceive(nativeKeysHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        // Standby wake
+        nativeKeysHost.powerManager.interactive = false;
+        SystemIntegration.restoreCompatAfterStandbyKill(nativeKeysHost);
+        nativeKeysHost.powerManager.interactive = true;
+        // TaskBridge reconnect
+        final List<JSONObject> nkConfigs = Collections.synchronizedList(new ArrayList<>());
+        IBinder nkBridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) nkConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("volumeAssistActive", false).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(nativeKeysHost, nkBridge);
+        TaskBridgeClient.configure(nativeKeysHost);
+        check("feat_native_keys_only_preserved_across_upgrade_reboot_standby_bridge",
+                SystemIntegration.guardMode(nativeKeysHost) == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && !TaskBridgeClient.shouldEnableWake(nativeKeysHost)
+                && !TaskBridgeClient.shouldEnableVolumeAssist(nativeKeysHost)
+                && !nkConfigs.isEmpty()
+                && !nkConfigs.get(nkConfigs.size() - 1).optBoolean("wake", true)
+                && !nkConfigs.get(nkConfigs.size() - 1).optBoolean("volumeAssist", true));
+
+        // Guard disabled (paused / home_compat=false) also preserved across upgrade, reboot, standby, bridge reconnect!
+        MainActivity offHost = freshEnv();
+        offHost.secureAuthorized = true;
+        SystemIntegration.disableHomeCompat(offHost);
+        new BootReceiver().onReceive(offHost, new Intent(Intent.ACTION_MY_PACKAGE_REPLACED));
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-off-guard";
+        new BootReceiver().onReceive(offHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        offHost.powerManager.interactive = false;
+        SystemIntegration.restoreCompatAfterStandbyKill(offHost);
+        TaskBridgeClient.configure(offHost);
+        check("feat_disabled_guard_preserved_across_upgrade_reboot_standby_bridge",
+                HomeSetup.paused(offHost)
+                && !offHost.sysPrefs.getBoolean("home_compat", true)
+                && !HomeSetup.serviceEnabled(offHost)
+                && !TaskBridgeClient.shouldEnableWake(offHost)
+                && !TaskBridgeClient.shouldEnableVolumeAssist(offHost));
+        TaskBridgeClient.resetForTest();
+
+        // 3. Standard-only OEM launcher disable experiment gating, auto-rollback on FallbackHome & foreground failure, and restore!
+        List<OemLauncherExperimentPolicy.VerifiedDevice> testAllowlist = Collections.singletonList(
+                new OemLauncherExperimentPolicy.VerifiedDevice("TestVerifiedTV", "1.0.0", "com.oem.tvhome", "test verified"));
+
+        // 3a. MiTV-ASTP0 / 22.8.30.1385 blocked cleanly with zero pm disable-user commands!
+        MainActivity astp0 = freshEnv();
+        List<String> astp0Cmds = new ArrayList<>();
+        HomeShellSetup astp0Shell = new HomeShellSetup(cmd -> { astp0Cmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 0);
+        astp0Shell.authenticate();
+        String astp0Res = SystemIntegration.executeOemExperimentDisable(astp0, astp0Shell, 0, "MiTV-ASTP0", "22.8.30.1385", testAllowlist, true);
+        check("feat_oem_exp_blocks_mitv_astp0_1385",
+                astp0Res.contains("已阻止") && astp0Res.contains("FallbackHome")
+                && astp0Cmds.stream().noneMatch(c -> c.contains("disable-user")));
+
+        // 3b. Restricted edition completely blocked even if model/firmware in allowlist!
+        MainActivity restHost = freshEnv();
+        BuildEdition.RESTRICTED = true;
+        List<String> restCmds = new ArrayList<>();
+        HomeShellSetup restShell = new HomeShellSetup(cmd -> { restCmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 0);
+        restShell.authenticate();
+        String restRes = SystemIntegration.executeOemExperimentDisable(restHost, restShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_blocks_restricted_edition",
+                restRes.contains("受限兼容版") && restCmds.stream().noneMatch(c -> c.contains("disable-user")));
+        BuildEdition.RESTRICTED = false;
+
+        // 3c. Verified device whose readback falls to FallbackHome -> auto-rollbacks with pm enable and verifies OEM usable!
+        MainActivity fbHost = freshEnv();
+        fbHost.pm.homes.clear();
+        ResolveInfo oemHome = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        fbHost.pm.homes.add(oemHome);
+        fbHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        fbHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        List<String> fbCmds = new ArrayList<>();
+        HomeShellSetup fbShell = new HomeShellSetup(cmd -> {
+            fbCmds.add(cmd);
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                oemHome.activityInfo.applicationInfo.enabled = false;
+                fbHost.pm.currentHome = "com.android.tv.settings/com.android.tv.settings.system.FallbackHome";
+            }
+            if (cmd.contains("pm enable")) {
+                oemHome.activityInfo.applicationInfo.enabled = true;
+                fbHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        fbShell.authenticate();
+        Diagnostics.events.clear();
+        String fbRes = SystemIntegration.executeOemExperimentDisable(fbHost, fbShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_fallback_home_auto_rolls_back_and_verifies_oem_usable",
+                fbRes.contains("已自动恢复原厂桌面")
+                && fbCmds.stream().anyMatch(c -> c.contains("pm enable"))
+                && oemHome.activityInfo.applicationInfo.enabled
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(fbHost.pm.currentHome)
+                && !SystemIntegration.hasDisabledOemExperiment(fbHost)
+                && Diagnostics.events.contains("OEM_EXP_AUTO_ROLLBACK_OK"));
+
+        // 3d. Verified device where Marco resolves as HOME AND can foreground -> succeeds, stops extra interception, and explicit Restore restores OEM!
+        MainActivity okHost = freshEnv();
+        okHost.pm.homes.clear();
+        ResolveInfo okOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        okHost.pm.homes.add(okOem);
+        okHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        okHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        okHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        SystemIntegration.setGuardMode(okHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        HomeKeyService.simulateConnect(okHost);
+        HomeShellSetup okShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                okOem.activityInfo.applicationInfo.enabled = false;
+                okHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+            }
+            if (cmd.contains("pm enable")) {
+                okOem.activityInfo.applicationInfo.enabled = true;
+                okHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        okShell.authenticate();
+        Diagnostics.events.clear();
+        String okRes = SystemIntegration.executeOemExperimentDisable(okHost, okShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_verified_success_stops_key_filter_and_persists_restore_snapshot",
+                okRes.contains("已停用原厂桌面")
+                && SystemIntegration.homeIsOurs(okHost)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && SystemIntegration.hasDisabledOemExperiment(okHost)
+                && Diagnostics.events.contains("OEM_EXP_DISABLE_VERIFIED"));
+        String restoredRes = SystemIntegration.executeOemExperimentRestore(okHost, okShell);
+        check("feat_oem_exp_explicit_restore_reenables_oem_and_clears_snapshot",
+                restoredRes.contains("已恢复原厂桌面")
+                && okOem.activityInfo.applicationInfo.enabled
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(okHost.pm.currentHome)
+                && !SystemIntegration.hasDisabledOemExperiment(okHost)
+                && Diagnostics.events.contains("OEM_EXP_RESTORED"));
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
@@ -2885,6 +3075,7 @@ public final class HomeFlowChecks {
         testRound3Counterexamples();
         testRound4EdgeCases();
         testGuardModeAndFilterRefresh();
+        testDesktopModesAndOemExperiment();
         System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3/4 regression checks");
         System.exit(0);
     }
@@ -2895,6 +3086,7 @@ class HomeKeyService {
     static volatile boolean connected;
     static volatile int runtimeFlags;
     static volatile boolean runtimeKeyFilterRequested;
+    static volatile boolean runtimeVolumeYieldActive;
     static volatile boolean runtimeModeApplied;
     static volatile long connectionGeneration;
     static volatile long modeAppliedGeneration;
@@ -2903,6 +3095,7 @@ class HomeKeyService {
         connected = false;
         runtimeFlags = 0;
         runtimeKeyFilterRequested = false;
+        runtimeVolumeYieldActive = false;
         runtimeModeApplied = false;
         connectionGeneration = 0;
         modeAppliedGeneration = 0;
@@ -2915,8 +3108,8 @@ class HomeKeyService {
         if (!connected || !runtimeModeApplied || modeAppliedGeneration <= afterGeneration) return false;
         boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
         boolean expected = HomeSetupPolicy.shouldRequestKeyFilter(
-                compat, HomeSetup.paused(c), SystemIntegration.guardMode(c));
-        return runtimeKeyFilterRequested == expected;
+                compat, HomeSetup.paused(c), SystemIntegration.homeIsOurs(c), SystemIntegration.guardMode(c));
+        return runtimeKeyFilterRequested == (expected && !runtimeVolumeYieldActive);
     }
     static void simulateConnect(Context c) {
         connectionGeneration++;
@@ -2931,6 +3124,7 @@ class HomeKeyService {
         connected = false;
         runtimeFlags = 0;
         runtimeKeyFilterRequested = false;
+        runtimeVolumeYieldActive = false;
         runtimeModeApplied = false;
         modeAppliedGeneration = 0;
         android.content.SharedPreferences p = SystemIntegration.prefs(c);
@@ -2943,13 +3137,14 @@ class HomeKeyService {
         if (!connected) {
             runtimeFlags = 0;
             runtimeKeyFilterRequested = false;
+            runtimeVolumeYieldActive = false;
             runtimeModeApplied = false;
             modeAppliedGeneration = 0;
             return;
         }
         boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
         runtimeFlags = HomeSetupPolicy.applyKeyFilterFlag(
-                runtimeFlags, 32, compat, HomeSetup.paused(c), SystemIntegration.guardMode(c));
+                runtimeFlags, 32, compat, HomeSetup.paused(c), SystemIntegration.homeIsOurs(c), SystemIntegration.guardMode(c));
         runtimeKeyFilterRequested = (runtimeFlags & 32) != 0;
         runtimeModeApplied = true;
         modeAppliedGeneration = connectionGeneration;

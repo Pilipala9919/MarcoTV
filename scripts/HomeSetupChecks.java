@@ -167,6 +167,79 @@ public final class HomeSetupChecks {
                         !HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWakeFallback(),true,true,false,true)
                 &&!HomeSetupPolicy.wakeFallback(true,false,false,true,
                         !HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWakeFallback(),true,true,false,true));
+        // Native HOME priority stops key filtering & extra Home interception
+        check("native_home_stops_key_filter_and_compat_interception",
+                !HomeSetupPolicy.shouldRequestKeyFilter(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&HomeSetupPolicy.shouldRequestKeyFilter(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,true,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&HomeSetupPolicy.shouldInterceptHomeCompat(true,false,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05);
+        // 3B no-bridge volume yield only applies to opt-in KEY_FILTER without bridge assist
+        check("volume_yield_only_for_key_filter_without_bridge_assist",
+                HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,true)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(false,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,true,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false));
+        // Unified DesktopState projection: user choice, effective mode, and degradation reason
+        HomeSetupPolicy.DesktopState nativeState=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false);
+        check("desktop_state_native_priority_stops_extra_interception",
+                "系统默认桌面".equals(nativeState.userChoiceLabel)
+                &&nativeState.effectiveModeLabel.contains("已停止额外 Home 拦截")
+                &&nativeState.extraHomeInterceptionStopped
+                &&!nativeState.keyFilterExpected);
+        HomeSetupPolicy.DesktopState fallbackWindow=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false);
+        check("desktop_state_native_unavailable_reports_window_degradation",
+                "系统默认桌面".equals(fallbackWindow.userChoiceLabel)
+                &&fallbackWindow.effectiveModeLabel.contains("窗口回拉")
+                &&fallbackWindow.fallbackReason.contains("com.mitv.tvhome"));
+        HomeSetupPolicy.DesktopState fastBridge=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false);
+        check("desktop_state_fast_home_with_bridge_reports_3a",
+                "快速 Home".equals(fastBridge.userChoiceLabel)
+                &&fastBridge.effectiveModeLabel.contains("快速 Home ＋ 任务桥")
+                &&fastBridge.volumeBridgeAssistExpected&&!fastBridge.volumeYieldMode);
+        HomeSetupPolicy.DesktopState fastNoBridge=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false);
+        check("desktop_state_fast_home_without_bridge_reports_3b_instruction",
+                fastNoBridge.effectiveModeLabel.contains("先点一下音量，松手后再长按")
+                &&fastNoBridge.fallbackReason.contains("先点一下音量，松手后再长按")
+                &&fastNoBridge.volumeYieldMode&&!fastNoBridge.volumeBridgeAssistExpected);
+        // Experimental OEM launcher disable policy gating
+        check("oem_exp_blocks_restricted_edition",
+                OemLauncherExperimentPolicy.evaluate(true,"VerifiedTV","1.0","com.vendor.home",
+                        java.util.Collections.singletonList(new OemLauncherExperimentPolicy.VerifiedDevice("VerifiedTV","1.0","com.vendor.home","ok")))
+                        .eligibility==OemLauncherExperimentPolicy.Eligibility.BLOCKED_RESTRICTED);
+        check("oem_exp_blocks_mitv_astp0_1385_and_mitv_mftr0",
+                OemLauncherExperimentPolicy.evaluate(false,"MiTV-ASTP0","22.8.30.1385","com.mitv.tvhome").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_KNOWN_UNSAFE
+                &&OemLauncherExperimentPolicy.evaluate(false,"MiTV-MFTR0","any.firmware","com.mitv.tvhome").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_KNOWN_UNSAFE);
+        check("oem_exp_blocks_unverified_and_allows_explicit_verified_entry",
+                OemLauncherExperimentPolicy.evaluate(false,"UnknownTV","1.0","com.vendor.home").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_UNVERIFIED
+                &&OemLauncherExperimentPolicy.evaluate(false,"VerifiedTV","1.0","com.vendor.home",
+                        java.util.Collections.singletonList(new OemLauncherExperimentPolicy.VerifiedDevice("VerifiedTV","1.0","com.vendor.home","ok")))
+                        .allowed());
+        check("oem_exp_rejects_fallback_home_and_accepts_marco",
+                !OemLauncherExperimentPolicy.isValidPostDisableHome("com.android.tv.settings/.system.FallbackHome","com.pilipala.tvhome")
+                &&!OemLauncherExperimentPolicy.isValidPostDisableHome("android/com.android.internal.app.ResolverActivity","com.pilipala.tvhome")
+                &&!OemLauncherExperimentPolicy.isValidPostDisableHome("","com.pilipala.tvhome")
+                &&OemLauncherExperimentPolicy.isValidPostDisableHome("com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity","com.pilipala.tvhome"));
         System.out.println("OK "+passed+" home setup policy checks");
     }
 }

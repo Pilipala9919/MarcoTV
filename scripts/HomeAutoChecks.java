@@ -56,7 +56,8 @@ public final class HomeAutoChecks {
         reset(false); LocalAdbWire.grant=false; run(false);
         check("grant_denial_does_not_block_native_home", HomeSetup.accepted && !SystemIntegration.secure);
         reset(false); LocalAdbWire.select=false; run(false);
-        check("selection_rejection_falls_back_to_compat", !HomeSetup.accepted && HomeSetup.service && HomeSetup.compat);
+        check("selection_rejection_falls_back_to_compat", !HomeSetup.accepted && HomeSetup.service && HomeSetup.compat
+                && LocalAdbWire.commands.stream().noneMatch(c -> c.contains("disable-user")));
         reset(false);LocalAdbWire.select=false;HomeSetup.service=true;run(false);
         check("enabled_but_dead_service_is_rebound",SystemIntegration.removed==1&&HomeKeyService.connected);
         reset(false);LocalAdbWire.select=false;HomeSetup.service=true;HomeKeyService.connected=true;run(false);
@@ -288,6 +289,8 @@ class SystemIntegration {
     static void recover(Context c){HomeSetup.service=HomeSetup.serviceAllowed;HomeKeyService.connected=HomeSetup.service&&connectionAllowed;}
     static boolean removeOwnHomeService(Context c){removed++;HomeSetup.service=false;return true;}
     static void startRecovery(Context c){}
+    static String executeOemExperimentDisable(Context c,HomeShellSetup s,int u,String m,String f,java.util.List<OemLauncherExperimentPolicy.VerifiedDevice> a,Boolean ov){return "blocked";}
+    static String executeOemExperimentRestore(Context c,HomeShellSetup s){return "restored";}
 }
 class HomeSetup {
     static final String OWN="com.pilipala.tvhome/.HomeActivity";

@@ -21,6 +21,155 @@ final class HomeSetupPolicy {
         boolean handlesWakeFallback() { return this != NATIVE_KEYS_ONLY; }
     }
 
+    enum DesktopChoice {
+        NATIVE_HOME("native"),
+        WINDOW_PULLBACK("window"),
+        KEY_FILTER("key_filter"),
+        NATIVE_KEYS_ONLY("native_only"),
+        OFF("off");
+
+        final String prefValue;
+        DesktopChoice(String prefValue) { this.prefValue = prefValue; }
+    }
+
+    /** Projection of user selection, active runtime behavior, and degradation reason for UI & diagnostics. */
+    static final class DesktopState {
+        final DesktopChoice userChoice;
+        final String userChoiceLabel;
+        final String effectiveModeLabel;
+        final String fallbackReason;
+        final boolean extraHomeInterceptionStopped;
+        final boolean keyFilterExpected;
+        final boolean volumeBridgeAssistExpected;
+        final boolean volumeYieldMode;
+
+        DesktopState(DesktopChoice userChoice, String userChoiceLabel, String effectiveModeLabel,
+                     String fallbackReason, boolean extraHomeInterceptionStopped,
+                     boolean keyFilterExpected, boolean volumeBridgeAssistExpected,
+                     boolean volumeYieldMode) {
+            this.userChoice = userChoice;
+            this.userChoiceLabel = userChoiceLabel;
+            this.effectiveModeLabel = effectiveModeLabel;
+            this.fallbackReason = fallbackReason;
+            this.extraHomeInterceptionStopped = extraHomeInterceptionStopped;
+            this.keyFilterExpected = keyFilterExpected;
+            this.volumeBridgeAssistExpected = volumeBridgeAssistExpected;
+            this.volumeYieldMode = volumeYieldMode;
+        }
+    }
+
+    static DesktopChoice resolveDesktopChoice(String savedChoice, boolean paused,
+                                              boolean nativeHome, boolean compatEnabled,
+                                              GuardMode guardMode) {
+        if (DesktopChoice.OFF.prefValue.equals(savedChoice)) return DesktopChoice.OFF;
+        if (DesktopChoice.NATIVE_KEYS_ONLY.prefValue.equals(savedChoice)) return DesktopChoice.NATIVE_KEYS_ONLY;
+        if (DesktopChoice.KEY_FILTER.prefValue.equals(savedChoice)) return DesktopChoice.KEY_FILTER;
+        if (DesktopChoice.WINDOW_PULLBACK.prefValue.equals(savedChoice)) return DesktopChoice.WINDOW_PULLBACK;
+        if (DesktopChoice.NATIVE_HOME.prefValue.equals(savedChoice)) return DesktopChoice.NATIVE_HOME;
+        if (paused) return DesktopChoice.OFF;
+        if (nativeHome) return DesktopChoice.NATIVE_HOME;
+        if (guardMode == GuardMode.NATIVE_KEYS_ONLY) return DesktopChoice.NATIVE_KEYS_ONLY;
+        if (compatEnabled) {
+            return guardMode == GuardMode.KEY_FILTER
+                    ? DesktopChoice.KEY_FILTER : DesktopChoice.WINDOW_PULLBACK;
+        }
+        return DesktopChoice.OFF;
+    }
+
+    static String desktopChoiceLabel(DesktopChoice choice) {
+        if (choice == null) return "未开启守护";
+        switch (choice) {
+            case NATIVE_HOME: return "系统默认桌面";
+            case WINDOW_PULLBACK: return "窗口回拉（兼容模式）";
+            case KEY_FILTER: return "快速 Home";
+            case NATIVE_KEYS_ONLY: return "原厂按键";
+            default: return "已关闭守护";
+        }
+    }
+
+    static DesktopState resolveDesktopState(DesktopChoice userChoice, boolean restricted,
+                                            boolean paused, boolean nativeHome,
+                                            String currentHomeComponent, boolean compatEnabled,
+                                            boolean serviceEnabled, boolean serviceConnected,
+                                            GuardMode guardMode, boolean bridgeConnected,
+                                            boolean bridgeVolumeAssistActive,
+                                            boolean volumeYieldActive) {
+        DesktopChoice choice = userChoice == null ? DesktopChoice.OFF : userChoice;
+        GuardMode mode = guardMode == null ? GuardMode.WINDOW_PULLBACK : guardMode;
+        String choiceLabel = desktopChoiceLabel(choice);
+        String resolvedTarget = (currentHomeComponent == null || currentHomeComponent.isEmpty())
+                ? "原厂桌面" : currentHomeComponent;
+
+        if (!restricted && nativeHome && !paused) {
+            String reason = choice == DesktopChoice.NATIVE_HOME
+                    ? "无（原生默认桌面已生效）"
+                    : "系统当前已将 HOME 解析为 Marco TV，已按原生优先停止额外 Home 拦截";
+            return new DesktopState(choice, choiceLabel,
+                    "系统默认桌面（原生 HOME 已生效，已停止额外 Home 拦截）",
+                    reason, true, false, false, false);
+        }
+        if (paused || choice == DesktopChoice.OFF) {
+            String reason = paused
+                    ? "自动恢复已暂停，已保留用户选择"
+                    : (restricted
+                            ? "受限兼容版不含系统默认桌面声明；默认推荐使用窗口回拉（兼容模式）"
+                            : "尚未启用桌面守护；若系统不支持原生默认桌面，默认推荐使用窗口回拉（兼容模式）");
+            return new DesktopState(choice, choiceLabel,
+                    "未接管（交由原厂桌面与按键处理）",
+                    reason, true, false, false, false);
+        }
+        if (mode == GuardMode.NATIVE_KEYS_ONLY || choice == DesktopChoice.NATIVE_KEYS_ONLY) {
+            return new DesktopState(DesktopChoice.NATIVE_KEYS_ONLY,
+                    desktopChoiceLabel(DesktopChoice.NATIVE_KEYS_ONLY),
+                    "原厂按键（不自动回拉，音量和方向键交由系统处理）",
+                    "无（已按用户选择保留原厂按键）", true, false, false, false);
+        }
+        if (!compatEnabled || !serviceEnabled || !serviceConnected) {
+            String eff = !compatEnabled ? "未生效（Home 兼容未开启）"
+                    : (!serviceEnabled ? "未生效（辅助服务未启用）" : "已写回、等待服务连接");
+            String prefix = restricted
+                    ? "受限兼容版不含系统默认桌面声明；"
+                    : (choice == DesktopChoice.NATIVE_HOME
+                            ? "原生 HOME 未生效（系统当前解析：" + resolvedTarget + "）；"
+                            : "");
+            String detail = !compatEnabled ? "请先开启 Home 兼容或选择窗口回拉（兼容模式）"
+                    : (!serviceEnabled ? "请在系统辅助功能中允许 Marco TV 服务"
+                            : "服务尚未收到系统连接回调，生效前不会标记就绪");
+            return new DesktopState(choice, choiceLabel, eff, prefix + detail,
+                    false, false, false, false);
+        }
+        if (mode == GuardMode.WINDOW_PULLBACK) {
+            String reason;
+            if (choice == DesktopChoice.NATIVE_HOME) {
+                reason = restricted
+                        ? "受限兼容版不含系统默认桌面声明，已降级为窗口回拉（兼容模式）"
+                        : "原生 HOME 不可用（系统当前解析：" + resolvedTarget + "），已降级为窗口回拉（兼容模式）";
+            } else {
+                reason = "无（按窗口回拉兼容模式生效）";
+            }
+            return new DesktopState(choice, choiceLabel,
+                    "窗口回拉（兼容模式，音量和方向键交由系统处理）",
+                    reason, false, false, false, false);
+        }
+        // GuardMode.KEY_FILTER with compatEnabled && serviceEnabled && serviceConnected
+        if (bridgeVolumeAssistActive) {
+            String reason = choice == DesktopChoice.NATIVE_HOME
+                    ? "原生 HOME 不可用（系统当前解析：" + resolvedTarget + "），当前以快速 Home＋任务桥生效"
+                    : "无（快速 Home 与任务桥音量长按辅助均已生效）";
+            return new DesktopState(choice, choiceLabel,
+                    "快速 Home ＋ 任务桥（直接拦截 Home，任务桥辅助音量长按）",
+                    reason, false, true, true, false);
+        }
+        String eff = volumeYieldActive
+                ? "快速 Home（无桥模式 · 音量临时让渡 5 秒中）"
+                : "快速 Home（无桥模式：先点一下音量，松手后再长按）";
+        String reason = bridgeConnected
+                ? "任务桥已连接但输入/音频辅助未就绪，已降级为无桥临时让渡模式（先点一下音量，松手后再长按；也可改用窗口回拉）"
+                : "任务桥未连接，当前运行在无桥临时让渡模式（先点一下音量，松手后再长按；若固件在音量上限/下限不触发让渡，可改用窗口回拉）";
+        return new DesktopState(choice, choiceLabel, eff, reason,
+                false, true, false, true);
+    }
+
     /**
      * Resolves the effective Home guard mode from persisted device-protected preferences.
      *
@@ -37,19 +186,46 @@ final class HomeSetupPolicy {
 
     /** Whether HomeKeyService should actively request key-event filtering right now. */
     static boolean shouldRequestKeyFilter(boolean compatEnabled, boolean paused, GuardMode mode) {
-        return compatEnabled && !paused && mode != null && mode.requestsKeyFilter();
+        return shouldRequestKeyFilter(compatEnabled, paused, false, mode);
+    }
+
+    /** Native HOME takes priority: once system HOME resolves to Marco, stop key filtering and extra Home interception. */
+    static boolean shouldRequestKeyFilter(boolean compatEnabled, boolean paused,
+                                          boolean nativeHome, GuardMode mode) {
+        return !nativeHome && compatEnabled && !paused && mode != null && mode.requestsKeyFilter();
+    }
+
+    /** Whether compatibility Home interception (broadcast / window pullback / direct key) should stay active. */
+    static boolean shouldInterceptHomeCompat(boolean compatEnabled, boolean paused,
+                                             boolean nativeHome, GuardMode mode) {
+        return !nativeHome && compatEnabled && !paused && mode != null && mode != GuardMode.NATIVE_KEYS_ONLY;
+    }
+
+    /** Whether 3B no-bridge transient volume yield applies right now (only user-opted KEY_FILTER without 3A bridge assist). */
+    static boolean shouldUseVolumeYield(boolean compatEnabled, boolean paused,
+                                        boolean nativeHome, GuardMode mode,
+                                        boolean bridgeVolumeAssistActive) {
+        return shouldRequestKeyFilter(compatEnabled, paused, nativeHome, mode)
+                && !bridgeVolumeAssistActive;
+    }
+
+    /** Applies only the key-event filtering flag bit according to guard state, native HOME state, and chosen mode. */
+    static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit,
+                                  boolean compatEnabled, boolean paused,
+                                  boolean nativeHome, GuardMode mode) {
+        if (shouldRequestKeyFilter(compatEnabled, paused, nativeHome, mode)) return currentFlags | filterKeyEventsBit;
+        return currentFlags & ~filterKeyEventsBit;
     }
 
     /** Applies only the key-event filtering flag bit according to guard state and chosen mode. */
     static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit,
                                   boolean compatEnabled, boolean paused, GuardMode mode) {
-        if (shouldRequestKeyFilter(compatEnabled, paused, mode)) return currentFlags | filterKeyEventsBit;
-        return currentFlags & ~filterKeyEventsBit;
+        return applyKeyFilterFlag(currentFlags, filterKeyEventsBit, compatEnabled, paused, false, mode);
     }
 
     /** Applies only the key-event filtering flag bit according to the chosen guard mode. */
     static int applyKeyFilterFlag(int currentFlags, int filterKeyEventsBit, GuardMode mode) {
-        return applyKeyFilterFlag(currentFlags, filterKeyEventsBit, true, false, mode);
+        return applyKeyFilterFlag(currentFlags, filterKeyEventsBit, true, false, false, mode);
     }
 
     static Route route(boolean paused, boolean nativeHome, boolean picker, boolean compat,

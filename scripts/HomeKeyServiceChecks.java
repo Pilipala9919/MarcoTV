@@ -666,6 +666,131 @@ public final class HomeKeyServiceChecks {
 
         service.onDestroy();
         check("destroy_cleans_up_state", !HomeKeyService.connected && !HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeModeApplied);
+
+        // =========================================================================
+        // New Feature Checks: Native HOME gate & 3B No-Bridge 5s Volume Yield
+        // =========================================================================
+        // 1. Native HOME resolved to Marco -> clears KEY_FILTER bit AND stops extra Home interception!
+        TaskBridgeClient.resetForTest();
+        HomeKeyService nativeSvc = freshService();
+        SystemIntegration.setGuardMode(nativeSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        nativeSvc.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        nativeSvc.onServiceConnected();
+        nativeSvc.startedActivities.clear();
+        nativeSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        nativeSvc.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed += 120;
+        Handler.runDue();
+        check("native_home_stops_key_filter_direct_home_broadcast_and_pullback",
+                !HomeKeyService.runtimeKeyFilterRequested
+                && (nativeSvc.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) == 0
+                && !nativeSvc.onKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HOME))
+                && nativeSvc.startedActivities.isEmpty()
+                && !TaskBridgeClient.shouldEnableWake(nativeSvc)
+                && !TaskBridgeClient.shouldEnableVolumeAssist(nativeSvc));
+        nativeSvc.onDestroy();
+
+        // 2. 3B No-Bridge Mode (KEY_FILTER without TaskBridge): VOLUME_CHANGED_ACTION yields filter for 5s,
+        // Home press during yield STILL returns to Marco, sliding extends timer, and timer restores KEY_FILTER!
+        TaskBridgeClient.resetForTest();
+        HomeKeyService yieldSvc = freshService();
+        yieldSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(yieldSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        yieldSvc.onServiceConnected();
+        Diagnostics.events.clear();
+        check("3b_key_filter_starts_enabled_without_bridge",
+                HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive);
+
+        // Unchanged volume broadcast (prev == cur, e.g. boundary) MUST NOT spuriously trigger yield.
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 100)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 100));
+        check("3b_unchanged_volume_broadcast_does_not_yield",
+                HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive);
+
+        // Real volume change (30 -> 31) triggers 5s yield (drops FLAG_REQUEST_FILTER_KEY_EVENTS)!
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 30)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 31));
+        check("3b_volume_change_drops_key_filter_for_5s_yield",
+                !HomeKeyService.runtimeKeyFilterRequested
+                && (yieldSvc.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) == 0
+                && HomeKeyService.runtimeVolumeYieldActive
+                && HomeKeyService.isGuardModeApplied(yieldSvc)
+                && Diagnostics.events.contains("HOME_KEY_FILTER_YIELDED_FOR_VOLUME"));
+
+        // Pressing Home DURING the 5s yield window STILL returns to Marco via homekey broadcast!
+        yieldSvc.startedActivities.clear();
+        SystemClock.elapsed += 1500;
+        yieldSvc.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("3b_home_press_during_yield_still_returns_marco",
+                yieldSvc.startedActivities.size() == 1
+                && HomeKeyService.runtimeVolumeYieldActive);
+
+        // Second volume change at +3000ms slides the 5s yield window forward!
+        SystemClock.elapsed += 1500;
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 31)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 32));
+        SystemClock.elapsed += 3000; // 6s since first tap, only 3s since second tap -> still yielded!
+        Handler.runDue();
+        check("3b_subsequent_volume_change_extends_5s_window",
+                HomeKeyService.runtimeVolumeYieldActive && !HomeKeyService.runtimeKeyFilterRequested);
+
+        // After 5s from last volume change -> KEY_FILTER automatically restored!
+        SystemClock.elapsed += 2100;
+        Handler.runDue();
+        check("3b_timer_expiry_restores_key_filter_automatically",
+                !HomeKeyService.runtimeVolumeYieldActive
+                && HomeKeyService.runtimeKeyFilterRequested
+                && (yieldSvc.serviceInfo.flags & AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) != 0
+                && Diagnostics.events.contains("HOME_KEY_FILTER_RESTORED_AFTER_VOLUME"));
+
+        // Screen off during yield immediately cancels yield & restores clean state.
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 32)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 33));
+        yieldSvc.powerManager.interactive = false;
+        yieldSvc.dispatchBroadcast(new Intent(Intent.ACTION_SCREEN_OFF));
+        check("3b_screen_off_cancels_yield_immediately",
+                !HomeKeyService.runtimeVolumeYieldActive && HomeKeyService.runtimeKeyFilterRequested);
+        yieldSvc.powerManager.interactive = true;
+
+        // 3. When 3A bridge volume assist IS active, 3B yield MUST NOT drop KEY_FILTER!
+        android.os.IBinder fakeBridge = new android.os.IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                data.readInterfaceToken();
+                data.readString();
+                reply.writeNoException();
+                reply.writeString("{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeInputDeviceCount\":6}");
+                return true;
+            }
+        };
+        TaskBridgeClient.attach(yieldSvc, fakeBridge);
+        try { TaskBridgeClient.configure(yieldSvc); } catch (Exception e) { throw new RuntimeException(e); }
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 33)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 34));
+        check("3a_bridge_assist_active_suppresses_3b_yield",
+                TaskBridgeClient.volumeAssistActive()
+                && HomeKeyService.runtimeKeyFilterRequested
+                && !HomeKeyService.runtimeVolumeYieldActive);
+        TaskBridgeClient.resetForTest();
+        yieldSvc.onDestroy();
+
+        // 4. WINDOW_PULLBACK and NATIVE_KEYS_ONLY NEVER trigger 3B yield!
+        HomeKeyService winSvc = freshService();
+        SystemIntegration.setGuardMode(winSvc, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        winSvc.onServiceConnected();
+        winSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 20)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 21));
+        check("window_mode_never_triggers_3b_yield", !HomeKeyService.runtimeVolumeYieldActive);
+        winSvc.onDestroy();
+
         System.out.println("OK " + passed + " HomeKeyService runtime guard mode checks");
         System.exit(0);
     }
@@ -687,6 +812,7 @@ class MainActivity extends android.app.Activity {
 }
 class DefaultHomePanel {
     void show() {}
+    void request() {}
     void assistant() {}
     void compatibility() {}
     void restore() {}
