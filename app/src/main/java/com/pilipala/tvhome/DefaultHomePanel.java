@@ -32,9 +32,10 @@ final class DefaultHomePanel {
         boolean bridgeConnected=TaskBridgeClient.connected();
         boolean bridgeOld=bridgeConnected&&"bridge_update_required".equals(TaskBridgeClient.volumeAssistReason());
         boolean bridgeWriteFailed=bridgeConnected&&TaskBridgeClient.volumeAudioWriteFailed();
+        boolean bridgeAudioReadFailed=SystemIntegration.isBridgeAudioReadFailed();
         boolean bridgeVolumeVerified=TaskBridgeClient.volumeAssistActive()
                 ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
-        boolean bridgeConnectedUnverified=bridgeConnected&&!bridgeOld&&!bridgeWriteFailed&&!bridgeVolumeVerified;
+        boolean bridgeConnectedUnverified=bridgeConnected&&!bridgeOld&&!bridgeWriteFailed&&!bridgeAudioReadFailed&&!bridgeVolumeVerified;
         boolean allowedUnbound=HomeSetup.prefs(host).getBoolean("home_compat",false)
                 &&HomeSetup.serviceEnabled(host)&&!HomeKeyService.connected;
         String hint;
@@ -47,6 +48,8 @@ final class DefaultHomePanel {
                 hint="桌面服务已就绪。当前已连接旧版任务桥（最近任务可用，但需重启更新任务桥才支持音量辅助）。";
             }else if(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&bridgeWriteFailed){
                 hint="桌面服务已就绪。任务桥已连接，但上次音量调节写入被系统拒绝；保持窗口回拉可继续使用原厂音量手感，或切换「快速 Home」显式重试。";
+            }else if(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&bridgeAudioReadFailed){
+                hint="桌面服务已就绪。任务桥已连接，但系统音量读取受限；保持窗口回拉可继续使用原厂音量手感，切换「快速 Home」后将按无桥模式运行。";
             }else if(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK){
                 hint="桌面服务已就绪。窗口回拉由系统原生处理音量和方向键（部分固件回桌可能短暂闪过原厂桌面）；若希望直接拦截 Home 并验证首次长按音量连调，可先启动任务桥后改用「快速 Home」。";
             }else{
@@ -78,9 +81,10 @@ final class DefaultHomePanel {
         boolean bridgeConnected=TaskBridgeClient.connected();
         boolean bridgeOld=bridgeConnected&&"bridge_update_required".equals(TaskBridgeClient.volumeAssistReason());
         boolean bridgeWriteFailed=bridgeConnected&&TaskBridgeClient.volumeAudioWriteFailed();
+        boolean bridgeAudioReadFailed=SystemIntegration.isBridgeAudioReadFailed();
         boolean bridgeVolumeVerified=TaskBridgeClient.volumeAssistActive()
                 ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
-        boolean bridgeConnectedUnverified=bridgeConnected&&!bridgeOld&&!bridgeWriteFailed&&!bridgeVolumeVerified;
+        boolean bridgeConnectedUnverified=bridgeConnected&&!bridgeOld&&!bridgeWriteFailed&&!bridgeAudioReadFailed&&!bridgeVolumeVerified;
         String fastTag=mode==HomeSetupPolicy.GuardMode.KEY_FILTER&&!nativeActive&&!HomeSetup.paused(host)
                 ?(!HomeKeyService.connected||!HomeSetup.serviceEnabled(host)?"（等待服务连接）"
                         :(!HomeKeyService.runtimeKeyFilterRequested&&!HomeKeyService.runtimeVolumeYieldActive?"（按键过滤未生效）"
@@ -89,12 +93,14 @@ final class DefaultHomePanel {
                                                 :(HomeKeyService.runtimeVolumeYieldActive?"（无桥让渡中） ✓"
                                                         :(bridgeOld?"（旧版任务桥 · 无桥让渡） ✓"
                                                                 :(bridgeWriteFailed?"（任务桥调音受限 · 无桥让渡） ✓"
-                                                                        :(bridgeConnected?"（任务桥已连接 · 音量辅助未就绪，无桥让渡） ✓":"（无桥让渡） ✓"))))))))
+                                                                        :(bridgeAudioReadFailed?"（系统音量读取受限 · 无桥让渡） ✓"
+                                                                                :(bridgeConnected?"（任务桥已连接 · 音量辅助未就绪，无桥让渡） ✓":"（无桥让渡） ✓")))))))))
                 :(bridgeVolumeVerified?"（任务桥音量辅助已验证 · 推荐）"
                         :(bridgeConnectedUnverified?"（任务桥已连接，切换快速 Home 后验证音量辅助）"
                                 :(bridgeOld?"（旧版任务桥：需重启桥启用音量辅助）"
                                         :(bridgeWriteFailed?"（任务桥已连接 · 上次调音写入受限，切换可重试）"
-                                                :"（未连桥：无桥需先点一下再长按）"))));
+                                                :(bridgeAudioReadFailed?"（任务桥已连接 · 系统音量读取受限）"
+                                                        :"（未连桥：无桥需先点一下再长按）")))));
         String windowLabel=bridgeVolumeVerified
                 ?"窗口回拉（兼容模式，部分固件可能短暂闪过原厂桌面）"
                 :"窗口回拉（兼容模式，无桥推荐）";
@@ -166,6 +172,7 @@ final class DefaultHomePanel {
         boolean bridgeConnected=TaskBridgeClient.connected();
         boolean bridgeOld=bridgeConnected&&"bridge_update_required".equals(TaskBridgeClient.volumeAssistReason());
         boolean bridgeWriteFailed=bridgeConnected&&TaskBridgeClient.volumeAudioWriteFailed();
+        boolean bridgeAudioReadFailed=SystemIntegration.isBridgeAudioReadFailed();
         boolean bridgeVolumeVerified=TaskBridgeClient.volumeAssistActive()
                 ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
         boolean alreadyFastHome=SystemIntegration.isFastHomeActive(host);
@@ -178,8 +185,13 @@ final class DefaultHomePanel {
             guide="已连接旧版任务桥（最近任务正常，但需重启更新任务桥才能启用音量辅助）。\n当前启用「快速 Home」将按无桥模式运行：调节音量请「先点一下音量，松手后再长按」，临时让渡 5 秒后自动恢复。\n直接拦截实体 Home（在支持的固件上可减少切回原厂桌面；是否完全无闪屏以具体固件与实机画面录像为准）。";
         }else if(bridgeWriteFailed){
             guide="任务桥已连接，但上次音量调节写入被系统拒绝（音量辅助未就绪）。\n点击「启用快速 Home」将显式重试一次音量辅助（若正处于 5 秒让渡期，将在让渡结束后自动执行一次重试）；若本机固件仍拒绝写入，将保持无桥临时让渡模式（先点一下音量，松手后再长按），或改用「窗口回拉（兼容模式）」。";
+        }else if(bridgeAudioReadFailed){
+            String modeDesc=alreadyFastHome
+                    ?"当前已处于「快速 Home」并按无桥临时让渡模式运行"
+                    :"当前启用「快速 Home」后将按无桥临时让渡模式运行";
+            guide="任务桥已连接，但系统音量读取受限（音量辅助暂不可用）。\n"+modeDesc+"：调节音量请「先点一下音量，松手后再长按」，Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n若系统音频服务已恢复，可点击「启用快速 Home」重新探测；也可改用「窗口回拉（兼容模式）」。";
         }else if(bridgeConnected&&alreadyFastHome){
-            guide="任务桥已连接，但当前未检测到可用的音量键输入源（音量辅助未就绪）。\n当前已处于「快速 Home」并按无桥临时让渡模式运行：调节音量请「先点一下音量，松手后再长按」，Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n若蓝牙遥控器刚刚重连，可点击「启用快速 Home」重新探测；也可改用「窗口回拉（兼容模式）」。";
+            guide="任务桥已连接，但当前未检测到可用的音量键输入源（音量辅助未就绪）。\n当前已处于「快速 Home」并按无桥临时让渡模式运行：调节音量请「先点一下音量，松手后再长按」，Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n请检查蓝牙遥控器连接状态；若遥控器刚刚重连，可点击「启用快速 Home」重新探测，也可改用「窗口回拉（兼容模式）」。";
         }else if(bridgeConnected){
             String modeNote=currentWindowMode
                     ?"当前窗口模式未启动音量键读取，启用「快速 Home」后将自动探测音量输入源与音频调节能力；"

@@ -210,27 +210,6 @@ final class TaskBridgeClient {
         return t;
     });
     static void sync(Context c){
-        sync(c,false);
-    }
-    static void retryVolumeAssist(Context c){
-        synchronized(slotLock){
-            if(currentSlot.binder!=null&&currentSlot.binder.isBinderAlive()){
-                pendingRetryGeneration=currentSlot.gen;
-            }
-        }
-        sync(c,true);
-    }
-    static void clearPendingVolumeAssistRetry(){
-        synchronized(slotLock){
-            pendingRetryGeneration=-1L;
-        }
-    }
-    private static boolean isKeyFilterTargetActive(Context context){
-        return !HomeSetup.paused(context)
-                &&!SystemIntegration.homeIsOurs(context)
-                &&SystemIntegration.guardMode(context)==HomeSetupPolicy.GuardMode.KEY_FILTER;
-    }
-    private static void sync(Context c,final boolean explicitRetry){
         Context app=c.getApplicationContext();
         appContext=app;
         final ConnectionSlot queued=currentSlot;
@@ -257,7 +236,7 @@ final class TaskBridgeClient {
                 return;
             }
             try{
-                configure(app,explicitRetry);
+                configure(app,false);
             }catch(Exception ignored){
                 boolean cleared=false;
                 synchronized(slotLock){
@@ -277,6 +256,26 @@ final class TaskBridgeClient {
                 }
             }
         });
+    }
+    static void retryVolumeAssist(Context c){
+        // Register the retry ONCE for the connection present at click time; all queued sync paths
+        // (including preceding setGuardMode sync, this sync, or post-yield sync) share and consume it at most once.
+        synchronized(slotLock){
+            if(currentSlot.binder!=null&&currentSlot.binder.isBinderAlive()&&isKeyFilterTargetActive(c)){
+                pendingRetryGeneration=currentSlot.gen;
+            }
+        }
+        sync(c);
+    }
+    static void clearPendingVolumeAssistRetry(){
+        synchronized(slotLock){
+            pendingRetryGeneration=-1L;
+        }
+    }
+    private static boolean isKeyFilterTargetActive(Context context){
+        return !HomeSetup.paused(context)
+                &&!SystemIntegration.homeIsOurs(context)
+                &&SystemIntegration.guardMode(context)==HomeSetupPolicy.GuardMode.KEY_FILTER;
     }
     private static JSONObject callOn(IBinder binder,JSONObject request)throws Exception{
         if(binder==null||!binder.isBinderAlive())throw new IOException("任务服务未连接");
@@ -340,6 +339,16 @@ final class TaskBridgeClient {
     }
     static JSONObject configure(Context context,boolean explicitRetryVolumeAssist)throws Exception{
         appContext=context.getApplicationContext();
+        // If caller explicitly requested a retry, arm pendingRetryGeneration ONCE BEFORE entering the
+        // handshake loop so it binds strictly to the connection present at call time and never re-arms
+        // on a replacement peer or a second queued sync.
+        if(explicitRetryVolumeAssist){
+            synchronized(slotLock){
+                if(currentSlot.binder!=null&&currentSlot.binder.isBinderAlive()&&isKeyFilterTargetActive(context)){
+                    pendingRetryGeneration=currentSlot.gen;
+                }
+            }
+        }
         final int maxAttempts=4;
         for(int attempt=0;attempt<maxAttempts;attempt++){
             ConnectionSlot slot=currentSlot;
@@ -350,16 +359,10 @@ final class TaskBridgeClient {
             boolean wake=shouldEnableWake(context);
             boolean wantsVolAssist=shouldEnableVolumeAssist(context);
             boolean keyFilterTarget=isKeyFilterTargetActive(context);
-            boolean shouldRetry;
             synchronized(slotLock){
-                if(currentSlot.gen==gen&&currentSlot.binder==pinned){
-                    if(explicitRetryVolumeAssist&&keyFilterTarget){
-                        pendingRetryGeneration=gen;
-                    }else if(!keyFilterTarget&&pendingRetryGeneration==gen){
-                        pendingRetryGeneration=-1L;
-                    }
+                if(!keyFilterTarget&&pendingRetryGeneration==gen){
+                    pendingRetryGeneration=-1L;
                 }
-                shouldRetry=(explicitRetryVolumeAssist&&keyFilterTarget)||(pendingRetryGeneration==gen&&keyFilterTarget);
             }
             try{
                 // Pin protocol probe, configure write, and status readback to ONE (gen, IBinder).
@@ -376,10 +379,11 @@ final class TaskBridgeClient {
                     if(currentSlot.gen==gen&&currentSlot.binder==pinned){
                         if(!peerSupportsCurrent){
                             if(pendingRetryGeneration==gen)pendingRetryGeneration=-1L;
-                        }else if(sendVolAssist&&(explicitRetryVolumeAssist||pendingRetryGeneration==gen)&&keyFilterTarget){
-                            // Atomically claim the one-shot retry so concurrent sync/configure calls never fire it twice.
+                        }else if(sendVolAssist&&pendingRetryGeneration==gen&&keyFilterTarget){
+                            // Atomically consume the one-shot retry so normal sync, explicit sync, or yield expiry
+                            // never send more than ONE retry to this connection and NEVER leak to a newer connection.
                             sendRetry=true;
-                            if(pendingRetryGeneration==gen)pendingRetryGeneration=-1L;
+                            pendingRetryGeneration=-1L;
                         }
                     }
                 }

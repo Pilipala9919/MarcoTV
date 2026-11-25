@@ -3397,6 +3397,64 @@ public final class HomeFlowChecks {
                 && !restrictedBridgeLabel.contains("切换快速 Home 后验证")
                 && restrictedFastGuide.contains("未检测到可用的音量键输入源")
                 && !restrictedFastGuide.contains("当前窗口模式"));
+
+        // 1383c3e P3: Bridge reports audio read failure (audio_read_unavailable with 1 remote input, OR audio_unavailable with 0 inputs) ->
+        // BOTH Standard & Restricted MUST display "系统音量读取受限" and no-bridge usage, NEVER blame remote / missing input!
+        // Only genuine no_volume_input_device (audioReady=true, inputs=0) prompts checking the remote.
+        for (boolean restricted : new boolean[]{false, true}) {
+            BuildEdition.RESTRICTED = restricted;
+            String tag = restricted ? "restricted" : "standard";
+            // Case A: audio_read_unavailable with 1 recognized remote input
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String readFailLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            TvDialog readFailDh = livePanelHost.dialogs.active();
+            String readFailDhMsg = readFailDh.message;
+            String readFailDhItem = readFailDh.items[3];
+            readFailDh.clickItem(3);
+            String readFailGuide = livePanelHost.dialogs.active().message;
+            SystemIntegration.homeGestures(livePanelHost, livePanelHost.dialogs::show);
+            TvDialog readFailHg = livePanelHost.dialogs.active();
+            String readFailHgMsg = readFailHg.message;
+            String readFailHgItem = readFailHg.items[2];
+            check("1383c3e_p3_audio_read_unavailable_copy_" + tag,
+                    readFailLabel.contains("系统音量读取受限")
+                    && !readFailLabel.contains("未检测到可用音量输入源")
+                    && readFailDhMsg.contains("系统音量读取受限")
+                    && readFailDhItem.contains("系统音量读取受限")
+                    && readFailGuide.contains("系统音量读取受限")
+                    && readFailGuide.contains("先点一下音量，松手后再长按")
+                    && !readFailGuide.contains("未检测到可用的音量键输入源")
+                    && !readFailGuide.contains("检查蓝牙遥控器")
+                    && readFailHgMsg.contains("系统音量读取受限")
+                    && readFailHgItem.contains("系统音量读取受限"));
+            // Case B: audio_unavailable with 0 inputs
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"audio_unavailable\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String audioUnavailLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            livePanelHost.dialogs.active().clickItem(3);
+            String audioUnavailGuide = livePanelHost.dialogs.active().message;
+            check("1383c3e_p3_audio_unavailable_copy_" + tag,
+                    audioUnavailLabel.contains("系统音量读取受限")
+                    && !audioUnavailLabel.contains("未检测到可用音量输入源")
+                    && audioUnavailGuide.contains("系统音量读取受限")
+                    && !audioUnavailGuide.contains("检查蓝牙遥控器"));
+            // Case C: genuine no_volume_input_device (audioReady=true, inputs=0) DOES prompt checking remote
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String noInputLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            livePanelHost.dialogs.active().clickItem(3);
+            String noInputGuide = livePanelHost.dialogs.active().message;
+            check("1383c3e_p3_genuine_no_input_prompts_remote_" + tag,
+                    noInputLabel.contains("未检测到可用音量输入源")
+                    && !noInputLabel.contains("系统音量读取受限")
+                    && noInputGuide.contains("检查蓝牙遥控器")
+                    && !noInputGuide.contains("系统音量读取受限"));
+        }
+        BuildEdition.RESTRICTED = false;
         // Open DefaultHomePanel with TaskBridge ready in WINDOW_PULLBACK -> recommends 快速 Home + notes window flash!
         check("codex82_ui_open_default_home_panel_updates_items_and_message_on_bridge_drop",
                 beforeDropShowedBridge
@@ -3617,6 +3675,227 @@ public final class HomeFlowChecks {
             check("e33d5ae_p2_ui_entry_" + entry + "_retry_during_yield_recovers_after_yield_expiry",
                     uiRetryCount.get() == 1 && !uiWriteFailed[0] && TaskBridgeClient.volumeAssistActive());
             uiRetryHost.closeMenus();
+        }
+
+        // =========================================================================
+        // 1383c3e P2: Strict single-shot retry token across BOTH production UI call sequences:
+        // (1) Normal UI clicks with 2ms status latency (10x per entry = 20 clicks) -> EXACTLY 1 retry each!
+        // (2) Yield click with backlogged worker crossing expiry -> EXACTLY 1 retry total!
+        // (3) Peer swap during preStatus AND right after configure -> old peer <=1, NEW peer ALWAYS 0!
+        // (4) No-click control -> 0 retries, write failure preserved!
+        // =========================================================================
+        for (int entry = 0; entry < 2; entry++) {
+            TaskBridgeClient.resetForTest();
+            MainActivity sHost = freshEnv();
+            sHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(sHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(sHost);
+            final AtomicInteger clickRetries = new AtomicInteger();
+            final boolean[] sWriteFailed = {true};
+            final boolean[] sAssist = {false};
+            IBinder slowStatusV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("status".equals(act)) {
+                            Thread.sleep(2); // matches Codex's 2ms status probe
+                            boolean active = sAssist[0] && !sWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3).put("volumeAssist", sAssist[0])
+                                    .put("volumeAssistActive", active).put("volumeAudioReady", !sWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", sWriteFailed[0]).put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 1 : 0)
+                                    .put("volumeAssistReason", !sAssist[0] ? "disabled" : (sWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        } else if ("configure".equals(act)) {
+                            sAssist[0] = req.optBoolean("volumeAssist", false);
+                            if (req.optBoolean("retryVolumeAssist", false)) {
+                                clickRetries.incrementAndGet();
+                                sWriteFailed[0] = false;
+                            }
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(sHost, slowStatusV3);
+            TaskBridgeClient.configure(sHost);
+            boolean allExactOne = true;
+            for (int c = 0; c < 10; c++) {
+                sWriteFailed[0] = true;
+                clickRetries.set(0);
+                if (entry == 0) {
+                    sHost.defaultHome.show();
+                    sHost.dialogs.active().clickItem(3);
+                    sHost.dialogs.active().clickItem(0);
+                } else {
+                    SystemIntegration.homeGestures(sHost, sHost.dialogs::show);
+                    sHost.dialogs.active().clickItem(2);
+                }
+                drainBridgeSync();
+                if (clickRetries.get() != 1) allExactOne = false;
+                sHost.closeMenus();
+            }
+            check("1383c3e_p2_normal_click_10x_single_retry_entry_" + entry, allExactOne);
+        }
+
+        // Backlogged worker queue crossing 5s yield expiry -> EXACTLY 1 retry!
+        {
+            TaskBridgeClient.resetForTest();
+            MainActivity blHost = freshEnv();
+            blHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(blHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(blHost);
+            final AtomicInteger blRetries = new AtomicInteger();
+            final CountDownLatch blEntered = new CountDownLatch(1);
+            final CountDownLatch blRelease = new CountDownLatch(1);
+            final boolean[] blBlockNextStatus = {false};
+            final boolean[] blWriteFailed = {true};
+            final boolean[] blAssist = {false};
+            IBinder blBridge = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("status".equals(act)) {
+                            if (blBlockNextStatus[0]) {
+                                blBlockNextStatus[0] = false;
+                                blEntered.countDown();
+                                blRelease.await(5, TimeUnit.SECONDS);
+                            }
+                            boolean active = blAssist[0] && !blWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3).put("volumeAssist", blAssist[0])
+                                    .put("volumeAssistActive", active).put("volumeAudioReady", !blWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", blWriteFailed[0]).put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 1 : 0)
+                                    .put("volumeAssistReason", !blAssist[0] ? "disabled" : (blWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        } else if ("configure".equals(act)) {
+                            blAssist[0] = req.optBoolean("volumeAssist", false);
+                            if (req.optBoolean("retryVolumeAssist", false)) {
+                                blRetries.incrementAndGet();
+                                blWriteFailed[0] = false;
+                            }
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(blHost, blBridge);
+            TaskBridgeClient.configure(blHost);
+            // Enter yield, start a blocked worker sync so click tasks queue up behind it, then expire yield BEFORE releasing!
+            HomeKeyService.runtimeVolumeYieldActive = true;
+            HomeKeyService.runtimeKeyFilterRequested = false;
+            blBlockNextStatus[0] = true;
+            TaskBridgeClient.sync(blHost);
+            check("1383c3e_p2_backlog_worker_entered", blEntered.await(3, TimeUnit.SECONDS));
+            // Production UI call order during yield while worker is backlogged:
+            blHost.defaultHome.show();
+            blHost.dialogs.active().clickItem(3);
+            blHost.dialogs.active().clickItem(0); // calls setGuardMode(KEY_FILTER) + retryVolumeAssist()
+            // Yield expires BEFORE queued click tasks run!
+            HomeKeyService.runtimeVolumeYieldActive = false;
+            HomeKeyService.runtimeKeyFilterRequested = true;
+            TaskBridgeClient.sync(blHost);
+            blRelease.countDown();
+            drainBridgeSync();
+            check("1383c3e_p2_backlog_crossing_yield_expiry_sends_exactly_one_retry",
+                    blRetries.get() == 1 && !blWriteFailed[0] && TaskBridgeClient.volumeAssistActive());
+            blHost.closeMenus();
+        }
+
+        // Peer swap (v3 first -> v3 second) during preStatus AND right after configure send:
+        // original peer receives <=1 retry, NEW peer receives ZERO retries!
+        for (final boolean swapAfterSend : new boolean[]{false, true}) {
+            TaskBridgeClient.resetForTest();
+            MainActivity swHost = freshEnv();
+            swHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(swHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(swHost);
+            final AtomicInteger firstRetries = new AtomicInteger();
+            final AtomicInteger secondRetries = new AtomicInteger();
+            final IBinder secondV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        if ("configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                            secondRetries.incrementAndGet();
+                        }
+                        JSONObject ans = new JSONObject().put("ok", true)
+                                .put("volumeProtocolVersion", 3).put("volumeAssist", true)
+                                .put("volumeAssistActive", false).put("volumeAudioReady", false)
+                                .put("volumeAudioWriteFailed", true).put("volumeInputDeviceCount", 0)
+                                .put("volumeAssistReason", "audio_adjust_failed");
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            final boolean[] armedSwap = {false};
+            final boolean[] didSwap = {false};
+            final IBinder firstV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        if ("configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                            firstRetries.incrementAndGet();
+                        }
+                        if (armedSwap[0] && !didSwap[0]) {
+                            if (!swapAfterSend && "status".equals(act)) {
+                                didSwap[0] = true;
+                                TaskBridgeClient.attach(swHost, secondV3);
+                            } else if (swapAfterSend && "configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                                didSwap[0] = true;
+                                TaskBridgeClient.attach(swHost, secondV3);
+                            }
+                        }
+                        JSONObject ans = new JSONObject().put("ok", true)
+                                .put("volumeProtocolVersion", 3).put("volumeAssist", true)
+                                .put("volumeAssistActive", false).put("volumeAudioReady", false)
+                                .put("volumeAudioWriteFailed", true).put("volumeInputDeviceCount", 0)
+                                .put("volumeAssistReason", "audio_adjust_failed");
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(swHost, firstV3);
+            TaskBridgeClient.configure(swHost);
+            armedSwap[0] = true;
+            // Production UI call order:
+            swHost.defaultHome.show();
+            swHost.dialogs.active().clickItem(3);
+            swHost.dialogs.active().clickItem(0);
+            drainBridgeSync();
+            TaskBridgeClient.configure(swHost); // subsequent sync on new peer must also send 0 retries
+            check("1383c3e_p2_peer_swap_" + (swapAfterSend ? "post_send" : "pre_status") + "_new_peer_zero_retries",
+                    didSwap[0]
+                    && firstRetries.get() == (swapAfterSend ? 1 : 0)
+                    && secondRetries.get() == 0);
+            swHost.closeMenus();
         }
         TaskBridgeClient.resetForTest();
 
