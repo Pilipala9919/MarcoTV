@@ -198,12 +198,18 @@ final class PhoneManager implements PhoneHttp.Handler {
             host.toast("本次已配对；连接新手机请先断开并重新开启");
             return;
         }
-        if(SystemClock.elapsedRealtime()>pairUntil){
+        if(closed||server==null){
+            startServerAndShowQr(mode);
+            return;
+        }
+        long now=SystemClock.elapsedRealtime();
+        if(now>pairUntil||pairCode.isEmpty()){
             pairCode=secret();
             nonce="";
             clientAddress="";
-            pairUntil=SystemClock.elapsedRealtime()+5*60000;
+            pairUntil=now+5*60000;
         }
+        until=Math.max(until,now+15*60000);
         String query="/";
         if(wallpaperMode)query="/?tab=wallpaper";
         else if(cardMode&&!initialCardId.isEmpty()){
@@ -275,6 +281,7 @@ final class PhoneManager implements PhoneHttp.Handler {
         approved=false;
         nonce="";
         clientAddress="";
+        authority="";
         pairCode="";
         cookie="";
         csrf="";
