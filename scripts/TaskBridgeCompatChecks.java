@@ -132,6 +132,19 @@ public final class TaskBridgeCompatChecks {
         void adjustStreamVolume(int streamType, int direction, int flags, String callingPackage);
     }
 
+    public interface AudioBothStreams {
+        void adjustStreamVolume(int streamType, int direction, int flags, String callingPackage);
+        void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags, String callingPackage, String caller);
+        int getStreamVolume(int streamType);
+        int getStreamMaxVolume(int streamType);
+        int getStreamMinVolume(int streamType);
+    }
+
+    public interface AudioReadOnly {
+        int getStreamVolume(int streamType);
+        int getStreamMaxVolume(int streamType);
+    }
+
     static final class VirtualScheduler implements VolumeRepeatEngine.Scheduler {
         private static final class Entry {
             final long runAt;
@@ -264,30 +277,115 @@ public final class TaskBridgeCompatChecks {
                 Collections.singletonList("sliced").equals(
                         TaskBridgeServer.unwrapTaskList(new FakeParceledListSlice(Collections.singletonList("sliced")))));
 
-        // Audio service reflection checks (API 23-35 signatures + fallback)
+        // Audio service reflection checks (API 23-35 signatures + stream-consistency + capability probe)
         int[] a28Call = {0};
         AudioApi28 a28 = new AudioApi28() {
             @Override public void adjustSuggestedStreamVolume(int d, int s, int f, String p, String c) {
-                if (d == 1 && s == Integer.MIN_VALUE && f == 1 && "com.android.shell".equals(p)) a28Call[0]++;
+                if (d == 1 && s == 3 && f == 1 && "com.android.shell".equals(p)) a28Call[0]++;
             }
             @Override public int getStreamVolume(int s) { return s == 3 ? 42 : -1; }
             @Override public int getStreamMaxVolume(int s) { return s == 3 ? 100 : -1; }
         };
         check("audio_api28_five_arg_adjust_and_read",
-                TaskBridgeServer.invokeAdjustSuggestedVolume(a28, AudioApi28.class, 1, Integer.MIN_VALUE, 1, "com.android.shell", "MarcoTV", 2000)
+                TaskBridgeServer.invokeAdjustStreamOrSuggestedVolume(a28, AudioApi28.class, 1, 3, 1, "com.android.shell", "MarcoTV", 2000)
                 && a28Call[0] == 1
                 && TaskBridgeServer.invokeGetStreamVolume(a28, AudioApi28.class, 3) == 42
-                && TaskBridgeServer.invokeGetStreamMaxVolume(a28, AudioApi28.class, 3) == 100);
+                && TaskBridgeServer.invokeGetStreamMaxVolume(a28, AudioApi28.class, 3) == 100
+                && TaskBridgeServer.isAudioControlCapable(a28, AudioApi28.class, 3));
         int[] a31Call = {0};
-        AudioApi31 a31 = (d, s, f, p, c, u) -> { if (d == -1 && u == 2000) a31Call[0]++; };
+        AudioApi31 a31 = (d, s, f, p, c, u) -> { if (d == -1 && s == 3 && u == 2000) a31Call[0]++; };
         check("audio_api31_six_arg_uid_adjust",
-                TaskBridgeServer.invokeAdjustSuggestedVolume(a31, AudioApi31.class, -1, Integer.MIN_VALUE, 1, "com.android.shell", "MarcoTV", 2000)
+                TaskBridgeServer.invokeAdjustStreamOrSuggestedVolume(a31, AudioApi31.class, -1, 3, 1, "com.android.shell", "MarcoTV", 2000)
                 && a31Call[0] == 1);
         int[] aFbCall = {0};
         AudioFallbackOnly aFb = (s, d, f, p) -> { if (s == 3 && d == 1 && "com.android.shell".equals(p)) aFbCall[0]++; };
         check("audio_fallback_adjust_stream_volume",
-                TaskBridgeServer.invokeAdjustSuggestedVolume(aFb, AudioFallbackOnly.class, 1, Integer.MIN_VALUE, 1, "com.android.shell", "MarcoTV", 2000)
+                TaskBridgeServer.invokeAdjustStreamOrSuggestedVolume(aFb, AudioFallbackOnly.class, 1, 3, 1, "com.android.shell", "MarcoTV", 2000)
                 && aFbCall[0] == 1);
+
+        // When both adjustStreamVolume and adjustSuggestedStreamVolume exist, prefer adjustStreamVolume(STREAM_MUSIC)
+        // so readback and adjust always target the exact same audio stream.
+        int[] bothCalls = {0, 0}; // [stream, suggested]
+        AudioBothStreams aBoth = new AudioBothStreams() {
+            @Override public void adjustStreamVolume(int s, int d, int f, String p) { if (s == 3 && d == 1) bothCalls[0]++; }
+            @Override public void adjustSuggestedStreamVolume(int d, int s, int f, String p, String c) { bothCalls[1]++; }
+            @Override public int getStreamVolume(int s) { return 25; }
+            @Override public int getStreamMaxVolume(int s) { return 100; }
+            @Override public int getStreamMinVolume(int s) { return 0; }
+        };
+        check("audio_prefers_adjust_stream_volume_for_read_adjust_consistency",
+                TaskBridgeServer.invokeAdjustStreamOrSuggestedVolume(aBoth, AudioBothStreams.class, 1, 3, 1, "com.android.shell", "MarcoTV", 2000)
+                && bothCalls[0] == 1 && bothCalls[1] == 0
+                && TaskBridgeServer.invokeGetStreamMinVolume(aBoth, AudioBothStreams.class, 3) == 0
+                && TaskBridgeServer.isAudioControlCapable(aBoth, AudioBothStreams.class, 3));
+
+        // Audio capability probe MUST reject objects lacking adjust method or failing volume readback!
+        AudioReadOnly readOnlyAudio = new AudioReadOnly() {
+            @Override public int getStreamVolume(int s) { return 20; }
+            @Override public int getStreamMaxVolume(int s) { return 100; }
+        };
+        AudioApi28 brokenReadAudio = new AudioApi28() {
+            @Override public void adjustSuggestedStreamVolume(int d, int s, int f, String p, String c) { }
+            @Override public int getStreamVolume(int s) { return -1; }
+            @Override public int getStreamMaxVolume(int s) { return 100; }
+        };
+        check("audio_capability_probe_rejects_missing_adjust_or_broken_readback",
+                !TaskBridgeServer.isAudioControlCapable(null, null, 3)
+                && !TaskBridgeServer.isAudioControlCapable(new Object(), Object.class, 3)
+                && !TaskBridgeServer.isAudioControlCapable(readOnlyAudio, AudioReadOnly.class, 3)
+                && !TaskBridgeServer.isAudioControlCapable(brokenReadAudio, AudioApi28.class, 3));
+
+        // getevent -p capability parsing: plain keyboard without KEY_VOLUMEDOWN (0072) + KEY_VOLUMEUP (0073) MUST be rejected!
+        String plainKeyboardGetevent =
+                "add device 1: /dev/input/event1\n"
+                + "  name:     \"USB Keyboard\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 001c  0067  0069  006a  006c  00ac\n"
+                + "add device 2: /dev/input/event2\n"
+                + "  name:     \"VolumeUpOnly\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 0073\n";
+        check("getevent_rejects_plain_keyboard_and_single_volume_key_devices",
+                TaskBridgeServer.parseVolumeCapableEventPaths(plainKeyboardGetevent).isEmpty());
+
+        // Real MiTV-ASTP0 / 22.8.30.1385 getevent -p format: selects ONLY event5 (BT remote) & event0 (keypad), never event1..4!
+        String mitvAstp0Getevent =
+                "add device 1: /dev/input/event5\n"
+                + "  name:     \"Xiaomi BT Remote\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 001c  0067  0069  006a  006c  0072  0073  00ac\n"
+                + "add device 2: /dev/input/event4\n"
+                + "  name:     \"adc_keypad\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 0074\n"
+                + "add device 3: /dev/input/event3\n"
+                + "  name:     \"vad_keypad\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 00d9\n"
+                + "add device 4: /dev/input/event0\n"
+                + "  name:     \"aml_keypad\"\n"
+                + "  events:\n"
+                + "    KEY (0001): 001c  0072  0073  0074\n";
+        java.util.Set<String> mitvVolPaths = TaskBridgeServer.parseVolumeCapableEventPaths(mitvAstp0Getevent);
+        check("getevent_selects_only_real_volume_capable_devices",
+                mitvVolPaths.size() == 2
+                && mitvVolPaths.contains("/dev/input/event5")
+                && mitvVolPaths.contains("/dev/input/event0")
+                && !mitvVolPaths.contains("/dev/input/event4")
+                && !mitvVolPaths.contains("/dev/input/event3"));
+
+        // Server status JSON strictly gates volumeAssistActive on requested + audioCapable + verified device count > 0!
+        org.json.JSONObject stNoDev = TaskBridgeServer.buildVolumeStatusJson(true, true, aBoth, AudioBothStreams.class, false, 0, 0, "idle");
+        org.json.JSONObject stNoAudio = TaskBridgeServer.buildVolumeStatusJson(true, true, readOnlyAudio, AudioReadOnly.class, false, 2, 0, "idle");
+        org.json.JSONObject stAudioFailed = TaskBridgeServer.buildVolumeStatusJson(true, true, aBoth, AudioBothStreams.class, true, 2, 0, "audio_read_unavailable");
+        org.json.JSONObject stReady = TaskBridgeServer.buildVolumeStatusJson(true, true, aBoth, AudioBothStreams.class, false, 2, 5, "key_up");
+        org.json.JSONObject stOff = TaskBridgeServer.buildVolumeStatusJson(false, true, aBoth, AudioBothStreams.class, false, 2, 0, "disabled");
+        check("server_status_gates_volume_assist_on_audio_and_volume_devices",
+                !stNoDev.optBoolean("volumeAssistActive") && "no_volume_input_device".equals(stNoDev.optString("volumeAssistReason"))
+                && !stNoAudio.optBoolean("volumeAssistActive") && !stNoAudio.optBoolean("volumeAudioReady") && "audio_unavailable".equals(stNoAudio.optString("volumeAssistReason"))
+                && !stAudioFailed.optBoolean("volumeAssistActive") && !stAudioFailed.optBoolean("volumeAudioReady") && "audio_runtime_failed".equals(stAudioFailed.optString("volumeAssistReason"))
+                && stReady.optBoolean("volumeAssistActive") && stReady.optBoolean("volumeAudioReady") && "ready".equals(stReady.optString("volumeAssistReason"))
+                && !stOff.optBoolean("volumeAssistActive") && "disabled".equals(stOff.optString("volumeAssistReason")));
 
         // 16-byte (32-bit armv7l) and 24-byte (64-bit arm64) struct input_event parsing
         VolumeRepeatEngine.InputKeyEvent ev32 = VolumeRepeatEngine.parseInputEvent(encodeInputEvent(false, 1, 115, 1), false);
@@ -301,40 +399,45 @@ public final class TaskBridgeCompatChecks {
         VirtualScheduler sched = new VirtualScheduler();
         boolean[] flags = {true, true, true}; // enabled, connected, interactive
         int[] vol = {30};
+        int[] minVol = {0};
+        int[] maxVol = {100};
         java.util.List<Integer> dirs = new java.util.ArrayList<>();
+        java.util.List<String> capFailures = new java.util.ArrayList<>();
         VolumeRepeatEngine engine = new VolumeRepeatEngine(sched, new VolumeRepeatEngine.Callbacks() {
             @Override public boolean isEnabled() { return flags[0]; }
             @Override public boolean isConnected() { return flags[1]; }
             @Override public boolean isInteractive() { return flags[2]; }
             @Override public int readStreamVolume() { return vol[0]; }
-            @Override public int readStreamMaxVolume() { return 100; }
+            @Override public int readStreamMinVolume() { return minVol[0]; }
+            @Override public int readStreamMaxVolume() { return maxVol[0]; }
             @Override public boolean adjustVolume(int direction) {
                 dirs.add(direction);
-                vol[0] = Math.max(0, Math.min(100, vol[0] + direction));
+                vol[0] = Math.max(minVol[0], Math.min(maxVol[0], vol[0] + direction));
                 return true;
             }
+            @Override public void onCapabilityFailure(String reason) { capFailures.add(reason); }
             @Override public long nowMs() { return sched.now; }
         });
 
-        // 1. Short press (< 500ms) -> 0 synthetic steps (system handles single step only)
+        // 1. Short press (< 550ms) -> 0 synthetic steps (system handles single step only)
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
         vol[0] = 31; // system handled initial press
-        sched.advanceBy(450);
+        sched.advanceBy(500);
         engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
         sched.advanceBy(500);
         check("vol_engine_short_press_produces_zero_synthetic_steps",
                 dirs.isEmpty() && !engine.isHolding() && "key_up".equals(engine.lastStopReason()));
 
-        // 2. First long press Vol+ (~3s) -> starts at 500ms, steps every 55ms, stops IMMEDIATELY on key_up!
+        // 2. First long press Vol+ (~3s) -> starts at 550ms, steps every 55ms, stops IMMEDIATELY on key_up!
         dirs.clear();
         vol[0] = 30;
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
         vol[0] = 31; // system initial +1
-        sched.advanceBy(499);
+        sched.advanceBy(549);
         int beforeDelay = dirs.size();
-        sched.advanceBy(1); // 500ms -> 1st step
+        sched.advanceBy(1); // 550ms -> 1st step
         int atDelay = dirs.size();
-        sched.advanceBy(2500); // total 3000ms hold
+        sched.advanceBy(2450); // total 3000ms hold
         int atRelease = dirs.size();
         engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
         sched.advanceBy(1000);
@@ -364,16 +467,99 @@ public final class TaskBridgeCompatChecks {
         check("vol_engine_kernel_repeat_suppresses_compensation",
                 dirs.isEmpty() && !engine.isHolding() && "kernel_repeat".equals(engine.lastStopReason()));
 
-        // 5. External InputDispatcher native repeat (volume advances by itself) cancels compensation!
+        // 5A. Codex P1 Control: System starts native repeat at 430ms every 55ms during 1.1s hold -> 0 Marco steps!
         dirs.clear();
-        vol[0] = 40;
+        vol[0] = 20;
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
-        vol[0] = 41; // initial press
-        sched.advanceBy(350); // baseline sampled at 41
-        vol[0] = 42; // system repeated natively before 500ms!
-        sched.advanceBy(800);
-        check("vol_engine_native_dispatcher_repeat_aborts_compensation",
-                dirs.isEmpty() && !engine.isHolding() && "native_repeat_detected".equals(engine.lastStopReason()));
+        vol[0] = 21; // system initial +1 at t=0
+        long holdStart430 = sched.now;
+        for (long t = 430; t < 1100; t += 55) {
+            sched.advanceBy((holdStart430 + t) - sched.now);
+            vol[0] = Math.min(100, vol[0] + 1);
+        }
+        sched.advanceBy((holdStart430 + 1100) - sched.now);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        sched.advanceBy(300);
+        check("vol_engine_system_repeat_at_430ms_produces_zero_marco_steps",
+                dirs.isEmpty() && vol[0] == 34 && !engine.isHolding()
+                && "native_repeat_detected".equals(engine.lastStopReason()));
+
+        // 5B. Codex P1 Counterexample: System starts native repeat at 530ms every 55ms during 1.1s hold from vol=20 ->
+        // MUST end at EXACT vol=31 (NOT 42!) with ZERO Marco steps!
+        dirs.clear();
+        vol[0] = 20;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 21; // system initial +1 at t=0
+        long holdStart530 = sched.now;
+        for (long t = 530; t < 1080; t += 55) { // 10 native repeat steps: 530, 585, ..., 1025 => 21 + 10 = 31
+            sched.advanceBy((holdStart530 + t) - sched.now);
+            vol[0] = Math.min(100, vol[0] + 1);
+        }
+        sched.advanceBy((holdStart530 + 1100) - sched.now);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        sched.advanceBy(300);
+        check("vol_engine_system_repeat_at_530ms_no_double_step_exact_31",
+                dirs.isEmpty() && vol[0] == 31 && !engine.isHolding()
+                && "native_repeat_detected".equals(engine.lastStopReason()));
+
+        // 5C. Even if system starts late native repeat at 580ms (AFTER Marco's 1st step at 550ms),
+        // Marco detects moved(2) > stepsIssued(1) on next tick and stops immediately (never doubles)!
+        dirs.clear();
+        vol[0] = 20;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 21;
+        long holdStart580 = sched.now;
+        sched.advanceBy(580); // Marco took 1 step at 550ms -> vol=22
+        vol[0] = 23; // System starts native repeat at 580ms!
+        for (long t = 635; t < 1100; t += 55) {
+            sched.advanceBy((holdStart580 + t) - sched.now);
+            vol[0] = Math.min(100, vol[0] + 1);
+        }
+        sched.advanceBy((holdStart580 + 1100) - sched.now);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("vol_engine_late_system_repeat_at_580ms_aborts_immediately",
+                dirs.size() == 1 && !engine.isHolding()
+                && "external_volume_advance".equals(engine.lastStopReason()));
+
+        // 5D. Readback failure (readStreamVolume == -1) -> ZERO adjustments and notifies capability failure!
+        dirs.clear();
+        capFailures.clear();
+        vol[0] = -1;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        sched.advanceBy(1100);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("vol_engine_readback_failure_issues_zero_adjustments",
+                dirs.isEmpty() && !engine.isHolding()
+                && "audio_read_unavailable".equals(engine.lastStopReason())
+                && !capFailures.isEmpty());
+
+        // 5E. Already at max (100, Vol+) or min (0, Vol-) -> ZERO adjustments!
+        dirs.clear();
+        vol[0] = 100;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        sched.advanceBy(1100);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("vol_engine_at_max_boundary_issues_zero_adjustments",
+                dirs.isEmpty() && !engine.isHolding() && "boundary_reached".equals(engine.lastStopReason()));
+
+        dirs.clear();
+        vol[0] = 0;
+        engine.onKeyEvent("/dev/input/event5", 1, 114, 1);
+        sched.advanceBy(1100);
+        engine.onKeyEvent("/dev/input/event5", 1, 114, 0);
+        check("vol_engine_at_min_boundary_issues_zero_adjustments",
+                dirs.isEmpty() && !engine.isHolding() && "boundary_reached".equals(engine.lastStopReason()));
+
+        // Reaching boundary mid-hold (98 -> system 99 -> Marco 100) stops immediately with 0 redundant steps!
+        dirs.clear();
+        vol[0] = 98;
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
+        vol[0] = 99;
+        sched.advanceBy(1100);
+        engine.onKeyEvent("/dev/input/event5", 1, 115, 0);
+        check("vol_engine_stops_cleanly_upon_reaching_max_boundary",
+                dirs.size() == 1 && vol[0] == 100 && !engine.isHolding()
+                && "boundary_reached".equals(engine.lastStopReason()));
 
         // 6. Bridge disconnect mid-hold stops immediately!
         dirs.clear();
@@ -401,8 +587,9 @@ public final class TaskBridgeCompatChecks {
         check("vol_engine_device_disconnect_stops_immediately",
                 beforeEof >= 2 && dirs.size() == beforeEof && "device_disconnected".equals(engine.lastStopReason()));
 
-        // 8. Lost release event hits safety ceiling and stops itself!
+        // 8. Lost release event hits safety ceiling even on wide-scale audio stream!
         dirs.clear();
+        maxVol[0] = 200;
         vol[0] = 10;
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
         vol[0] = 11;
@@ -410,13 +597,14 @@ public final class TaskBridgeCompatChecks {
         check("vol_engine_lost_release_hits_safety_timeout",
                 !engine.isHolding() && "safety_timeout".equals(engine.lastStopReason())
                 && dirs.size() <= VolumeRepeatEngine.DEFAULT_MAX_STEPS);
+        maxVol[0] = 100;
 
         // 9. Another key press (e.g. HOME=172) stops active volume hold!
         dirs.clear();
         vol[0] = 30;
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
         vol[0] = 31;
-        sched.advanceBy(600);
+        sched.advanceBy(620);
         int beforeOther = dirs.size();
         engine.onKeyEvent("/dev/input/event5", 1, 172, 1);
         sched.advanceBy(1000);
@@ -428,7 +616,7 @@ public final class TaskBridgeCompatChecks {
         vol[0] = 30;
         engine.onKeyEvent("/dev/input/event5", 1, 115, 1);
         vol[0] = 31;
-        sched.advanceBy(600);
+        sched.advanceBy(620);
         int beforeOff = dirs.size();
         flags[2] = false;
         sched.advanceBy(500);

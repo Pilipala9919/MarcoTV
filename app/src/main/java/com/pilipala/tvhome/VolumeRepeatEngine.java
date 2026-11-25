@@ -5,18 +5,19 @@ package com.pilipala.tvhome;
 /**
  * Deterministic volume long-press repeat compensator for TaskBridgeServer (3A mode).
  *
- * <p>Short presses (< initialDelayMs) produce zero synthetic adjustments so the system handles
- * them natively (1 step). Continuous holds begin stepping at {@code initialDelayMs} (default 500 ms)
- * every {@code repeatIntervalMs} (default 55 ms), stop immediately on key release, other key press,
- * native repeat detection, bridge disconnect, input device EOF/disconnect, screen off, mode switch,
- * or safety ceiling.
+ * <p>Short presses produce zero synthetic adjustments so the system handles them natively (1 step).
+ * Continuous holds wait past standard native repeat latency ({@code DEFAULT_INITIAL_DELAY_MS = 550 ms}),
+ * verify volume readback and bounds on the same audio stream, step every {@code 55 ms}, and abort
+ * immediately if native repeat (early or late), readback failure, boundary saturation, key release,
+ * other key press, bridge disconnect, device EOF/disconnect, screen off, mode switch, or safety
+ * ceiling occurs.
  */
 final class VolumeRepeatEngine {
     static final int EV_KEY = 1;
     static final int KEY_VOLUMEDOWN = 114;
     static final int KEY_VOLUMEUP = 115;
 
-    static final long DEFAULT_INITIAL_DELAY_MS = 500L;
+    static final long DEFAULT_INITIAL_DELAY_MS = 550L;
     static final long DEFAULT_REPEAT_INTERVAL_MS = 55L;
     static final long DEFAULT_BASELINE_SAMPLE_MS = 340L;
     static final int DEFAULT_MAX_STEPS = 120;
@@ -35,9 +36,11 @@ final class VolumeRepeatEngine {
         boolean isConnected();
         boolean isInteractive();
         int readStreamVolume();
+        int readStreamMinVolume();
         int readStreamMaxVolume();
         boolean adjustVolume(int direction);
         long nowMs();
+        default void onCapabilityFailure(String reason) { }
     }
 
     static final class InputKeyEvent {
@@ -83,11 +86,8 @@ final class VolumeRepeatEngine {
     private int activeCode;
     private int activeDirection;
     private long holdStartMs;
-    private int volAtDown = -1;
     private int baselineVol = -1;
     private boolean baselineSampled;
-    private int inferredStep;
-    private boolean stepKnownFromDown;
     private int stepsIssued;
     private boolean nativeRepeatDetected;
     private TaskHandle baselineTask;
@@ -145,6 +145,17 @@ final class VolumeRepeatEngine {
             return;
         }
         int downVol = safeReadVolume();
+        int minVol = safeReadMinVolume();
+        int maxVol = safeReadMaxVolume();
+        if (!validVolumeBounds(downVol, minVol, maxVol)) {
+            synchronized (lock) { cancelLocked("audio_read_unavailable"); }
+            notifyCapabilityFailure("audio_read_unavailable");
+            return;
+        }
+        if (atBoundary(downVol, minVol, maxVol, dir)) {
+            synchronized (lock) { cancelLocked("boundary_reached"); }
+            return;
+        }
         synchronized (lock) {
             cancelLocked("restarted");
             final long gen = ++generation;
@@ -152,11 +163,8 @@ final class VolumeRepeatEngine {
             activeCode = code;
             activeDirection = dir;
             holdStartMs = callbacks.nowMs();
-            volAtDown = downVol;
             baselineVol = downVol;
             baselineSampled = false;
-            inferredStep = 0;
-            stepKnownFromDown = false;
             stepsIssued = 0;
             nativeRepeatDetected = false;
             baselineTask = scheduler.schedule(() -> sampleBaseline(gen), baselineSampleMs);
@@ -198,21 +206,33 @@ final class VolumeRepeatEngine {
         }
     }
 
+    private static boolean validVolumeBounds(int curVol, int minVol, int maxVol) {
+        return curVol >= 0 && minVol >= 0 && maxVol > minVol && curVol >= minVol && curVol <= maxVol;
+    }
+
+    private static boolean atBoundary(int curVol, int minVol, int maxVol, int dir) {
+        return (dir > 0 && curVol >= maxVol) || (dir < 0 && curVol <= minVol);
+    }
+
     private void sampleBaseline(long gen) {
         int cur = safeReadVolume();
+        int minVol = safeReadMinVolume();
+        int maxVol = safeReadMaxVolume();
+        boolean readFailed = false;
         synchronized (lock) {
             if (gen != generation || activeCode == 0) return;
             baselineTask = null;
-            baselineVol = cur;
-            baselineSampled = cur >= 0;
-            if (cur >= 0 && volAtDown >= 0) {
-                int diff = (cur - volAtDown) * activeDirection;
-                if (diff > 0) {
-                    inferredStep = diff;
-                    stepKnownFromDown = true;
-                }
+            if (!validVolumeBounds(cur, minVol, maxVol)) {
+                cancelLocked("audio_read_unavailable");
+                readFailed = true;
+            } else if (atBoundary(cur, minVol, maxVol, activeDirection)) {
+                cancelLocked("boundary_reached");
+            } else {
+                baselineVol = cur;
+                baselineSampled = true;
             }
         }
+        if (readFailed) notifyCapabilityFailure("audio_read_unavailable");
     }
 
     private void onRepeatTick(long gen) {
@@ -244,60 +264,92 @@ final class VolumeRepeatEngine {
             dir = activeDirection;
         }
 
-        // Duplicate-adjustment guard: detect if the system's own InputDispatcher is already repeating.
         int curVol = safeReadVolume();
+        int minVol = safeReadMinVolume();
         int maxVol = safeReadMaxVolume();
+        boolean readFailed = false;
+        boolean abort = false;
         synchronized (lock) {
             if (gen != generation || activeCode == 0) return;
-            boolean saturated = (dir > 0 && maxVol > 0 && curVol >= maxVol) || (dir < 0 && curVol == 0);
-            if (baselineSampled && curVol >= 0 && !saturated) {
+            if (!baselineSampled || !validVolumeBounds(curVol, minVol, maxVol)) {
+                cancelLocked("audio_read_unavailable");
+                readFailed = true;
+                abort = true;
+            } else if (atBoundary(curVol, minVol, maxVol, dir)) {
+                cancelLocked("boundary_reached");
+                abort = true;
+            } else {
+                // Exact 1-index-per-call invariant: any advance beyond Marco's own issued steps
+                // proves an external/native repeater is already advancing this same audio stream.
                 int moved = (curVol - baselineVol) * dir;
                 if (stepsIssued == 0) {
                     if (moved > 0) {
                         nativeRepeatDetected = true;
                         cancelLocked("native_repeat_detected");
-                        return;
+                        abort = true;
                     }
-                } else {
-                    if (inferredStep <= 0 && moved > 0) {
-                        inferredStep = Math.max(1, moved / stepsIssued);
-                    }
-                    if (inferredStep > 0) {
-                        int maxExpected = (stepKnownFromDown ? stepsIssued : stepsIssued + 1) * inferredStep;
-                        if (moved > maxExpected) {
-                            nativeRepeatDetected = true;
-                            cancelLocked("external_volume_advance");
-                            return;
-                        }
-                    }
+                } else if (moved > stepsIssued) {
+                    nativeRepeatDetected = true;
+                    cancelLocked("external_volume_advance");
+                    abort = true;
                 }
             }
         }
+        if (readFailed) notifyCapabilityFailure("audio_read_unavailable");
+        if (abort) return;
 
         boolean adjusted = false;
         try {
             adjusted = callbacks.adjustVolume(dir);
         } catch (Throwable ignored) { }
 
+        if (!adjusted) {
+            synchronized (lock) {
+                if (gen == generation && activeCode != 0) cancelLocked("audio_adjust_failed");
+            }
+            notifyCapabilityFailure("audio_adjust_failed");
+            return;
+        }
+
+        int afterVol = safeReadVolume();
+        int afterMin = safeReadMinVolume();
+        int afterMax = safeReadMaxVolume();
+        boolean afterReadFailed = false;
         synchronized (lock) {
             if (gen != generation || activeCode == 0) return;
-            if (!adjusted) {
-                cancelLocked("audio_adjust_failed");
-                return;
-            }
             stepsIssued++;
             totalAdjustments++;
-            if (stepsIssued >= maxSteps || (callbacks.nowMs() - holdStartMs) >= maxHoldMs) {
+            if (!validVolumeBounds(afterVol, afterMin, afterMax)) {
+                cancelLocked("audio_read_unavailable");
+                afterReadFailed = true;
+            } else if (atBoundary(afterVol, afterMin, afterMax, dir)) {
+                cancelLocked("boundary_reached");
+            } else if (stepsIssued >= maxSteps || (callbacks.nowMs() - holdStartMs) >= maxHoldMs) {
                 cancelLocked("safety_timeout");
-                return;
+            } else {
+                repeatTask = scheduler.schedule(() -> onRepeatTick(gen), repeatIntervalMs);
             }
-            repeatTask = scheduler.schedule(() -> onRepeatTick(gen), repeatIntervalMs);
         }
+        if (afterReadFailed) notifyCapabilityFailure("audio_read_unavailable");
+    }
+
+    private void notifyCapabilityFailure(String reason) {
+        try {
+            callbacks.onCapabilityFailure(reason);
+        } catch (Throwable ignored) { }
     }
 
     private int safeReadVolume() {
         try {
             return callbacks.readStreamVolume();
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    private int safeReadMinVolume() {
+        try {
+            return callbacks.readStreamMinVolume();
         } catch (Throwable ignored) {
             return -1;
         }

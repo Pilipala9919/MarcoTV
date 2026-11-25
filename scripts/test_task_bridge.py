@@ -19,7 +19,7 @@ if not jar.exists():
     )
 assert hashlib.sha256(jar.read_bytes()).hexdigest() == '3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed'
 
-classpath = os.pathsep.join([str(ANDROID), str(jar)])
+classpath = os.pathsep.join([str(jar), str(ANDROID)])
 sources = [
     ROOT / 'app/src/main/java/com/pilipala/tvhome/BuildEdition.java',
     ROOT / 'app/src/main/java/com/pilipala/tvhome/ProjectInfo.java',

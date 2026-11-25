@@ -704,13 +704,40 @@ public final class HomeKeyServiceChecks {
 
         // Unchanged volume broadcast (prev == cur, e.g. boundary) MUST NOT spuriously trigger yield.
         yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 100)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 100));
         check("3b_unchanged_volume_broadcast_does_not_yield",
                 HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive);
 
-        // Real volume change (30 -> 31) triggers 5s yield (drops FLAG_REQUEST_FILTER_KEY_EVENTS)!
+        // Codex #4C: Missing prev, missing cur, missing both, missing stream, or unrelated audio stream MUST NOT yield!
         yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 31));
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 30));
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3));
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 30)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 31));
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 4) // STREAM_ALARM
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 2)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 3));
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 5) // STREAM_NOTIFICATION
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 1)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 2));
+        check("3b_missing_extras_or_unrelated_stream_never_triggers_yield",
+                HomeKeyService.runtimeKeyFilterRequested
+                && !HomeKeyService.runtimeVolumeYieldActive
+                && !Diagnostics.events.contains("HOME_KEY_FILTER_YIELDED_FOR_VOLUME"));
+
+        // Real STREAM_MUSIC volume change (30 -> 31) triggers 5s yield (drops FLAG_REQUEST_FILTER_KEY_EVENTS)!
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 30)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 31));
         check("3b_volume_change_drops_key_filter_for_5s_yield",
@@ -728,9 +755,15 @@ public final class HomeKeyServiceChecks {
                 yieldSvc.startedActivities.size() == 1
                 && HomeKeyService.runtimeVolumeYieldActive);
 
-        // Second volume change at +3000ms slides the 5s yield window forward!
-        SystemClock.elapsed += 1500;
+        // Unrelated audio stream during active yield MUST NOT extend the 5s timer!
+        SystemClock.elapsed += 1500; // t=+3000ms
         yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 4)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 1)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 2));
+        // Valid STREAM_MUSIC change at +3000ms slides the 5s yield window forward!
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 31)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 32));
         SystemClock.elapsed += 3000; // 6s since first tap, only 3s since second tap -> still yielded!
@@ -749,6 +782,7 @@ public final class HomeKeyServiceChecks {
 
         // Screen off during yield immediately cancels yield & restores clean state.
         yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 32)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 33));
         yieldSvc.powerManager.interactive = false;
@@ -756,8 +790,13 @@ public final class HomeKeyServiceChecks {
         check("3b_screen_off_cancels_yield_immediately",
                 !HomeKeyService.runtimeVolumeYieldActive && HomeKeyService.runtimeKeyFilterRequested);
         yieldSvc.powerManager.interactive = true;
+        yieldSvc.dispatchBroadcast(new Intent(Intent.ACTION_SCREEN_ON));
+        SystemClock.elapsed += 1000;
 
-        // 3. When 3A bridge volume assist IS active, 3B yield MUST NOT drop KEY_FILTER!
+        // 3. When 3A bridge volume assist IS active (with audioOk + verified volume devices), 3B yield MUST NOT drop KEY_FILTER!
+        final String[] fakeBridgeReply = {
+                "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"ready\"}"
+        };
         android.os.IBinder fakeBridge = new android.os.IBinder() {
             @Override public boolean isBinderAlive() { return true; }
             @Override public void linkToDeath(DeathRecipient r, int flags) { }
@@ -765,27 +804,145 @@ public final class HomeKeyServiceChecks {
                 data.readInterfaceToken();
                 data.readString();
                 reply.writeNoException();
-                reply.writeString("{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeInputDeviceCount\":6}");
+                reply.writeString(fakeBridgeReply[0]);
                 return true;
             }
         };
+        int[] uiNotifies = {0};
+        TaskBridgeClient.addStateListener(() -> uiNotifies[0]++);
         TaskBridgeClient.attach(yieldSvc, fakeBridge);
         try { TaskBridgeClient.configure(yieldSvc); } catch (Exception e) { throw new RuntimeException(e); }
         yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 33)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 34));
         check("3a_bridge_assist_active_suppresses_3b_yield",
                 TaskBridgeClient.volumeAssistActive()
+                && TaskBridgeClient.volumeAudioReady()
+                && TaskBridgeClient.volumeInputDeviceCount() == 2
                 && HomeKeyService.runtimeKeyFilterRequested
                 && !HomeKeyService.runtimeVolumeYieldActive);
+
+        // Codex #2B: Live remote hot-unplug pushed by server immediately disables 3A, notifies UI, and re-enables 3B fallback!
+        int beforeHotplug = uiNotifies[0];
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+        try {
+            TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
+        } catch (Exception e) { throw new RuntimeException(e); }
+        HomeSetupPolicy.DesktopState afterUnplug = SystemIntegration.desktopState(yieldSvc);
+        check("codex_2b_hot_unplug_pushes_state_updates_ui_and_enables_3b",
+                !TaskBridgeClient.volumeAssistActive()
+                && TaskBridgeClient.volumeInputDeviceCount() == 0
+                && "no_volume_input_device".equals(TaskBridgeClient.volumeAssistReason())
+                && uiNotifies[0] > beforeHotplug
+                && afterUnplug.volumeYieldMode && !afterUnplug.volumeBridgeAssistExpected);
+        // Now 3B yield activates while remote is unplugged!
+        yieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 34)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 35));
+        check("codex_2b_hot_unplug_allows_3b_yield_immediately",
+                HomeKeyService.runtimeVolumeYieldActive && !HomeKeyService.runtimeKeyFilterRequested);
+        // Expire yield so KEY_FILTER returns, then remote hot-plugs back -> 3A immediately recovers & notifies UI!
+        SystemClock.elapsed += 5100;
+        Handler.runDue();
+        int beforeReplug = uiNotifies[0];
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}";
+        try {
+            TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
+        } catch (Exception e) { throw new RuntimeException(e); }
+        check("codex_2b_hot_replug_restores_3a_and_notifies_ui",
+                TaskBridgeClient.volumeAssistActive()
+                && TaskBridgeClient.volumeInputDeviceCount() == 1
+                && uiNotifies[0] > beforeReplug);
+        // Runtime audio capability failure pushed by server -> immediately disables 3A and notifies UI!
+        int beforeAudioFail = uiNotifies[0];
+        fakeBridgeReply[0] = "{\"ok\":true,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
+        try {
+            TaskBridgeClient.onServerStateChanged(yieldSvc, new org.json.JSONObject(fakeBridgeReply[0]));
+        } catch (Exception e) { throw new RuntimeException(e); }
+        check("codex_2b_runtime_audio_failure_disables_3a_and_notifies_ui",
+                !TaskBridgeClient.volumeAssistActive()
+                && !TaskBridgeClient.volumeAudioReady()
+                && "audio_read_unavailable".equals(TaskBridgeClient.volumeAssistReason())
+                && uiNotifies[0] > beforeAudioFail);
         TaskBridgeClient.resetForTest();
         yieldSvc.onDestroy();
+
+        // Codex #2C: System refuses enabling FLAG_REQUEST_FILTER_KEY_EVENTS ->
+        // TaskBridgeClient.shouldEnableVolumeAssist() MUST be false, and desktopState reports failure truthfully!
+        HomeKeyService rejectEnableSvc = freshService();
+        rejectEnableSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(rejectEnableSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        rejectEnableSvc.serviceInfo.flags = 1; // filter bit OFF
+        rejectEnableSvc.ignoreSetServiceInfo = true; // system ignores request to enable filter
+        Diagnostics.events.clear();
+        rejectEnableSvc.onServiceConnected();
+        HomeSetupPolicy.DesktopState rejectedEnableState = SystemIntegration.desktopState(rejectEnableSvc);
+        check("codex_2c_system_refuses_key_filter_blocks_bridge_assist_and_reports_state",
+                !HomeKeyService.runtimeKeyFilterRequested
+                && !HomeKeyService.runtimeModeApplied
+                && !TaskBridgeClient.shouldEnableVolumeAssist(rejectEnableSvc)
+                && Diagnostics.events.contains("HOME_KEY_FILTER_APPLY_REJECTED")
+                && rejectedEnableState.effectiveModeLabel.contains("系统拒绝开启按键过滤")
+                && !rejectedEnableState.volumeBridgeAssistExpected);
+        rejectEnableSvc.onDestroy();
+
+        // Codex #2D: System refuses revoking FLAG_REQUEST_FILTER_KEY_EVENTS during 3B yield ->
+        // MUST NOT claim yielding, sets runtimeVolumeYieldFailed=true, reports yield unavailable!
+        HomeKeyService rejectYieldSvc = freshService();
+        rejectYieldSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(rejectYieldSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        rejectYieldSvc.onServiceConnected();
+        check("codex_2d_initial_key_filter_enabled", HomeKeyService.runtimeKeyFilterRequested);
+        rejectYieldSvc.ignoreSetServiceInfo = true; // now system refuses to drop filter bit
+        Diagnostics.events.clear();
+        rejectYieldSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 20)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 21));
+        HomeSetupPolicy.DesktopState rejectedYieldState = SystemIntegration.desktopState(rejectYieldSvc);
+        check("codex_2d_system_refuses_yield_revoke_never_claims_yielding",
+                HomeKeyService.runtimeKeyFilterRequested
+                && !HomeKeyService.runtimeVolumeYieldActive
+                && HomeKeyService.runtimeVolumeYieldFailed
+                && Diagnostics.events.contains("HOME_KEY_FILTER_YIELD_REJECTED")
+                && rejectedYieldState.effectiveModeLabel.contains("系统拒绝临时撤销按键过滤")
+                && !rejectedYieldState.effectiveModeLabel.contains("让渡 5 秒中"));
+        rejectYieldSvc.onDestroy();
+
+        // Codex #2E: Delayed old HomeKeyService onUnbind()/onDestroy() arriving AFTER new service started
+        // and entered 3B yield MUST NOT clear new service's runtimeVolumeYieldActive or connected state!
+        HomeKeyService staleOldSvc = freshService();
+        staleOldSvc.sysPrefs.edit().putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        SystemIntegration.setGuardMode(staleOldSvc, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        staleOldSvc.onServiceConnected();
+        HomeKeyService freshNewSvc = new HomeKeyService();
+        freshNewSvc.sysPrefs = staleOldSvc.sysPrefs;
+        freshNewSvc.homePrefs = staleOldSvc.homePrefs;
+        freshNewSvc.pm = staleOldSvc.pm;
+        freshNewSvc.serviceInfo.flags = 1;
+        freshNewSvc.onServiceConnected();
+        freshNewSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
+                .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 10)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 11));
+        check("codex_2e_new_service_entered_yield", HomeKeyService.connected && HomeKeyService.runtimeVolumeYieldActive);
+        // Stale old service unbinds & destroys LATE!
+        staleOldSvc.onUnbind(new Intent());
+        staleOldSvc.onDestroy();
+        check("codex_2e_late_old_unbind_destroy_preserves_new_service_yield_state",
+                HomeKeyService.connected
+                && HomeKeyService.runtimeVolumeYieldActive
+                && !HomeKeyService.runtimeKeyFilterRequested);
+        freshNewSvc.onDestroy();
 
         // 4. WINDOW_PULLBACK and NATIVE_KEYS_ONLY NEVER trigger 3B yield!
         HomeKeyService winSvc = freshService();
         SystemIntegration.setGuardMode(winSvc, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
         winSvc.onServiceConnected();
         winSvc.dispatchBroadcast(new Intent(HomeKeyService.ACTION_VOLUME_CHANGED)
+                .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_TYPE, 3)
                 .putExtra(HomeKeyService.EXTRA_PREV_VOLUME_STREAM_VALUE, 20)
                 .putExtra(HomeKeyService.EXTRA_VOLUME_STREAM_VALUE, 21));
         check("window_mode_never_triggers_3b_yield", !HomeKeyService.runtimeVolumeYieldActive);
@@ -820,6 +977,9 @@ class DefaultHomePanel {
 class HealthPanel { void status() {} }
 class SettingsNavigator { void personalization(String key) {} }
 class TvDialog {
+    boolean isShowing() { return false; }
+    void updateMessage(String m) {}
+    void onLeave(Runnable r) {}
     static class Builder {
         Builder(Context c) {}
         Builder setPageId(String id) { return this; }

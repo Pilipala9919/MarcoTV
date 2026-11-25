@@ -24,6 +24,20 @@ final class StatusSnapshot {
         String oemExp=SystemIntegration.hasDisabledOemExperiment(c)
                 ?"已停用原厂桌面（"+SystemIntegration.disabledOemExperimentPackage(c)+"），可随时恢复"
                 :"未启用";
+        String keyFilterStatus;
+        if(!HomeKeyService.connected){
+            keyFilterStatus="未绑定";
+        }else if(HomeKeyService.runtimeVolumeYieldActive){
+            keyFilterStatus="无桥临时让渡中";
+        }else if(HomeKeyService.runtimeVolumeYieldFailed){
+            keyFilterStatus="系统拒绝撤销过滤（让渡不可用）";
+        }else if(HomeKeyService.runtimeKeyFilterRequested){
+            keyFilterStatus="已请求";
+        }else if(SystemIntegration.guardMode(c)==HomeSetupPolicy.GuardMode.KEY_FILTER&&!SystemIntegration.homeIsOurs(c)&&!HomeSetup.paused(c)&&p.getBoolean("home_compat",false)){
+            keyFilterStatus="系统拒绝开启过滤（未生效）";
+        }else{
+            keyFilterStatus="未请求";
+        }
         return "用户选择："+state.userChoiceLabel
                 +"\n当前实际生效："+state.effectiveModeLabel
                 +"\n降级原因："+state.fallbackReason
@@ -34,7 +48,7 @@ final class StatusSnapshot {
                 +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
                 +"\nHome 守护模式："+SystemIntegration.guardModeLabel(SystemIntegration.guardMode(c))
                 +" / 状态："+SystemIntegration.rebindStatusLabel(c)
-                +" / 按键过滤："+(HomeKeyService.connected?(HomeKeyService.runtimeVolumeYieldActive?"无桥临时让渡中":HomeKeyService.runtimeKeyFilterRequested?"已请求":"未请求"):"未绑定")
+                +" / 按键过滤："+keyFilterStatus
                 +"（flags="+HomeKeyService.runtimeFlags+"） / 长按："+p.getString("home_long_action","system")
                 +"\n停用原厂桌面实验："+oemExp
                 +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)
@@ -59,10 +73,12 @@ final class StatusSnapshot {
             JSONObject task=TaskBridgeClient.request("status");
             boolean volCfg=task.optBoolean("volumeAssist",false);
             boolean volAct=task.optBoolean("volumeAssistActive",false);
+            boolean volAudio=task.optBoolean("volumeAudioReady",false);
             int devCount=task.optInt("volumeInputDeviceCount",0);
+            String volReason=task.optString("volumeAssistReason",volAct?"ready":"unavailable");
             state+="\n任务服务：已连接\n任务服务版本："+task.optString("version")
                     +"\n任务服务唤醒恢复："+(task.optBoolean("wake")?"已启用":"未启用")
-                    +"\n任务桥音量长按辅助："+(volAct?"已生效（可读输入设备 "+devCount+" 个，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（输入设备 "+devCount+" 个）":"未启用")
+                    +"\n任务桥音量长按辅助："+(volAct?"已生效（音量输入设备 "+devCount+" 个，音频能力就绪，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（原因："+volReason+"，音量输入设备 "+devCount+" 个，音频="+(volAudio?"就绪":"不可用")+"）":"未启用（原因："+volReason+"）")
                     +"\n音量补偿最近停止原因："+task.optString("volumeLastStopReason","idle")
                     +"\n清除单个任务："+(task.optBoolean("canRemove")?("task".equals(task.optString("removeMode"))?"接口可用，需实际测试":"仅独立任务可清除"):"系统未开放")
                     +"\n最近唤醒结果："+task.optString("lastWake","尚无记录");

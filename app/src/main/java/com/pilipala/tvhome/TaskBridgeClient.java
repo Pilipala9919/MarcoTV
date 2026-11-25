@@ -11,8 +11,12 @@ import java.io.*;
 final class TaskBridgeClient {
     private static volatile IBinder service;
     private static volatile Context appContext;
+    private static final java.util.concurrent.atomic.AtomicLong attachGeneration=new java.util.concurrent.atomic.AtomicLong();
     private static volatile boolean volumeAssistReady;
+    private static volatile boolean volumeAudioReady;
     private static volatile int volumeInputDevices;
+    private static volatile String volumeAssistReason="disconnected";
+    private static final java.util.concurrent.CopyOnWriteArraySet<Runnable> stateListeners=new java.util.concurrent.CopyOnWriteArraySet<>();
     static boolean connected(){
         IBinder binder=service;
         return binder!=null&&binder.isBinderAlive();
@@ -20,38 +24,106 @@ final class TaskBridgeClient {
     static boolean volumeAssistActive(){
         return connected()&&volumeAssistReady;
     }
+    static boolean volumeAudioReady(){
+        return connected()&&volumeAudioReady;
+    }
     static int volumeInputDeviceCount(){
         return connected()?volumeInputDevices:0;
     }
+    static String volumeAssistReason(){
+        return connected()?volumeAssistReason:"disconnected";
+    }
+    static void addStateListener(Runnable listener){
+        if(listener!=null)stateListeners.add(listener);
+    }
+    static void removeStateListener(Runnable listener){
+        if(listener!=null)stateListeners.remove(listener);
+    }
+    static void setStateListener(Runnable listener){
+        stateListeners.clear();
+        if(listener!=null)stateListeners.add(listener);
+    }
+    static void notifyStateChanged(){
+        notifyStateListener();
+    }
+    private static void notifyStateListener(){
+        if(stateListeners.isEmpty())return;
+        for(Runnable l:stateListeners){
+            try{
+                new Handler(Looper.getMainLooper()).post(l);
+            }catch(Throwable ignored){}
+        }
+    }
     static void resetForTest(){
+        attachGeneration.incrementAndGet();
         service=null;
         appContext=null;
         volumeAssistReady=false;
+        volumeAudioReady=false;
         volumeInputDevices=0;
+        volumeAssistReason="disconnected";
+        stateListeners.clear();
     }
     static void attach(IBinder binder){
         attach(null,binder);
     }
     static void attach(Context context,IBinder binder){
+        attachGeneration.incrementAndGet();
         if(context!=null)appContext=context.getApplicationContext();
         service=binder;
         volumeAssistReady=false;
+        volumeAudioReady=false;
         volumeInputDevices=0;
-        if(binder==null)return;
+        volumeAssistReason=binder==null?"disconnected":"initializing";
+        if(binder==null){
+            notifyStateListener();
+            return;
+        }
         try{
             binder.linkToDeath(()->{
                 if(service==binder){
+                    attachGeneration.incrementAndGet();
                     service=null;
                     volumeAssistReady=false;
+                    volumeAudioReady=false;
                     volumeInputDevices=0;
+                    volumeAssistReason="disconnected";
                     Context ctx=appContext;
                     if(ctx!=null)HomeKeyService.syncRuntimeKeyFilter(ctx);
+                    notifyStateListener();
                 }
             },0);
         }catch(RemoteException e){
             service=null;
             volumeAssistReady=false;
+            volumeAudioReady=false;
             volumeInputDevices=0;
+            volumeAssistReason="disconnected";
+        }
+    }
+    static void onServerStateChanged(Context context,JSONObject status){
+        if(status==null)return;
+        if(context!=null)appContext=context.getApplicationContext();
+        Context ctx=appContext;
+        boolean allowed=ctx!=null&&shouldEnableVolumeAssist(ctx);
+        applyServerStatus(ctx,allowed,status);
+    }
+    private static void applyServerStatus(Context ctx,boolean allowedByClient,JSONObject status){
+        boolean prevReady=volumeAssistReady;
+        int prevDevices=volumeInputDevices;
+        String prevReason=volumeAssistReason;
+        boolean audioOk=status.optBoolean("volumeAudioReady",status.optBoolean("volumeAssistActive",false));
+        int devices=status.optInt("volumeInputDeviceCount",0);
+        boolean nextReady=connected()&&allowedByClient&&status.optBoolean("volumeAssistActive",false)&&audioOk&&devices>0;
+        String reason=status.optString("volumeAssistReason",nextReady?"ready":(devices<=0?"no_volume_input_device":"unavailable"));
+        volumeAssistReady=nextReady;
+        volumeAudioReady=audioOk;
+        volumeInputDevices=devices;
+        volumeAssistReason=nextReady?"ready":(!allowedByClient?"key_filter_inactive":reason);
+        boolean changed=(prevReady!=volumeAssistReady)||(prevDevices!=volumeInputDevices)||!prevReason.equals(volumeAssistReason);
+        if(changed){
+            if(ctx!=null&&prevReady!=volumeAssistReady)HomeKeyService.syncRuntimeKeyFilter(ctx);
+            notifyStateListener();
         }
     }
     private static final java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newSingleThreadExecutor(r->{
@@ -62,14 +134,33 @@ final class TaskBridgeClient {
     static void sync(Context c){
         Context app=c.getApplicationContext();
         appContext=app;
+        final long queuedGen=attachGeneration.get();
         worker.execute(()->{
+            if(attachGeneration.get()!=queuedGen)return;
+            IBinder active=service;
+            if(active==null||!active.isBinderAlive()){
+                if(attachGeneration.get()==queuedGen&&!connected()
+                        &&(volumeAssistReady||volumeInputDevices!=0||volumeAudioReady)){
+                    volumeAssistReady=false;
+                    volumeAudioReady=false;
+                    volumeInputDevices=0;
+                    volumeAssistReason="disconnected";
+                    HomeKeyService.syncRuntimeKeyFilter(app);
+                    notifyStateListener();
+                }
+                return;
+            }
             try{
                 configure(app);
             }catch(Exception ignored){
-                if(volumeAssistReady||volumeInputDevices!=0){
+                if(attachGeneration.get()==queuedGen&&service==active
+                        &&(volumeAssistReady||volumeInputDevices!=0||volumeAudioReady)){
                     volumeAssistReady=false;
+                    volumeAudioReady=false;
                     volumeInputDevices=0;
+                    volumeAssistReason="disconnected";
                     HomeKeyService.syncRuntimeKeyFilter(app);
+                    notifyStateListener();
                 }
             }
         });
@@ -124,7 +215,10 @@ final class TaskBridgeClient {
                 &&!p.getBoolean("setup_accessibility_pending",false)
                 &&SystemIntegration.guardMode(context)==HomeSetupPolicy.GuardMode.KEY_FILTER
                 &&HomeSetup.serviceEnabled(context)
-                &&HomeKeyService.connected;
+                &&HomeKeyService.connected
+                &&HomeKeyService.runtimeModeApplied
+                &&HomeKeyService.runtimeKeyFilterRequested
+                &&!HomeKeyService.runtimeVolumeYieldActive;
     }
     static JSONObject configure(Context context)throws Exception{
         appContext=context.getApplicationContext();
@@ -133,11 +227,7 @@ final class TaskBridgeClient {
         boolean volAssist=shouldEnableVolumeAssist(context);
         call(new JSONObject().put("action","configure").put("wake",wake).put("home",homePkg).put("volumeAssist",volAssist));
         JSONObject status=request("status");
-        boolean prevReady=volumeAssistReady;
-        boolean nextReady=volAssist&&status.optBoolean("volumeAssistActive",false);
-        volumeAssistReady=nextReady;
-        volumeInputDevices=status.optInt("volumeInputDeviceCount",0);
-        if(prevReady!=nextReady)HomeKeyService.syncRuntimeKeyFilter(appContext);
+        applyServerStatus(appContext,volAssist,status);
         return status;
     }
 }

@@ -94,13 +94,36 @@ final class HomeSetupPolicy {
                                             GuardMode guardMode, boolean bridgeConnected,
                                             boolean bridgeVolumeAssistActive,
                                             boolean volumeYieldActive) {
+        boolean defaultKeyFilter = !nativeHome && compatEnabled && !paused && serviceEnabled && serviceConnected
+                && guardMode == GuardMode.KEY_FILTER && !volumeYieldActive;
+        return resolveDesktopState(userChoice, restricted, paused, nativeHome, currentHomeComponent,
+                compatEnabled, serviceEnabled, serviceConnected, guardMode, bridgeConnected,
+                bridgeVolumeAssistActive, volumeYieldActive, defaultKeyFilter, true, false);
+    }
+
+    static DesktopState resolveDesktopState(DesktopChoice userChoice, boolean restricted,
+                                            boolean paused, boolean nativeHome,
+                                            String currentHomeComponent, boolean compatEnabled,
+                                            boolean serviceEnabled, boolean serviceConnected,
+                                            GuardMode guardMode, boolean bridgeConnected,
+                                            boolean bridgeVolumeAssistActive,
+                                            boolean volumeYieldActive,
+                                            boolean runtimeKeyFilterRequested,
+                                            boolean runtimeModeApplied,
+                                            boolean volumeYieldFailed) {
         DesktopChoice choice = userChoice == null ? DesktopChoice.OFF : userChoice;
         GuardMode mode = guardMode == null ? GuardMode.WINDOW_PULLBACK : guardMode;
         String choiceLabel = desktopChoiceLabel(choice);
         String resolvedTarget = (currentHomeComponent == null || currentHomeComponent.isEmpty())
                 ? "原厂桌面" : currentHomeComponent;
 
-        if (!restricted && nativeHome && !paused) {
+        if (!restricted && nativeHome) {
+            if (paused) {
+                return new DesktopState(choice, choiceLabel,
+                        "系统默认桌面（当前系统 HOME 仍为 Marco TV；自动恢复守护已暂停）",
+                        "自动恢复守护已暂停（不执行额外 Home 拦截与自动恢复）；当前系统默认桌面仍由系统解析为 Marco TV",
+                        true, false, false, false);
+            }
             String reason = choice == DesktopChoice.NATIVE_HOME
                     ? "无（原生默认桌面已生效）"
                     : "系统当前已将 HOME 解析为 Marco TV，已按原生优先停止额外 Home 拦截";
@@ -110,13 +133,14 @@ final class HomeSetupPolicy {
         }
         if (paused || choice == DesktopChoice.OFF) {
             String reason = paused
-                    ? "自动恢复已暂停，已保留用户选择"
+                    ? "自动恢复守护已暂停，已保留用户选择"
                     : (restricted
                             ? "受限兼容版不含系统默认桌面声明；默认推荐使用窗口回拉（兼容模式）"
                             : "尚未启用桌面守护；若系统不支持原生默认桌面，默认推荐使用窗口回拉（兼容模式）");
-            return new DesktopState(choice, choiceLabel,
-                    "未接管（交由原厂桌面与按键处理）",
-                    reason, true, false, false, false);
+            String eff = paused
+                    ? "守护已暂停（当前系统 HOME：" + resolvedTarget + "）"
+                    : "未接管（当前系统 HOME：" + resolvedTarget + "）";
+            return new DesktopState(choice, choiceLabel, eff, reason, true, false, false, false);
         }
         if (mode == GuardMode.NATIVE_KEYS_ONLY || choice == DesktopChoice.NATIVE_KEYS_ONLY) {
             return new DesktopState(DesktopChoice.NATIVE_KEYS_ONLY,
@@ -152,7 +176,19 @@ final class HomeSetupPolicy {
                     reason, false, false, false, false);
         }
         // GuardMode.KEY_FILTER with compatEnabled && serviceEnabled && serviceConnected
-        if (bridgeVolumeAssistActive) {
+        if (!runtimeKeyFilterRequested && !volumeYieldActive) {
+            return new DesktopState(choice, choiceLabel,
+                    "窗口回拉（系统拒绝开启按键过滤，快速 Home 未生效）",
+                    "系统未应用按键过滤请求（flags 回读为关闭），已退回窗口回拉；建议改用「窗口回拉（兼容模式）」",
+                    false, false, false, false);
+        }
+        if (volumeYieldFailed && runtimeKeyFilterRequested) {
+            return new DesktopState(choice, choiceLabel,
+                    "快速 Home（系统拒绝临时撤销按键过滤，无桥让渡不可用）",
+                    "系统拒绝临时撤销按键过滤位，无桥模式无法让渡音量长按；请启动任务桥或切换为「窗口回拉（兼容模式）」",
+                    false, true, false, false);
+        }
+        if (runtimeKeyFilterRequested && runtimeModeApplied && bridgeVolumeAssistActive) {
             String reason = choice == DesktopChoice.NATIVE_HOME
                     ? "原生 HOME 不可用（系统当前解析：" + resolvedTarget + "），当前以快速 Home＋任务桥生效"
                     : "无（快速 Home 与任务桥音量长按辅助均已生效）";
@@ -160,11 +196,11 @@ final class HomeSetupPolicy {
                     "快速 Home ＋ 任务桥（直接拦截 Home，任务桥辅助音量长按）",
                     reason, false, true, true, false);
         }
-        String eff = volumeYieldActive
+        String eff = (volumeYieldActive && !runtimeKeyFilterRequested)
                 ? "快速 Home（无桥模式 · 音量临时让渡 5 秒中）"
                 : "快速 Home（无桥模式：先点一下音量，松手后再长按）";
         String reason = bridgeConnected
-                ? "任务桥已连接但输入/音频辅助未就绪，已降级为无桥临时让渡模式（先点一下音量，松手后再长按；也可改用窗口回拉）"
+                ? "任务桥已连接但音量键输入源或音频能力未就绪，已降级为无桥临时让渡模式（先点一下音量，松手后再长按；也可改用窗口回拉）"
                 : "任务桥未连接，当前运行在无桥临时让渡模式（先点一下音量，松手后再长按；若固件在音量上限/下限不触发让渡，可改用窗口回拉）";
         return new DesktopState(choice, choiceLabel, eff, reason,
                 false, true, false, true);

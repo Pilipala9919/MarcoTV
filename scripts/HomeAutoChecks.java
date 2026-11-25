@@ -275,6 +275,29 @@ public final class HomeAutoChecks {
         check("service_exiting_after_start_not_seen_on_recheck",
                 firstPoll.status == HomeShellSetup.ProcessListStatus.VERIFIED && firstPoll.bridgePids.equals(Collections.singletonList("19999"))
                 && secondPoll.status == HomeShellSetup.ProcessListStatus.VERIFIED && secondPoll.bridgePids.isEmpty());
+        // Codex #3C: HomeShellSetup OEM enable/restore strictly uses --user <user> with NO un-scoped fallback!
+        List<String> oemCmds = new ArrayList<>();
+        HomeShellSetup oemShell = new HomeShellSetup(cmd -> { oemCmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 10);
+        oemShell.authenticate();
+        oemCmds.clear();
+        oemShell.enableOemPackage("com.oem.home");
+        oemShell.restoreOemPackageState("com.oem.home", 0);
+        oemShell.restoreOemPackageState("com.oem.home", 1);
+        oemShell.restoreOemPackageState("com.oem.home", 2);
+        oemShell.restoreOemPackageState("com.oem.home", 3);
+        oemShell.restoreOemPackageState("com.oem.home", 4);
+        boolean badStateRejected = false;
+        try { oemShell.restoreOemPackageState("com.oem.home", 99); } catch (IllegalArgumentException expected) { badStateRejected = true; }
+        check("oem_shell_restore_strictly_user_scoped_no_unscoped_fallback",
+                oemCmds.equals(Arrays.asList(
+                        "pm enable --user 10 'com.oem.home'",
+                        "pm default-state --user 10 'com.oem.home'",
+                        "pm enable --user 10 'com.oem.home'",
+                        "pm disable --user 10 'com.oem.home'",
+                        "pm disable-user --user 10 'com.oem.home'",
+                        "pm disable-until-used --user 10 'com.oem.home'"))
+                && oemCmds.stream().noneMatch(c -> c.contains("||"))
+                && badStateRejected);
         System.out.println("OK "+passed+" automatic HOME execution checks (simulated firmware, not device proof)");
     }
 }
@@ -284,13 +307,28 @@ class Diagnostics { static void event(String value){} }
 class SystemIntegration {
     static boolean secure,nativeHome;
     static boolean connectionAllowed;static int removed;
+    static final class OemExperimentSnapshot {
+        final int userId; final String priorHome, oemPackage; final int priorState;
+        OemExperimentSnapshot(int u,String h,String p,int s){userId=u;priorHome=h;oemPackage=p;priorState=s;}
+    }
+    static final class OemDisablePlan {
+        final String blockedMessage; final OemExperimentSnapshot snapshot;
+        OemDisablePlan(String b,OemExperimentSnapshot s){blockedMessage=b;snapshot=s;}
+        boolean allowed(){return blockedMessage==null&&snapshot!=null;}
+    }
+    static int currentUserId(){return android.os.Process.myUid()/100000;}
     static boolean authorized(Context c){return secure;}
     static boolean homeIsOurs(Context c){return nativeHome;}
     static void recover(Context c){HomeSetup.service=HomeSetup.serviceAllowed;HomeKeyService.connected=HomeSetup.service&&connectionAllowed;}
     static boolean removeOwnHomeService(Context c){removed++;HomeSetup.service=false;return true;}
     static void startRecovery(Context c){}
-    static String executeOemExperimentDisable(Context c,HomeShellSetup s,int u,String m,String f,java.util.List<OemLauncherExperimentPolicy.VerifiedDevice> a,Boolean ov){return "blocked";}
-    static String executeOemExperimentRestore(Context c,HomeShellSetup s){return "restored";}
+    static OemExperimentSnapshot readValidOemExperimentSnapshot(Context c,int userId){return null;}
+    static OemDisablePlan prepareOemExperimentDisable(Context c,int u,String m,String f,java.util.List<OemLauncherExperimentPolicy.VerifiedDevice> a){return new OemDisablePlan("blocked",null);}
+    static void beginOemExperimentDisableLocal(Context c,OemExperimentSnapshot s){}
+    static String verifyOemExperimentDisableLocal(Context c,Boolean ov){return null;}
+    static String finalizeOemExperimentDisableSuccessLocal(Context c,OemExperimentSnapshot s){return "ok";}
+    static String finalizeOemExperimentDisableRollbackLocal(Context c,OemExperimentSnapshot s,String r){return r;}
+    static String finalizeOemExperimentRestoreLocal(Context c,OemExperimentSnapshot s){return "restored";}
 }
 class HomeSetup {
     static final String OWN="com.pilipala.tvhome/.HomeActivity";

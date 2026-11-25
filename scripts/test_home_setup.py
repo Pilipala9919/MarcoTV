@@ -50,8 +50,14 @@ android_stubs={
    Entry(Runnable t, long at) { task = t; runAt = at; }
   }
   private static final List<Entry> delayed = new ArrayList<>();
+  public static final ThreadLocal<Boolean> inMainPost = ThreadLocal.withInitial(() -> Boolean.FALSE);
   public Handler(Looper l){}
-  public boolean post(Runnable r){r.run();return true;}
+  public boolean post(Runnable r){
+   boolean prev = inMainPost.get();
+   inMainPost.set(true);
+   try { r.run(); } finally { inMainPost.set(prev); }
+   return true;
+  }
   public boolean postDelayed(Runnable r,long d){
    synchronized(delayed){ delayed.add(new Entry(r, SystemClock.elapsedRealtime() + d)); }
    return true;
@@ -76,7 +82,7 @@ android_stubs={
   public static void clearDelayed(){ synchronized(delayed){ delayed.clear(); } }
  }''',
  'android/os/Process.java': '''package android.os;
- public class Process { public static int myUid(){ return 1012345; } }''',
+ public class Process { public static volatile int uid = 1012345; public static int myUid(){ return uid; } }''',
  'android/os/UserManager.java': '''package android.os;
  public class UserManager { public boolean unlocked=true; public boolean isUserUnlocked(){return unlocked;} }''',
  'android/os/PowerManager.java': '''package android.os;
@@ -233,12 +239,13 @@ android_stubs={
  import android.content.*; import java.util.*;
  public class PackageManager {
   public static final int PERMISSION_GRANTED=0,PERMISSION_DENIED=-1,MATCH_DEFAULT_ONLY=0x10000;
-  public static final int COMPONENT_ENABLED_STATE_DEFAULT=0,COMPONENT_ENABLED_STATE_ENABLED=1,COMPONENT_ENABLED_STATE_DISABLED=2,DONT_KILL_APP=1;
+  public static final int COMPONENT_ENABLED_STATE_DEFAULT=0,COMPONENT_ENABLED_STATE_ENABLED=1,COMPONENT_ENABLED_STATE_DISABLED=2,COMPONENT_ENABLED_STATE_DISABLED_USER=3,COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED=4,DONT_KILL_APP=1;
   public int alias=COMPONENT_ENABLED_STATE_DISABLED;
   public boolean failAlias,preferredHomeIsOurs;
   public String currentHome="";
   public final List<ResolveInfo> homes=Collections.synchronizedList(new ArrayList<>());
   public final Map<String,ResolveInfo> actions=Collections.synchronizedMap(new HashMap<>());
+  public final Map<String,Integer> appEnabledStates=Collections.synchronizedMap(new HashMap<>());
   public ResolveInfo resolveActivity(Intent i,int flags){
    if(Intent.ACTION_MAIN.equals(i.getAction())&&i.hasCategory(Intent.CATEGORY_HOME)){
     ComponentName cn=ComponentName.unflattenFromString(currentHome);
@@ -260,6 +267,8 @@ android_stubs={
   public int getComponentEnabledSetting(ComponentName c){return alias;}
   public void setComponentEnabledSetting(ComponentName c,int v,int flags){if(failAlias)throw new IllegalStateException("alias");alias=v;}
   public int getApplicationEnabledSetting(String pkg){
+   Integer explicit=appEnabledStates.get(pkg);
+   if(explicit!=null)return explicit;
    synchronized(homes){
     for(ResolveInfo r:homes){
      if(r.activityInfo!=null&&pkg.equals(r.activityInfo.packageName)&&r.activityInfo.applicationInfo!=null){

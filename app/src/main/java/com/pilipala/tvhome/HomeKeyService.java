@@ -19,13 +19,16 @@ import android.view.KeyEvent;
 /** Optional Home guard; defaults to OEM window pullback without key filtering so remote key repeats stay native. */
 public final class HomeKeyService extends AccessibilityService {
     static final long VOLUME_YIELD_MS = 5000L;
+    static final int VOLUME_YIELD_STREAM = 3; // AudioManager.STREAM_MUSIC
     static final String ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION";
+    static final String EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE";
     static final String EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE";
     static final String EXTRA_PREV_VOLUME_STREAM_VALUE = "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE";
     static volatile boolean connected;
     static volatile int runtimeFlags;
     static volatile boolean runtimeKeyFilterRequested;
     static volatile boolean runtimeVolumeYieldActive;
+    static volatile boolean runtimeVolumeYieldFailed;
     static volatile boolean runtimeModeApplied;
     static volatile long connectionGeneration;
     private static volatile long modeAppliedGeneration;
@@ -36,6 +39,14 @@ public final class HomeKeyService extends AccessibilityService {
     private boolean held;
     private boolean volumeYieldActive;
     private long volumeYieldUntil;
+    static boolean isActionableVolumeChange(Intent intent){
+        if(intent==null||!ACTION_VOLUME_CHANGED.equals(intent.getAction()))return false;
+        int stream=intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE,-1);
+        if(stream!=VOLUME_YIELD_STREAM)return false;
+        int prev=intent.getIntExtra(EXTRA_PREV_VOLUME_STREAM_VALUE,-1);
+        int cur=intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE,-1);
+        return prev>=0&&cur>=0&&prev!=cur;
+    }
     private HomeSetupPolicy.GuardMode guardMode(){
         return SystemIntegration.guardMode(this);
     }
@@ -56,26 +67,35 @@ public final class HomeKeyService extends AccessibilityService {
         if(service!=null&&connected)service.applyServiceFlags();
     }
     private final Runnable volumeYieldRestore=()->endVolumeYield();
-    private void clearVolumeYieldState(){
+    private void clearLocalVolumeYieldState(){
         handler.removeCallbacks(volumeYieldRestore);
         volumeYieldActive=false;
         volumeYieldUntil=0;
-        runtimeVolumeYieldActive=false;
+    }
+    private void clearVolumeYieldState(){
+        clearLocalVolumeYieldState();
+        if(instance==this){
+            runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=false;
+        }
     }
     private void endVolumeYield(){
         handler.removeCallbacks(volumeYieldRestore);
         if(!volumeYieldActive){
-            runtimeVolumeYieldActive=false;
+            if(instance==this)runtimeVolumeYieldActive=false;
             return;
         }
         volumeYieldActive=false;
         volumeYieldUntil=0;
-        runtimeVolumeYieldActive=false;
+        if(instance==this)runtimeVolumeYieldActive=false;
         applyServiceFlags();
-        Diagnostics.event("HOME_KEY_FILTER_RESTORED_AFTER_VOLUME");
-        Log.i("MarcoTVSystem","KEY_FILTER restored after volume yield window");
+        if(runtimeKeyFilterRequested){
+            Diagnostics.event("HOME_KEY_FILTER_RESTORED_AFTER_VOLUME");
+            Log.i("MarcoTVSystem","KEY_FILTER restored after volume yield window");
+        }
     }
     private void beginOrExtendVolumeYield(){
+        if(instance!=this)return;
         boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
         boolean paused=HomeSetup.paused(this);
         boolean nativeHome=SystemIntegration.homeIsOurs(this);
@@ -85,19 +105,27 @@ public final class HomeKeyService extends AccessibilityService {
                 ||!HomeSetupPolicy.shouldUseVolumeYield(compat,paused,nativeHome,mode,TaskBridgeClient.volumeAssistActive())){
             return;
         }
+        // Only yield when key filtering is actually active (or already genuinely yielded by us).
+        if(!volumeYieldActive&&!runtimeKeyFilterRequested)return;
         boolean entering=!volumeYieldActive;
         volumeYieldActive=true;
-        runtimeVolumeYieldActive=true;
         volumeYieldUntil=SystemClock.elapsedRealtime()+VOLUME_YIELD_MS;
         handler.removeCallbacks(volumeYieldRestore);
         handler.postDelayed(volumeYieldRestore,VOLUME_YIELD_MS);
         if(entering){
             applyServiceFlags();
-            Diagnostics.event("HOME_KEY_FILTER_YIELDED_FOR_VOLUME");
-            Log.i("MarcoTVSystem","KEY_FILTER temporarily yielded for "+VOLUME_YIELD_MS+"ms (no-bridge volume assist)");
+            if(volumeYieldActive&&!runtimeKeyFilterRequested){
+                Diagnostics.event("HOME_KEY_FILTER_YIELDED_FOR_VOLUME");
+                Log.i("MarcoTVSystem","KEY_FILTER temporarily yielded for "+VOLUME_YIELD_MS+"ms (no-bridge volume assist)");
+            }
         }
     }
     private void applyServiceFlags(){
+        if(instance!=this)return;
+        boolean prevKeyFilter=runtimeKeyFilterRequested;
+        boolean prevModeApplied=runtimeModeApplied;
+        boolean prevYield=runtimeVolumeYieldActive;
+        boolean prevYieldFailed=runtimeVolumeYieldFailed;
         HomeSetupPolicy.GuardMode mode=guardMode();
         boolean compat=SystemIntegration.prefs(this).getBoolean("home_compat",false);
         boolean paused=HomeSetup.paused(this);
@@ -105,14 +133,19 @@ public final class HomeKeyService extends AccessibilityService {
         boolean baseExpected=HomeSetupPolicy.shouldRequestKeyFilter(compat,paused,nativeHome,mode);
         if(!baseExpected||TaskBridgeClient.volumeAssistActive()){
             clearVolumeYieldState();
+            runtimeVolumeYieldFailed=false;
         }
-        boolean expectedFilter=baseExpected&&!volumeYieldActive;
+        boolean requestingYield=baseExpected&&volumeYieldActive;
+        boolean expectedFilter=baseExpected&&!requestingYield;
         AccessibilityServiceInfo info=getServiceInfo();
         if(info==null){
             runtimeFlags=0;
             runtimeKeyFilterRequested=false;
+            runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=false;
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
+            clearLocalVolumeYieldState();
             return;
         }
         int nextFlags=expectedFilter
@@ -124,22 +157,52 @@ public final class HomeKeyService extends AccessibilityService {
         if(applied==null){
             runtimeFlags=0;
             runtimeKeyFilterRequested=false;
+            runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=false;
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
+            clearLocalVolumeYieldState();
             return;
         }
         int effectiveFlags=applied.flags;
         runtimeFlags=effectiveFlags;
         runtimeKeyFilterRequested=(effectiveFlags&AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS)!=0;
-        runtimeModeApplied=(runtimeKeyFilterRequested==expectedFilter);
-        modeAppliedGeneration=(connected&&runtimeModeApplied)?connectionGeneration:0;
-        if(!expectedFilter)resetPress();
+        if(requestingYield&&runtimeKeyFilterRequested){
+            // System refused to drop FLAG_REQUEST_FILTER_KEY_EVENTS: never claim yield is active.
+            // Key filtering itself remains ON, so 3A bridge assist can still take over if connected later.
+            clearLocalVolumeYieldState();
+            runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=true;
+            runtimeModeApplied=true;
+            modeAppliedGeneration=connected?connectionGeneration:0;
+            Diagnostics.event("HOME_KEY_FILTER_YIELD_REJECTED");
+        }else{
+            if(requestingYield){
+                runtimeVolumeYieldActive=true;
+                runtimeVolumeYieldFailed=false;
+            }else{
+                runtimeVolumeYieldActive=false;
+                if(!baseExpected||!runtimeKeyFilterRequested)runtimeVolumeYieldFailed=false;
+            }
+            runtimeModeApplied=(runtimeKeyFilterRequested==expectedFilter);
+            modeAppliedGeneration=(connected&&runtimeModeApplied)?connectionGeneration:0;
+            if(expectedFilter&&!runtimeKeyFilterRequested){
+                Diagnostics.event("HOME_KEY_FILTER_APPLY_REJECTED");
+            }
+        }
+        if(!runtimeKeyFilterRequested)resetPress();
         if(connected&&runtimeModeApplied)SystemIntegration.markHomeServiceRebindConnected(this);
+        if(prevKeyFilter!=runtimeKeyFilterRequested||prevModeApplied!=runtimeModeApplied
+                ||prevYield!=runtimeVolumeYieldActive||prevYieldFailed!=runtimeVolumeYieldFailed){
+            TaskBridgeClient.sync(this);
+            TaskBridgeClient.notifyStateChanged();
+        }
         Log.i("MarcoTVSystem","HOME service ready; mode="+mode.prefValue
                 +"; compat="+compat
                 +"; paused="+paused
                 +"; nativeHome="+nativeHome
-                +"; volYield="+volumeYieldActive
+                +"; volYield="+runtimeVolumeYieldActive
+                +"; volYieldFailed="+runtimeVolumeYieldFailed
                 +"; keyFilter="+runtimeKeyFilterRequested
                 +"; modeApplied="+runtimeModeApplied
                 +"; gen="+connectionGeneration
@@ -281,9 +344,7 @@ public final class HomeKeyService extends AccessibilityService {
     private final BroadcastReceiver homeBroadcast = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             if(ACTION_VOLUME_CHANGED.equals(i.getAction())){
-                int prev=i.getIntExtra(EXTRA_PREV_VOLUME_STREAM_VALUE,-1);
-                int cur=i.getIntExtra(EXTRA_VOLUME_STREAM_VALUE,-1);
-                if(prev>=0&&cur>=0&&prev==cur)return;
+                if(!isActionableVolumeChange(i))return;
                 beginOrExtendVolumeYield();
                 return;
             }
@@ -556,30 +617,33 @@ public final class HomeKeyService extends AccessibilityService {
         handler.postDelayed(fallback, delay);
     }
     @Override public boolean onUnbind(Intent intent) {
-        clearVolumeYieldState();
+        clearLocalVolumeYieldState();
         if(instance==this){
             connected=false;
             runtimeFlags=0;
             runtimeKeyFilterRequested=false;
             runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=false;
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
             markServiceStoppedCleanly();
+            TaskBridgeClient.sync(this);
         }
-        TaskBridgeClient.sync(this);
         return super.onUnbind(intent);
     }
     @Override public void onDestroy() {
-        clearVolumeYieldState();
+        clearLocalVolumeYieldState();
         if(instance==this){
             connected=false;
             runtimeFlags=0;
             runtimeKeyFilterRequested=false;
             runtimeVolumeYieldActive=false;
+            runtimeVolumeYieldFailed=false;
             runtimeModeApplied=false;
             modeAppliedGeneration=0;
             instance=null;
             markServiceStoppedCleanly();
+            TaskBridgeClient.sync(this);
         }
         handler.removeCallbacksAndMessages(null);
         if (receiverRegistered) unregisterReceiver(homeBroadcast);

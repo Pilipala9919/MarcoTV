@@ -219,6 +219,41 @@ public final class HomeSetupChecks {
                 fastNoBridge.effectiveModeLabel.contains("先点一下音量，松手后再长按")
                 &&fastNoBridge.fallbackReason.contains("先点一下音量，松手后再长按")
                 &&fastNoBridge.volumeYieldMode&&!fastNoBridge.volumeBridgeAssistExpected);
+        // Codex rework policy regressions:
+        // 1. Native HOME is Marco + guard paused -> STILL displays system HOME = Marco TV & guard paused!
+        HomeSetupPolicy.DesktopState nativePaused=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,true,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",false,false,false,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false);
+        check("desktop_state_native_home_while_paused_shows_marco_and_paused",
+                nativePaused.effectiveModeLabel.contains("系统默认桌面")
+                &&nativePaused.effectiveModeLabel.contains("Marco TV")
+                &&nativePaused.effectiveModeLabel.contains("已暂停")
+                &&!nativePaused.effectiveModeLabel.contains("原厂桌面")
+                &&nativePaused.extraHomeInterceptionStopped);
+        // 2. System refused enabling KEY_FILTER -> never claims 快速 Home or 3A/3B active!
+        HomeSetupPolicy.DesktopState filterRejected=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false,
+                false,false,false);
+        check("desktop_state_key_filter_rejected_reports_window_fallback",
+                filterRejected.effectiveModeLabel.contains("系统拒绝开启按键过滤")
+                &&!filterRejected.keyFilterExpected
+                &&!filterRejected.volumeBridgeAssistExpected
+                &&!filterRejected.volumeYieldMode);
+        // 3. System refused revoking KEY_FILTER during 3B yield -> never claims yielding 5s!
+        HomeSetupPolicy.DesktopState yieldRejected=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false,
+                true,true,true);
+        check("desktop_state_yield_rejected_never_claims_yielding",
+                yieldRejected.effectiveModeLabel.contains("系统拒绝临时撤销按键过滤")
+                &&!yieldRejected.effectiveModeLabel.contains("让渡 5 秒中")
+                &&!yieldRejected.volumeYieldMode);
+        check("oem_exp_production_allowlist_stays_empty",
+                OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST.isEmpty());
         // Experimental OEM launcher disable policy gating
         check("oem_exp_blocks_restricted_edition",
                 OemLauncherExperimentPolicy.evaluate(true,"VerifiedTV","1.0","com.vendor.home",

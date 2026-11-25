@@ -9,7 +9,22 @@ import android.os.*;
 
 /** Shell-only Binder handoff. No files, task data, or commands are exposed by this provider. */
 public final class TaskBridgeProvider extends ContentProvider {
-    private final Binder lifetime=new Binder();
+    private final Binder lifetime=new Binder(){
+        @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
+            if(code==TaskBridgeServer.EVENT_VOLUME_STATE){
+                if(Binder.getCallingUid()!=2000)throw new SecurityException("shell setup only");
+                data.enforceInterface(TaskBridgeServer.DESCRIPTOR);
+                String json=data.readString();
+                if(json!=null&&json.length()<=8192){
+                    try{
+                        TaskBridgeClient.onServerStateChanged(getContext(),new org.json.JSONObject(json));
+                    }catch(Exception ignored){}
+                }
+                return true;
+            }
+            return super.onTransact(code,data,reply,flags);
+        }
+    };
     @Override public boolean onCreate(){
         return true;
     }

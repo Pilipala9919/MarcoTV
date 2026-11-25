@@ -61,7 +61,10 @@ final class SystemIntegration {
                 guardMode(context),
                 TaskBridgeClient.connected(),
                 TaskBridgeClient.volumeAssistActive(),
-                HomeKeyService.runtimeVolumeYieldActive);
+                HomeKeyService.runtimeVolumeYieldActive,
+                HomeKeyService.runtimeKeyFilterRequested,
+                HomeKeyService.runtimeModeApplied,
+                HomeKeyService.runtimeVolumeYieldFailed);
     }
     static void setGuardMode(Context context, HomeSetupPolicy.GuardMode mode) {
         HomeSetupPolicy.GuardMode target = mode == null ? HomeSetupPolicy.GuardMode.WINDOW_PULLBACK : mode;
@@ -79,6 +82,17 @@ final class SystemIntegration {
         TaskBridgeClient.sync(context);
         Diagnostics.event("HOME_GUARD_MODE_" + target.name());
     }
+    /** Switches runtime guard mode without overwriting user's preferred desktop choice (e.g. NATIVE_HOME fallback). */
+    static void setGuardModePreservingChoice(Context context, HomeSetupPolicy.GuardMode mode) {
+        HomeSetupPolicy.GuardMode target = mode == null ? HomeSetupPolicy.GuardMode.WINDOW_PULLBACK : mode;
+        prefs(context).edit()
+                .putString(PREF_GUARD_MODE, target.prefValue)
+                .putBoolean("home_native_keys", target == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
+                .commit();
+        HomeKeyService.syncRuntimeKeyFilter(context);
+        TaskBridgeClient.sync(context);
+        Diagnostics.event("HOME_GUARD_FALLBACK_" + target.name());
+    }
     static String guardModeLabel(HomeSetupPolicy.GuardMode mode) {
         if (mode == HomeSetupPolicy.GuardMode.KEY_FILTER) return "快速 Home（请求按键过滤）";
         if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键（不自动回拉）";
@@ -88,11 +102,62 @@ final class SystemIntegration {
         String state = prefs(context).getString(PREF_REBIND_STATE, "");
         return REBIND_STATE_REMOVED.equals(state) || REBIND_STATE_WRITTEN.equals(state);
     }
+    static final class OemExperimentSnapshot {
+        final int userId;
+        final String priorHome;
+        final String oemPackage;
+        final int priorState;
+        OemExperimentSnapshot(int userId, String priorHome, String oemPackage, int priorState) {
+            this.userId = userId;
+            this.priorHome = priorHome;
+            this.oemPackage = oemPackage;
+            this.priorState = priorState;
+        }
+    }
+    static final class OemDisablePlan {
+        final String blockedMessage;
+        final OemExperimentSnapshot snapshot;
+        OemDisablePlan(String blockedMessage, OemExperimentSnapshot snapshot) {
+            this.blockedMessage = blockedMessage;
+            this.snapshot = snapshot;
+        }
+        boolean allowed() { return blockedMessage == null && snapshot != null; }
+    }
+    static int currentUserId() {
+        return android.os.Process.myUid() / 100000;
+    }
+    static boolean isSupportedOemEnabledState(int state) {
+        return state >= PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && state <= PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED;
+    }
+    static OemExperimentSnapshot readValidOemExperimentSnapshot(Context context, int userId) {
+        SharedPreferences p = prefs(context);
+        if (!p.getBoolean(PREF_OEM_EXP_PREFIX + "active", false)) return null;
+        if (!p.contains(PREF_OEM_EXP_PREFIX + "user") || !p.contains(PREF_OEM_EXP_PREFIX + "prior_state")) return null;
+        int savedUser = p.getInt(PREF_OEM_EXP_PREFIX + "user", -1);
+        if (savedUser != userId) return null;
+        String oemPkg = p.getString(PREF_OEM_EXP_PREFIX + "package", "");
+        String priorHome = p.getString(PREF_OEM_EXP_PREFIX + "prior_home", "");
+        int priorState = p.getInt(PREF_OEM_EXP_PREFIX + "prior_state", -1);
+        if (!OemLauncherExperimentPolicy.validOemPackage(oemPkg)) return null;
+        if (!HomeShellSetup.validComponent(priorHome)) return null;
+        if (OemLauncherExperimentPolicy.isFallbackOrBrokenHome(priorHome)) return null;
+        if (priorHome.startsWith(context.getPackageName() + "/")) return null;
+        if (!isSupportedOemEnabledState(priorState)) return null;
+        return new OemExperimentSnapshot(savedUser, priorHome, oemPkg, priorState);
+    }
+    static boolean hasValidOemExperimentSnapshot(Context context) {
+        return readValidOemExperimentSnapshot(context, currentUserId()) != null;
+    }
+    static boolean hasValidOemExperimentSnapshot(Context context, int userId) {
+        return readValidOemExperimentSnapshot(context, userId) != null;
+    }
     static boolean hasDisabledOemExperiment(Context context) {
-        return prefs(context).getBoolean(PREF_OEM_EXP_PREFIX + "active", false);
+        return hasValidOemExperimentSnapshot(context);
     }
     static String disabledOemExperimentPackage(Context context) {
-        return prefs(context).getString(PREF_OEM_EXP_PREFIX + "package", "");
+        OemExperimentSnapshot snap = readValidOemExperimentSnapshot(context, currentUserId());
+        return snap == null ? "" : snap.oemPackage;
     }
     static String oemExperimentCandidatePackage(Context context) {
         String disabled = disabledOemExperimentPackage(context);
@@ -126,6 +191,20 @@ final class SystemIntegration {
         } catch (RuntimeException ignored) {
             return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
         }
+    }
+    static boolean isOemExperimentRestoreVerified(Context context, OemExperimentSnapshot snap) {
+        if (snap == null) return false;
+        int actualState = readApplicationEnabledState(context, snap.oemPackage);
+        if (actualState != snap.priorState) return false;
+        boolean expectEnabled = snap.priorState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                || snap.priorState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        if (expectEnabled && !isOemPackageEnabled(context, snap.oemPackage)) return false;
+        String resolved = currentHome(context);
+        if (OemLauncherExperimentPolicy.isFallbackOrBrokenHome(resolved)) return false;
+        if (homeIsOurs(context)) return false;
+        ComponentName expectedCn = ComponentName.unflattenFromString(snap.priorHome);
+        ComponentName actualCn = ComponentName.unflattenFromString(resolved);
+        return expectedCn != null && expectedCn.equals(actualCn);
     }
     static boolean hasIndependentRecoveryPath(Context context) {
         boolean adbOn = Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1;
@@ -166,6 +245,90 @@ final class SystemIntegration {
             return false;
         }
     }
+    static OemDisablePlan prepareOemExperimentDisable(Context context, int userId,
+                                                      String model, String firmware,
+                                                      List<OemLauncherExperimentPolicy.VerifiedDevice> allowlist) {
+        String priorHome = currentExplicitOtherHome(context);
+        if (priorHome.isEmpty()) priorHome = trackedHome(context);
+        String oemPkg = oemExperimentCandidatePackage(context);
+        OemLauncherExperimentPolicy.Decision decision = OemLauncherExperimentPolicy.evaluate(
+                BuildEdition.RESTRICTED, model, firmware, oemPkg, allowlist);
+        if (!decision.allowed()) {
+            Diagnostics.event("OEM_EXP_BLOCKED_" + decision.eligibility.name());
+            return new OemDisablePlan("已阻止执行停用原厂桌面：\n" + decision.reason, null);
+        }
+        if (!HomeShellSetup.validComponent(priorHome)
+                || OemLauncherExperimentPolicy.isFallbackOrBrokenHome(priorHome)
+                || priorHome.startsWith(context.getPackageName() + "/")) {
+            Diagnostics.event("OEM_EXP_BLOCKED_NO_PRIOR_HOME");
+            return new OemDisablePlan("未能读取到有效的原默认桌面组件，已阻止执行停用原厂桌面。", null);
+        }
+        if (!hasIndependentRecoveryPath(context)) {
+            Diagnostics.event("OEM_EXP_BLOCKED_NO_RECOVERY");
+            return new OemDisablePlan("未检测到独立的恢复途径（ADB 调试或系统设置入口不可用），为避免无法恢复，已阻止执行停用原厂桌面。", null);
+        }
+        int priorState = readApplicationEnabledState(context, oemPkg);
+        if (!isSupportedOemEnabledState(priorState)) {
+            Diagnostics.event("OEM_EXP_BLOCKED_UNSUPPORTED_STATE");
+            return new OemDisablePlan("未能识别原厂桌面当前的启用状态（" + priorState + "），已阻止执行停用原厂桌面。", null);
+        }
+        return new OemDisablePlan(null, new OemExperimentSnapshot(userId, priorHome, oemPkg, priorState));
+    }
+    static void beginOemExperimentDisableLocal(Context context, OemExperimentSnapshot snap) {
+        saveOemExperimentSnapshot(context, snap.userId, snap.priorHome, snap.oemPackage, snap.priorState);
+        enableHome(context, true);
+    }
+    static String verifyOemExperimentDisableLocal(Context context, Boolean foregroundOkOverride) {
+        String resolved = currentHome(context);
+        boolean validHome = OemLauncherExperimentPolicy.isValidPostDisableHome(resolved, context.getPackageName());
+        boolean canForeground = foregroundOkOverride != null ? foregroundOkOverride : canLaunchMarcoForeground(context);
+        if (!validHome) {
+            return "停用后系统未将 HOME 解析为 Marco TV（当前解析："
+                    + (resolved.isEmpty() ? "空 / 解析异常" : resolved) + "）";
+        }
+        if (!canForeground) {
+            return "停用后 Marco TV 无法进入前台";
+        }
+        return null;
+    }
+    static String finalizeOemExperimentDisableSuccessLocal(Context context, OemExperimentSnapshot snap) {
+        setDesktopChoice(context, HomeSetupPolicy.DesktopChoice.NATIVE_HOME);
+        HomeSetup.begin(context);
+        HomeSetup.acceptNative(context);
+        HomeKeyService.syncRuntimeKeyFilter(context);
+        TaskBridgeClient.sync(context);
+        Diagnostics.event("OEM_EXP_DISABLE_VERIFIED");
+        return "已停用原厂桌面（" + snap.oemPackage + "）并回读确认系统 HOME 解析为 Marco TV，已停止额外 Home 拦截。\n"
+                + "已记录恢复快照（用户 " + snap.userId + "，原 HOME：" + snap.priorHome + "）；如需切回，请随时使用「恢复原厂桌面」。";
+    }
+    static String finalizeOemExperimentDisableRollbackLocal(Context context, OemExperimentSnapshot snap,
+                                                            String failureReason) {
+        boolean restoredOk = isOemExperimentRestoreVerified(context, snap);
+        if (restoredOk) {
+            clearOemExperimentSnapshot(context);
+            Diagnostics.event("OEM_EXP_AUTO_ROLLBACK_OK");
+            return "实验未通过，已自动恢复原厂桌面（" + snap.oemPackage + "）并核实原 HOME（" + snap.priorHome + "）可用。\n原因：" + failureReason;
+        }
+        Diagnostics.event("OEM_EXP_AUTO_ROLLBACK_INCOMPLETE");
+        return "实验未通过，自动回滚未能完整核实原厂桌面状态（期望 HOME：" + snap.priorHome + "，当前："
+                + (currentHome(context).isEmpty() ? "空" : currentHome(context)) + "）。\n原因：" + failureReason
+                + "\n快照已保留，请立即点击「恢复原厂桌面」或在电脑执行：adb shell pm enable --user " + snap.userId + " " + snap.oemPackage;
+    }
+    static String finalizeOemExperimentRestoreLocal(Context context, OemExperimentSnapshot snap) {
+        String resolved = currentHome(context);
+        int actualState = readApplicationEnabledState(context, snap.oemPackage);
+        if (isOemExperimentRestoreVerified(context, snap)) {
+            clearOemExperimentSnapshot(context);
+            Diagnostics.event("OEM_EXP_RESTORED");
+            return "已按快照恢复原厂桌面（" + snap.oemPackage + "，状态=" + snap.priorState
+                    + "）并核实当前系统 HOME 为原记录（" + resolved + "）。";
+        }
+        Diagnostics.event("OEM_EXP_RESTORE_UNVERIFIED");
+        return "恢复原厂桌面未通过核验：快照仍保留，可重试恢复。\n"
+                + "目标包：" + snap.oemPackage + "（期望状态=" + snap.priorState + "，实际=" + actualState + "）\n"
+                + "期望 HOME：" + snap.priorHome + "\n"
+                + "当前系统 HOME：" + (resolved.isEmpty() ? "空 / 解析异常" : resolved);
+    }
     /**
      * Standard-edition-only experimental OEM launcher disable with immediate readback and auto-rollback.
      * Excluded from automatic fallback; requires verified allowlist, independent recovery check, and explicit confirmation.
@@ -174,86 +337,39 @@ final class SystemIntegration {
                                               String model, String firmware,
                                               List<OemLauncherExperimentPolicy.VerifiedDevice> allowlist,
                                               Boolean foregroundOkOverride) throws Exception {
-        String priorHome = currentExplicitOtherHome(context);
-        if (priorHome.isEmpty()) priorHome = trackedHome(context);
-        String oemPkg = oemExperimentCandidatePackage(context);
-        OemLauncherExperimentPolicy.Decision decision = OemLauncherExperimentPolicy.evaluate(
-                BuildEdition.RESTRICTED, model, firmware, oemPkg, allowlist);
-        if (!decision.allowed()) {
-            Diagnostics.event("OEM_EXP_BLOCKED_" + decision.eligibility.name());
-            return "已阻止执行停用原厂桌面：\n" + decision.reason;
-        }
-        if (!hasIndependentRecoveryPath(context)) {
-            Diagnostics.event("OEM_EXP_BLOCKED_NO_RECOVERY");
-            return "未检测到独立的恢复途径（ADB 调试或系统设置入口不可用），为避免无法恢复，已阻止执行停用原厂桌面。";
-        }
-        int priorState = readApplicationEnabledState(context, oemPkg);
-        saveOemExperimentSnapshot(context, userId, priorHome, oemPkg, priorState);
-        enableHome(context, true);
+        OemDisablePlan plan = prepareOemExperimentDisable(context, userId, model, firmware, allowlist);
+        if (!plan.allowed()) return plan.blockedMessage;
+        OemExperimentSnapshot snap = plan.snapshot;
+        beginOemExperimentDisableLocal(context, snap);
         String failureReason = null;
         try {
-            shell.disableOemPackage(oemPkg);
+            shell.disableOemPackage(snap.oemPackage);
             shell.selectHome(HomeSetup.OWN);
-            String resolved = currentHome(context);
-            boolean validHome = OemLauncherExperimentPolicy.isValidPostDisableHome(resolved, context.getPackageName());
-            boolean canForeground = foregroundOkOverride != null ? foregroundOkOverride : canLaunchMarcoForeground(context);
-            if (!validHome) {
-                failureReason = "停用后系统未将 HOME 解析为 Marco TV（当前解析："
-                        + (resolved.isEmpty() ? "空 / 解析异常" : resolved) + "）";
-            } else if (!canForeground) {
-                failureReason = "停用后 Marco TV 无法进入前台";
-            }
+            failureReason = verifyOemExperimentDisableLocal(context, foregroundOkOverride);
         } catch (Exception e) {
             failureReason = "执行过程出现异常（" + e.getClass().getSimpleName() + "）";
         }
         if (failureReason != null) {
-            boolean restoredOk = false;
             try {
-                shell.enableOemPackage(oemPkg);
-                if (HomeShellSetup.validComponent(priorHome)) shell.selectHome(priorHome);
-                String afterRollback = currentHome(context);
-                restoredOk = isOemPackageEnabled(context, oemPkg)
-                        && !OemLauncherExperimentPolicy.isFallbackOrBrokenHome(afterRollback);
+                shell.restoreOemPackageState(snap.oemPackage, snap.priorState);
+                shell.selectHome(snap.priorHome);
             } catch (Exception ignored) { }
-            if (restoredOk) {
-                clearOemExperimentSnapshot(context);
-                Diagnostics.event("OEM_EXP_AUTO_ROLLBACK_OK");
-                return "实验未通过，已自动恢复原厂桌面（" + oemPkg + "）并核实可用。\n原因：" + failureReason;
-            }
-            Diagnostics.event("OEM_EXP_AUTO_ROLLBACK_INCOMPLETE");
-            return "实验未通过，自动回滚未能完整核实原厂桌面状态。\n原因：" + failureReason
-                    + "\n请立即点击「恢复原厂桌面」或在电脑执行：adb shell pm enable --user " + userId + " " + oemPkg;
+            return finalizeOemExperimentDisableRollbackLocal(context, snap, failureReason);
         }
-        setDesktopChoice(context, HomeSetupPolicy.DesktopChoice.NATIVE_HOME);
-        HomeSetup.begin(context);
-        HomeSetup.acceptNative(context);
-        HomeKeyService.syncRuntimeKeyFilter(context);
-        TaskBridgeClient.sync(context);
-        Diagnostics.event("OEM_EXP_DISABLE_VERIFIED");
-        return "已停用原厂桌面（" + oemPkg + "）并回读确认系统 HOME 解析为 Marco TV，已停止额外 Home 拦截。\n"
-                + "已记录恢复快照（用户 " + userId + "，原 HOME：" + priorHome + "）；如需切回，请随时使用「恢复原厂桌面」。";
+        return finalizeOemExperimentDisableSuccessLocal(context, snap);
     }
     static String executeOemExperimentRestore(Context context, HomeShellSetup shell) throws Exception {
-        SharedPreferences p = prefs(context);
-        String oemPkg = p.getString(PREF_OEM_EXP_PREFIX + "package", "");
-        String priorHome = p.getString(PREF_OEM_EXP_PREFIX + "prior_home", "");
-        if (oemPkg.isEmpty()) oemPkg = oemExperimentCandidatePackage(context);
-        if (!OemLauncherExperimentPolicy.validOemPackage(oemPkg)) {
-            return "未找到需要恢复的原厂桌面记录。";
+        return executeOemExperimentRestore(context, shell, currentUserId());
+    }
+    static String executeOemExperimentRestore(Context context, HomeShellSetup shell, int userId) throws Exception {
+        OemExperimentSnapshot snap = readValidOemExperimentSnapshot(context, userId);
+        if (snap == null) {
+            Diagnostics.event("OEM_EXP_RESTORE_NO_SNAPSHOT");
+            return "当前用户没有有效的停用原厂桌面实验快照，未执行任何修改。";
         }
-        shell.enableOemPackage(oemPkg);
-        if (HomeShellSetup.validComponent(priorHome)) shell.selectHome(priorHome);
-        String resolved = currentHome(context);
-        boolean usable = isOemPackageEnabled(context, oemPkg)
-                && !OemLauncherExperimentPolicy.isFallbackOrBrokenHome(resolved);
-        if (usable) {
-            clearOemExperimentSnapshot(context);
-            Diagnostics.event("OEM_EXP_RESTORED");
-            return "已恢复原厂桌面（" + oemPkg + "）并核实当前 HOME 解析可用（" + resolved + "）。";
-        }
-        Diagnostics.event("OEM_EXP_RESTORE_UNVERIFIED");
-        return "已向系统发送启用原厂桌面命令（" + oemPkg + "），但未能核实当前 HOME 可用（"
-                + (resolved.isEmpty() ? "空" : resolved) + "），恢复记录仍保留。";
+        shell.restoreOemPackageState(snap.oemPackage, snap.priorState);
+        shell.selectHome(snap.priorHome);
+        return finalizeOemExperimentRestoreLocal(context, snap);
     }
 
     static SharedPreferences prefs(Context context) {
@@ -1204,31 +1320,21 @@ final class SystemIntegration {
         HomeSetupPolicy.DesktopState state=desktopState(activity);
         String action=p.getString("home_long_action","system");
         boolean nativeActive=!BuildEdition.RESTRICTED&&homeIsOurs(activity);
-        String runtime=nativeActive
-                ?"原生默认桌面已生效 · 已停止额外 Home 拦截"
-                :(isGuardModeReady(activity)
-                        ?(HomeKeyService.runtimeVolumeYieldActive
-                                ?"快速 Home 无桥模式 · 音量临时让渡 5 秒中"
-                                :HomeKeyService.runtimeKeyFilterRequested
-                                        ?(TaskBridgeClient.volumeAssistActive()
-                                                ?"已连接并应用模式 · 快速 Home＋任务桥音量辅助"
-                                                :"已连接并应用模式 · 快速 Home（无桥模式）")
-                                        :"已连接并应用模式 · 未请求按键过滤")
-                        :rebindStatusLabel(activity));
-        String fastHomeSuffix=mode==HomeSetupPolicy.GuardMode.KEY_FILTER
-                ?(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助） ✓":"（无桥让渡） ✓")
-                :(TaskBridgeClient.connected()?"（任务桥可用）":"（无桥：先点一下音量，松手后再长按）");
-        host.show(new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("桌面与遥控器兼容模式")
-                .setMessage("用户选择："+state.userChoiceLabel
-                        +"\n当前实际生效："+state.effectiveModeLabel
-                        +"\n降级原因："+state.fallbackReason
-                        +"\n服务状态："+runtime
-                        +"\n\n「窗口回拉（兼容模式）」不拦截按键，音量和方向键交由系统处理；「快速 Home」无任务桥时请先点一下音量、松手后再长按（让渡 5 秒后自动恢复）。")
+        String runtime=homeGesturesRuntimeText(activity);
+        String fastHomeSuffix=mode==HomeSetupPolicy.GuardMode.KEY_FILTER&&!nativeActive&&!HomeSetup.paused(activity)
+                ?(!HomeKeyService.connected||!HomeSetup.serviceEnabled(activity)?"（等待服务连接）"
+                        :(!HomeKeyService.runtimeKeyFilterRequested&&!HomeKeyService.runtimeVolumeYieldActive?"（按键过滤未生效）"
+                                :(HomeKeyService.runtimeVolumeYieldFailed?"（无桥让渡受限）"
+                                        :(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助） ✓"
+                                                :(HomeKeyService.runtimeVolumeYieldActive?"（无桥让渡中） ✓":"（无桥让渡） ✓")))))
+                :(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0?"（任务桥可用）":"（无桥：先点一下音量，松手后再长按）");
+        TvDialog dialog=new TvDialog.Builder(activity).setPageId("home_gestures").setTitle("桌面与遥控器兼容模式")
+                .setMessage(homeGesturesMessage(activity,state,runtime))
                 .setItems(new String[]{
                         (BuildEdition.RESTRICTED?"系统默认桌面（受限版不适用）":"系统默认桌面"+(nativeActive?" ✓":"")),
-                        "窗口回拉（兼容模式，推荐）"+(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK?" ✓":""),
+                        "窗口回拉（兼容模式，推荐）"+(!nativeActive&&!HomeSetup.paused(activity)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK?" ✓":""),
                         "快速 Home"+fastHomeSuffix,
-                        "原厂按键"+(!nativeActive&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY?" ✓":""),
+                        "原厂按键"+(!nativeActive&&!HomeSetup.paused(activity)&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY?" ✓":""),
                         "快速 Home 长按：系统最近任务"+(action.equals("system")?" ✓":""),
                         "快速 Home 长按：Marco 最近任务"+(action.equals("marco")?" ✓":""),
                         "快速 Home 长按：不执行操作"+(action.equals("none")?" ✓":""),
@@ -1249,7 +1355,43 @@ final class SystemIntegration {
             else if(w==3)setGuardMode(activity,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
             else p.edit().putString("home_long_action",new String[]{"system","marco","none"}[w-4]).apply();
             homeGestures(activity,host);
-        }).setNegativeButton("返回",null).create());
+        }).setNegativeButton("返回",null).create();
+        final Runnable refreshListener=()->{
+            if(dialog.isShowing()){
+                dialog.updateMessage(homeGesturesMessage(activity,desktopState(activity),homeGesturesRuntimeText(activity)));
+            }
+        };
+        TaskBridgeClient.addStateListener(refreshListener);
+        dialog.onLeave(()->TaskBridgeClient.removeStateListener(refreshListener));
+        host.show(dialog);
+    }
+    private static String homeGesturesRuntimeText(Activity activity){
+        boolean nativeActive=!BuildEdition.RESTRICTED&&homeIsOurs(activity);
+        if(nativeActive){
+            return HomeSetup.paused(activity)?"原生默认桌面仍生效 · 自动恢复守护已暂停":"原生默认桌面已生效 · 已停止额外 Home 拦截";
+        }
+        if(!isGuardModeReady(activity)){
+            if(HomeKeyService.connected&&guardMode(activity)==HomeSetupPolicy.GuardMode.KEY_FILTER
+                    &&!HomeKeyService.runtimeKeyFilterRequested&&!HomeKeyService.runtimeVolumeYieldActive){
+                return "按键过滤未生效（系统拒绝请求）";
+            }
+            return rebindStatusLabel(activity);
+        }
+        if(HomeKeyService.runtimeVolumeYieldFailed)return "系统拒绝撤销按键过滤 · 无桥让渡不可用";
+        if(HomeKeyService.runtimeVolumeYieldActive)return "快速 Home 无桥模式 · 音量临时让渡 5 秒中";
+        if(HomeKeyService.runtimeKeyFilterRequested){
+            return TaskBridgeClient.volumeAssistActive()
+                    ?"已连接并应用模式 · 快速 Home＋任务桥音量辅助"
+                    :"已连接并应用模式 · 快速 Home（无桥模式）";
+        }
+        return "已连接并应用模式 · 未请求按键过滤";
+    }
+    private static String homeGesturesMessage(Activity activity,HomeSetupPolicy.DesktopState state,String runtime){
+        return "用户选择："+state.userChoiceLabel
+                +"\n当前实际生效："+state.effectiveModeLabel
+                +"\n降级原因："+state.fallbackReason
+                +"\n服务状态："+runtime
+                +"\n\n「窗口回拉（兼容模式）」不拦截按键，音量和方向键交由系统处理；「快速 Home」无任务桥时请先点一下音量、松手后再长按（让渡 5 秒后自动恢复）。";
     }
     private static void status(Activity activity, DialogHost host) {
         if(activity instanceof MainActivity)((MainActivity)activity).health.status();

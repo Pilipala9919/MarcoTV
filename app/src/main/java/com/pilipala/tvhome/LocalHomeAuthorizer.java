@@ -22,19 +22,74 @@ final class LocalHomeAuthorizer {
     private volatile HomeDeviceGuide.Issue issue = HomeDeviceGuide.Issue.NONE;
     HomeDeviceGuide.Issue issue() { return issue; }
     private long deadline;
+    interface OemShellSession extends AutoCloseable {
+        HomeShellSetup connect(int userId) throws Exception;
+        @Override void close();
+    }
+    interface OemShellSessionFactory {
+        OemShellSession create();
+    }
+    private final OemShellSessionFactory oemSessionFactory;
+    private final java.util.List<OemLauncherExperimentPolicy.VerifiedDevice> oemAllowlist;
+    private volatile OemShellSession oemSession;
     private final Runnable timeout = () -> {
         expired = true;
+        OemShellSession session = oemSession;
+        if (session != null) session.close();
         LocalAdbWire wire = connection;
         if (wire != null) wire.close();
     };
 
-    LocalHomeAuthorizer(Context c) { context = c.getApplicationContext(); }
+    LocalHomeAuthorizer(Context c) {
+        this(c, null, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+    }
+
+    LocalHomeAuthorizer(Context c, OemShellSessionFactory oemSessionFactory,
+                        java.util.List<OemLauncherExperimentPolicy.VerifiedDevice> oemAllowlist) {
+        context = c.getApplicationContext();
+        this.oemSessionFactory = oemSessionFactory;
+        this.oemAllowlist = oemAllowlist == null ? OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST : oemAllowlist;
+    }
+
     void start(Result callback) { start(false, callback); }
     void restore(Result callback) { start(true, callback); }
 
     /** Standard-only experimental flow, never invoked by start() or automatic fallback. */
     void disableOemExperiment(Result callback) { runOemExperiment(false, callback); }
     void restoreOemExperiment(Result callback) { runOemExperiment(true, callback); }
+
+    private OemShellSession openOemSession() {
+        if (oemSessionFactory != null) return oemSessionFactory.create();
+        return new OemShellSession() {
+            private volatile LocalAdbWire wire;
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                File folder = new File(context.getNoBackupFilesDir(), "home-setup");
+                if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
+                LocalAdbWire w = new LocalAdbWire();
+                wire = w;
+                connection = w;
+                check();
+                java.security.KeyPair key = LocalAdbWire.key(folder);
+                check();
+                issue = HomeDeviceGuide.Issue.CONNECTION;
+                w.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
+                issue = HomeDeviceGuide.Issue.SYSTEM;
+                check();
+                HomeShellSetup commands = new HomeShellSetup(command -> {
+                    check();
+                    String output = w.shell(command);
+                    check();
+                    return output;
+                }, userId);
+                commands.authenticate();
+                return commands;
+            }
+            @Override public void close() {
+                LocalAdbWire w = wire;
+                if (w != null) w.close();
+            }
+        };
+    }
 
     private void runOemExperiment(boolean restoreOem, Result callback) {
         deadline = SystemClock.elapsedRealtime() + 90000;
@@ -43,33 +98,65 @@ final class LocalHomeAuthorizer {
             String result;
             try {
                 check();
-                if (!restoreOem && BuildEdition.RESTRICTED) {
+                final int userId = SystemIntegration.currentUserId();
+                if (restoreOem) {
+                    // Strict zero-write, zero-ADB guard when no valid snapshot exists for current user.
+                    final SystemIntegration.OemExperimentSnapshot snap = onMain(() ->
+                            SystemIntegration.readValidOemExperimentSnapshot(context, userId));
+                    if (snap == null) {
+                        onMain(() -> { Diagnostics.event("OEM_EXP_RESTORE_NO_SNAPSHOT"); return null; });
+                        result = "当前用户没有有效的停用原厂桌面实验快照，未执行任何修改。";
+                    } else {
+                        OemShellSession session = openOemSession();
+                        oemSession = session;
+                        HomeShellSetup commands = session.connect(userId);
+                        check();
+                        commands.restoreOemPackageState(snap.oemPackage, snap.priorState);
+                        check();
+                        commands.selectHome(snap.priorHome);
+                        check();
+                        result = onMain(() -> SystemIntegration.finalizeOemExperimentRestoreLocal(context, snap));
+                    }
+                } else if (BuildEdition.RESTRICTED) {
                     result = "受限兼容版不含系统默认桌面声明，不支持停用原厂桌面实验。";
                 } else {
-                    File folder = new File(context.getNoBackupFilesDir(), "home-setup");
-                    if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot save local key");
-                    LocalAdbWire wire = new LocalAdbWire();
-                    connection = wire;
-                    check();
-                    java.security.KeyPair key = LocalAdbWire.key(folder);
-                    check();
-                    issue = HomeDeviceGuide.Issue.CONNECTION;
-                    wire.connect("127.0.0.1", 5555, key, status -> issue = HomeDeviceGuide.Issue.AUTHORIZATION);
-                    issue = HomeDeviceGuide.Issue.SYSTEM;
-                    check();
-                    int userId = android.os.Process.myUid() / 100000;
-                    HomeShellSetup commands = new HomeShellSetup(command -> {
+                    final SystemIntegration.OemDisablePlan plan = onMain(() ->
+                            SystemIntegration.prepareOemExperimentDisable(context, userId,
+                                    android.os.Build.MODEL, android.os.Build.DISPLAY, oemAllowlist));
+                    if (!plan.allowed()) {
+                        result = plan.blockedMessage;
+                    } else {
+                        final SystemIntegration.OemExperimentSnapshot snap = plan.snapshot;
+                        OemShellSession session = openOemSession();
+                        oemSession = session;
+                        HomeShellSetup commands = session.connect(userId);
                         check();
-                        String output = wire.shell(command);
-                        check();
-                        return output;
-                    }, userId);
-                    commands.authenticate();
-                    result = onMain(() -> restoreOem
-                            ? SystemIntegration.executeOemExperimentRestore(context, commands)
-                            : SystemIntegration.executeOemExperimentDisable(context, commands, userId,
-                                    android.os.Build.MODEL, android.os.Build.DISPLAY,
-                                    OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST, null));
+                        onMain(() -> { SystemIntegration.beginOemExperimentDisableLocal(context, snap); return null; });
+                        String failureReason = null;
+                        try {
+                            check();
+                            commands.disableOemPackage(snap.oemPackage);
+                            check();
+                            commands.selectHome(HomeSetup.OWN);
+                            check();
+                            failureReason = onMain(() -> SystemIntegration.verifyOemExperimentDisableLocal(context, null));
+                        } catch (Exception e) {
+                            if (cancelled || expired) throw e;
+                            failureReason = "执行过程出现异常（" + e.getClass().getSimpleName() + "）";
+                        }
+                        if (failureReason != null) {
+                            final String reason = failureReason;
+                            try {
+                                check();
+                                commands.restoreOemPackageState(snap.oemPackage, snap.priorState);
+                                check();
+                                commands.selectHome(snap.priorHome);
+                            } catch (Exception ignored) { }
+                            result = onMain(() -> SystemIntegration.finalizeOemExperimentDisableRollbackLocal(context, snap, reason));
+                        } else {
+                            result = onMain(() -> SystemIntegration.finalizeOemExperimentDisableSuccessLocal(context, snap));
+                        }
+                    }
                 }
                 issue = HomeDeviceGuide.Issue.NONE;
             } catch (Exception e) {
@@ -79,6 +166,8 @@ final class LocalHomeAuthorizer {
                         + HomeDeviceGuide.explanation(issue);
             } finally {
                 main.removeCallbacks(timeout);
+                OemShellSession session = oemSession;
+                if (session != null) session.close();
                 LocalAdbWire wire = connection;
                 if (wire != null) wire.close();
                 worker.shutdown();
@@ -279,6 +368,8 @@ final class LocalHomeAuthorizer {
     void cancel() {
         cancelled = true;
         main.removeCallbacks(timeout);
+        OemShellSession session = oemSession;
+        if (session != null) session.close();
         LocalAdbWire wire = connection;
         if (wire != null) wire.close();
         worker.shutdownNow();

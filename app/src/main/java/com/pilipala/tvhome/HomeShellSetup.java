@@ -58,12 +58,40 @@ final class HomeShellSetup {
         return true; // Issued, NOT verified. Caller must read back actual system HOME & package state.
     }
 
-    /** Restores a disabled OEM launcher package for the current user (with legacy pm enable fallback). */
+    /** Restores a disabled OEM launcher package strictly for the current user. */
     boolean enableOemPackage(String pkg) throws Exception {
         if (!authenticated) throw new IOException("Authorization required");
         if (!OemLauncherExperimentPolicy.validOemPackage(pkg)) throw new IllegalArgumentException("OEM package");
-        shell.run("pm enable --user " + user + " '" + pkg + "' 2>/dev/null || pm enable '" + pkg + "'");
-        return true;
+        shell.run("pm enable --user " + user + " '" + pkg + "'");
+        return true; // Issued, NOT verified. Caller must read back actual system state.
+    }
+
+    /** Restores an OEM launcher package to its exact recorded PackageManager enabled state for the current user. */
+    boolean restoreOemPackageState(String pkg, int priorEnabledState) throws Exception {
+        if (!authenticated) throw new IOException("Authorization required");
+        if (!OemLauncherExperimentPolicy.validOemPackage(pkg)) throw new IllegalArgumentException("OEM package");
+        String subcommand;
+        switch (priorEnabledState) {
+            case 0: // PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                subcommand = "default-state";
+                break;
+            case 1: // PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                subcommand = "enable";
+                break;
+            case 2: // PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                subcommand = "disable";
+                break;
+            case 3: // PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                subcommand = "disable-user";
+                break;
+            case 4: // PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED
+                subcommand = "disable-until-used";
+                break;
+            default:
+                throw new IllegalArgumentException("OEM enabled state: " + priorEnabledState);
+        }
+        shell.run("pm " + subcommand + " --user " + user + " '" + pkg + "'");
+        return true; // Issued, NOT verified. Caller must read back actual system state.
     }
 
     static boolean supports(String help) {
