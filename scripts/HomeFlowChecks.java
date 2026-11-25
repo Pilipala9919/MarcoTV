@@ -3372,11 +3372,22 @@ public final class HomeFlowChecks {
         // Now push bridge drop / device disconnect while dialog remains open!
         TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
                 "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}"));
+        // Open DefaultHomePanel with TaskBridge ready in WINDOW_PULLBACK -> recommends 快速 Home + warns window flashes OEM!
         check("codex82_ui_open_default_home_panel_updates_items_and_message_on_bridge_drop",
                 beforeDropShowedBridge
                 && openPanel.items[3].contains("无桥让渡")
                 && !openPanel.items[3].contains("任务桥辅助")
                 && openPanel.message.contains("先点一下音量，松手后再长按"));
+        // Verify dynamic recommendation shifts to 快速 Home when TaskBridge audio+input is ready in WINDOW_PULLBACK!
+        SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
+                "{\"ok\":true,\"volumeProtocolVersion\":2,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}"));
+        livePanelHost.defaultHome.show();
+        TvDialog recDlg = livePanelHost.dialogs.active();
+        check("ux_bridge_ready_recommends_fast_home_and_notes_window_flash",
+                recDlg.items[2].contains("会闪原厂桌面")
+                && recDlg.items[3].contains("推荐")
+                && recDlg.message.contains("快速 Home ＋ 任务桥"));
         TaskBridgeClient.resetForTest();
 
         // 3B UI: When system refuses to revoke filter bit, DefaultHomePanel shows one-click release action

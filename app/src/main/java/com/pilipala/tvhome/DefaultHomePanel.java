@@ -26,11 +26,23 @@ final class DefaultHomePanel {
     private String defaultHomeMessage(){
         HomeSetupPolicy.Route route=HomeSetup.route(host);
         HomeSetupPolicy.DesktopState state=SystemIntegration.desktopState(host);
+        HomeSetupPolicy.GuardMode mode=SystemIntegration.guardMode(host);
         boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
+        boolean nativeActive=!BuildEdition.RESTRICTED&&SystemIntegration.homeIsOurs(host);
+        boolean bridgeReadyForFast=TaskBridgeClient.volumeAssistActive()
+                ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
         boolean allowedUnbound=HomeSetup.prefs(host).getBoolean("home_compat",false)
                 &&HomeSetup.serviceEnabled(host)&&!HomeKeyService.connected;
         String hint;
-        if(ready)hint="桌面服务已就绪，接下来检查 Home 返回和实际重启效果。";
+        if(ready){
+            if(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&bridgeReadyForFast){
+                hint="检测到任务桥音量辅助已就绪：推荐改用「快速 Home ＋ 任务桥」，可避免按 Home 时闪出原厂桌面，并保留首次长按音量连续调节。";
+            }else if(!nativeActive&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK){
+                hint="桌面服务已就绪。提示：窗口回拉会短暂闪过原厂桌面；若想避免闪现原厂桌面，可在最近任务或电脑启动任务桥后改用「快速 Home」。";
+            }else{
+                hint="桌面服务已就绪，接下来检查 Home 返回和实际重启效果。";
+            }
+        }
         else if(route==HomeSetupPolicy.Route.PAUSED)hint="自动恢复已暂停；继续后将按本机当前能力重新选择可用入口。";
         else if(allowedUnbound)hint="系统已允许 Home 兼容服务，但服务尚未绑定连接；请重新确认辅助功能或检查使用效果。";
         else if(route==HomeSetupPolicy.Route.SYSTEM_PICKER)hint="本机提供系统默认桌面选择入口；主按钮将直接打开系统选择（无需 ADB）。";
@@ -52,20 +64,25 @@ final class DefaultHomePanel {
         HomeSetupPolicy.GuardMode mode=SystemIntegration.guardMode(host);
         boolean ready=route==HomeSetupPolicy.Route.NATIVE_READY||route==HomeSetupPolicy.Route.COMPAT_READY;
         boolean nativeActive=!BuildEdition.RESTRICTED&&SystemIntegration.homeIsOurs(host);
+        boolean bridgeReadyForFast=TaskBridgeClient.volumeAssistActive()
+                ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
         String fastTag=mode==HomeSetupPolicy.GuardMode.KEY_FILTER&&!nativeActive&&!HomeSetup.paused(host)
                 ?(!HomeKeyService.connected||!HomeSetup.serviceEnabled(host)?"（等待服务连接）"
                         :(!HomeKeyService.runtimeKeyFilterRequested&&!HomeKeyService.runtimeVolumeYieldActive?"（按键过滤未生效）"
                                 :(HomeKeyService.runtimeVolumeYieldFailed?"（无桥让渡受限）"
-                                        :(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助） ✓"
+                                        :(TaskBridgeClient.volumeAssistActive()?"（任务桥辅助 · 推荐） ✓"
                                                 :(HomeKeyService.runtimeVolumeYieldActive?"（无桥让渡中） ✓"
                                                         :("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())?"（旧版任务桥 · 无桥让渡） ✓":"（无桥让渡） ✓"))))))
-                :(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0?"（任务桥可用）"
-                        :("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())?"（旧版任务桥：需重启桥启用音量辅助）":"（无桥：先点一下音量，松手后再长按）"));
+                :(bridgeReadyForFast?"（任务桥已就绪 · 推荐，不闪原厂桌面）"
+                        :("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())?"（旧版任务桥：需重启桥启用音量辅助）":"（配任务桥不闪原厂桌面；无桥需点一下再长按）"));
+        String windowLabel=bridgeReadyForFast
+                ?"窗口回拉（兼容模式，会闪原厂桌面）"
+                :"窗口回拉（兼容模式，无桥推荐）";
         String primary=route==HomeSetupPolicy.Route.PAUSED?"继续一键设置":ready?"检查使用效果":"一键启用 Marco TV";
         String[] base=new String[]{
                 primary,
                 BuildEdition.RESTRICTED?"系统默认桌面（受限版不适用）":"系统默认桌面"+(nativeActive?" ✓":""),
-                "窗口回拉（兼容模式，推荐）"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&HomeSetup.prefs(host).getBoolean("home_compat",false)&&!state.keyFilterStillActiveUnexpectedly?" ✓":""),
+                windowLabel+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK&&HomeSetup.prefs(host).getBoolean("home_compat",false)&&!state.keyFilterStillActiveUnexpectedly?" ✓":""),
                 "快速 Home"+fastTag,
                 "原厂按键"+(!nativeActive&&!HomeSetup.paused(host)&&mode==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY&&!state.keyFilterStillActiveUnexpectedly?" ✓":""),
                 "更多设置方式"
@@ -124,10 +141,11 @@ final class DefaultHomePanel {
         }
     }
     private void chooseFastHome(){
-        boolean bridgeReady=TaskBridgeClient.volumeAssistActive();
+        boolean bridgeReady=TaskBridgeClient.volumeAssistActive()
+                ||(TaskBridgeClient.volumeAudioReady()&&TaskBridgeClient.volumeInputDeviceCount()>0);
         String guide=bridgeReady
-                ?"任务桥音量长按辅助已就绪：短按音量交由系统处理，第一次长按即可连续调节，松手即停。\n若任务桥断开或重启，将自动退回无桥模式或可切回窗口回拉。"
-                :"当前未连接任务桥（无桥模式）：\n调节音量请「先点一下音量，松手后再长按」。Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n注意：部分固件在音量已到上限或下限时无法触发让渡；若希望第一次长按即连调，请启动任务桥或改用「窗口回拉（兼容模式）」。";
+                ?"任务桥音量长按辅助已就绪（推荐）：直接拦截实体 Home 避免闪出原厂桌面，短按音量交由系统处理，第一次长按即可连续调节，松手即停。\n若任务桥断开或重启，将自动退回无桥模式或可切回窗口回拉。"
+                :"当前未连接任务桥（无桥模式）：\n直接拦截实体 Home（避免闪出原厂桌面），调节音量请「先点一下音量，松手后再长按」。Marco 会临时让渡 5 秒，计时结束后自动恢复快速 Home。\n\n若希望不闪原厂桌面且第一次长按即连调，推荐先启动任务桥；无任务桥时也可改用「窗口回拉（兼容模式）」（部分固件在音量上限/下限时无法触发无桥让渡）。";
         host.showDialog(new TvDialog.Builder(host).setPageId("home_fast_mode_confirm").setTitle("快速 Home")
                 .setMessage(guide)
                 .setItems(new String[]{

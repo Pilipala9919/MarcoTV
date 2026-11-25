@@ -1342,22 +1342,27 @@ final class SystemIntegration {
         HomeSetupPolicy.DesktopState state = desktopState(activity);
         String action = p.getString("home_long_action", "system");
         boolean nativeActive = !BuildEdition.RESTRICTED && homeIsOurs(activity);
+        boolean bridgeReadyForFast = TaskBridgeClient.volumeAssistActive()
+                || (TaskBridgeClient.volumeAudioReady() && TaskBridgeClient.volumeInputDeviceCount() > 0);
         String fastHomeSuffix = mode == HomeSetupPolicy.GuardMode.KEY_FILTER && !nativeActive && !HomeSetup.paused(activity)
                 ? (!HomeKeyService.connected || !HomeSetup.serviceEnabled(activity) ? "（等待服务连接）"
                         : (!HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive ? "（按键过滤未生效）"
                                 : (HomeKeyService.runtimeVolumeYieldFailed ? "（无桥让渡受限）"
-                                        : (TaskBridgeClient.volumeAssistActive() ? "（任务桥辅助） ✓"
+                                        : (TaskBridgeClient.volumeAssistActive() ? "（任务桥辅助 · 推荐） ✓"
                                                 : (HomeKeyService.runtimeVolumeYieldActive ? "（无桥让渡中） ✓"
                                                         : ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
                                                                 ? "（旧版任务桥 · 无桥让渡） ✓" : "（无桥让渡） ✓"))))))
-                : (TaskBridgeClient.volumeAudioReady() && TaskBridgeClient.volumeInputDeviceCount() > 0
-                        ? "（任务桥可用）"
+                : (bridgeReadyForFast
+                        ? "（任务桥已就绪 · 推荐，不闪原厂桌面）"
                         : ("bridge_update_required".equals(TaskBridgeClient.volumeAssistReason())
                                 ? "（旧版任务桥：需重启桥启用音量辅助）"
-                                : "（无桥：先点一下音量，松手后再长按）"));
+                                : "（配任务桥不闪原厂桌面；无桥需点一下再长按）"));
+        String windowLabel = bridgeReadyForFast
+                ? "窗口回拉（兼容模式，会闪原厂桌面）"
+                : "窗口回拉（兼容模式，无桥推荐）";
         String[] base = new String[]{
                 (BuildEdition.RESTRICTED ? "系统默认桌面（受限版不适用）" : "系统默认桌面" + (nativeActive ? " ✓" : "")),
-                "窗口回拉（兼容模式，推荐）" + (!nativeActive && !HomeSetup.paused(activity) && mode == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK && !state.keyFilterStillActiveUnexpectedly ? " ✓" : ""),
+                windowLabel + (!nativeActive && !HomeSetup.paused(activity) && mode == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK && !state.keyFilterStillActiveUnexpectedly ? " ✓" : ""),
                 "快速 Home" + fastHomeSuffix,
                 "原厂按键" + (!nativeActive && !HomeSetup.paused(activity) && mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY && !state.keyFilterStillActiveUnexpectedly ? " ✓" : ""),
                 "快速 Home 长按：系统最近任务" + (action.equals("system") ? " ✓" : ""),
@@ -1447,7 +1452,7 @@ final class SystemIntegration {
                 +"\n当前实际生效："+state.effectiveModeLabel
                 +"\n降级原因："+state.fallbackReason
                 +"\n服务状态："+runtime
-                +"\n\n「窗口回拉（兼容模式）」不拦截按键，音量和方向键交由系统处理；「快速 Home」无任务桥时请先点一下音量、松手后再长按（让渡 5 秒后自动恢复）。";
+                +"\n\n「窗口回拉（兼容模式）」无需任务桥，音量和方向键交由系统处理，但回桌会短暂闪过原厂桌面；若电视锁定原厂桌面且希望不闪原厂桌面并保留首次长按音量连调，推荐配合任务桥使用「快速 Home」（无任务桥时请先点一下音量、松手后再长按，让渡 5 秒后自动恢复）。";
     }
     private static void status(Activity activity, DialogHost host) {
         if(activity instanceof MainActivity)((MainActivity)activity).health.status();

@@ -309,6 +309,51 @@ public final class HomeSetupChecks {
                 &&!OemLauncherExperimentPolicy.isValidPostDisableHome("android/com.android.internal.app.ResolverActivity","com.pilipala.tvhome")
                 &&!OemLauncherExperimentPolicy.isValidPostDisableHome("","com.pilipala.tvhome")
                 &&OemLauncherExperimentPolicy.isValidPostDisableHome("com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity","com.pilipala.tvhome"));
+        // Collapsible top-left MarcoTV header menu state machine checks
+        HomeHeaderMenu menu = new HomeHeaderMenu();
+        check("header_menu_starts_collapsed_with_exact_labels",
+                !menu.isExpanded()
+                && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && "MarcoTV".equals(HomeHeaderMenu.BRAND_LABEL)
+                && java.util.Arrays.equals(HomeHeaderMenu.EXPANDED_LABELS,
+                        new String[]{"桌面设置", "Marco互联", "MagicDesktop", "应用管理"}));
+        check("header_menu_collapsed_right_jumps_to_wifi_and_left_returns",
+                menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_WIFI && !menu.isExpanded()
+                && menu.onLeft() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        check("header_menu_confirm_expands_and_focuses_settings",
+                menu.onConfirm() == HomeHeaderMenu.Action.EXPANDED
+                && menu.isExpanded()
+                && menu.selected() == HomeHeaderMenu.SLOT_SETTINGS);
+        check("header_menu_back_collapses_to_brand",
+                menu.onBack() && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && !menu.onBack());
+        menu.expand();
+        check("header_menu_confirm_brand_when_expanded_collapses",
+                menu.onLeft() && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && menu.onConfirm() == HomeHeaderMenu.Action.COLLAPSED
+                && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        menu.expand();
+        check("header_menu_navigates_all_four_items_and_glides_to_wifi",
+                menu.selected() == HomeHeaderMenu.SLOT_SETTINGS
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_CONNECT
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_MAGIC
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_APP_MANAGER
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_WIFI && !menu.isExpanded());
+        menu.expand();
+        check("header_menu_activates_settings_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_SETTINGS && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        menu.expand(); menu.onRight();
+        check("header_menu_activates_connect_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_CONNECT && !menu.isExpanded());
+        menu.expand(); menu.onRight(); menu.onRight();
+        check("header_menu_activates_magic_desktop_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_MAGIC_DESKTOP && !menu.isExpanded());
+        menu.expand(); menu.onRight(); menu.onRight(); menu.onRight();
+        check("header_menu_activates_app_manager_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_APP_MANAGER && !menu.isExpanded());
+        menu.expand(); menu.onLeaveTopRow();
+        check("header_menu_leave_top_row_auto_collapses",
+                !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
         System.out.println("OK "+passed+" home setup policy checks");
     }
 }
