@@ -10,6 +10,8 @@ subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-d',str(
     str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeInputGate.java'),
     str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeHeaderMenu.java'),
     str(ROOT/'app/src/main/java/com/pilipala/tvhome/OemLauncherExperimentPolicy.java'),
+    str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomeWindowPullPolicy.java'),
+    str(ROOT/'app/src/main/java/com/pilipala/tvhome/HomePressTracker.java'),
     str(ROOT/'scripts/HomeSetupChecks.java')],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),'-cp',str(folder),'com.pilipala.tvhome.HomeSetupChecks'],check=True,capture_output=True,text=True)
 (folder/'result.txt').write_text(result.stdout,encoding='utf8');print(result.stdout)
@@ -209,6 +211,7 @@ android_stubs={
   public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000;
   public static final int FLAG_ACTIVITY_CLEAR_TOP=0x04000000;
   public static final int FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY=0x00100000;
+  public static final int FLAG_ACTIVITY_NO_ANIMATION=0x00010000;
   private String action;
   private Class<?> targetClass;
   private int flags;
@@ -226,9 +229,12 @@ android_stubs={
   public Intent putExtra(String k,boolean v){extras.put(k,v);return this;}
   public Intent putExtra(String k,String v){extras.put(k,v);return this;}
   public Intent putExtra(String k,int v){extras.put(k,v);return this;}
+  public Intent putExtra(String k,long v){extras.put(k,v);return this;}
+  public void removeExtra(String k){extras.remove(k);}
   public boolean getBooleanExtra(String k,boolean d){Object v=extras.get(k);return v instanceof Boolean?(Boolean)v:d;}
   public String getStringExtra(String k){Object v=extras.get(k);return v instanceof String?(String)v:null;}
   public int getIntExtra(String k,int d){Object v=extras.get(k);return v instanceof Integer?(Integer)v:d;}
+  public long getLongExtra(String k,long d){Object v=extras.get(k);return v instanceof Long?(Long)v:d;}
  }''',
  'android/content/BroadcastReceiver.java': '''package android.content;
  public abstract class BroadcastReceiver { public abstract void onReceive(Context context,Intent intent); }''',
@@ -469,7 +475,7 @@ public class AccessibilityEvent {
 svc_stubs['android/view/KeyEvent.java']='''package android.view;
 public class KeyEvent {
  public static final int ACTION_DOWN=0,ACTION_UP=1;
- public static final int KEYCODE_HOME=3,KEYCODE_DPAD_RIGHT=22,KEYCODE_VOLUME_UP=24,KEYCODE_VOLUME_DOWN=25,KEYCODE_POWER=26;
+ public static final int KEYCODE_HOME=3,KEYCODE_DPAD_LEFT=21,KEYCODE_DPAD_RIGHT=22,KEYCODE_VOLUME_UP=24,KEYCODE_VOLUME_DOWN=25,KEYCODE_POWER=26;
  private final int action,code,repeat; private final boolean longPress,canceled;
  public KeyEvent(int a,int c){this(a,c,0,false,false);}
  public KeyEvent(int a,int c,int r,boolean l,boolean x){action=a;code=c;repeat=r;longPress=l;canceled=x;}
@@ -490,7 +496,7 @@ svc_files=[]
 for rel,content in svc_stubs.items():
     p=svc/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content,encoding='utf8');svc_files.append(p)
 svc_prod_names=[
-    'HomeSetupPolicy.java','OemLauncherExperimentPolicy.java','HomeInputGate.java','HomePressTracker.java','HomeDeviceGuide.java',
+    'HomeSetupPolicy.java','OemLauncherExperimentPolicy.java','HomeWindowPullPolicy.java','HomeInputGate.java','HomePressTracker.java','HomeDeviceGuide.java',
     'HomeShellSetup.java','HomeSetup.java','HomeSetupSnapshot.java','SystemIntegration.java',
     'TaskBridgeClient.java','HomeKeyService.java',
 ]

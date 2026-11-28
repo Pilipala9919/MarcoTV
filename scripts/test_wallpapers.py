@@ -15,6 +15,7 @@ output.mkdir(parents=True, exist_ok=True)
 subprocess.run([
     str(jdk / ('bin/javac' + suffix)), '-encoding', 'UTF-8', '-d', str(output),
     str(root / 'app/src/main/java/com/pilipala/tvhome/WallpaperCatalogPolicy.java'),
+    str(root / 'app/src/main/java/com/pilipala/tvhome/LiveWallpaperPolicy.java'),
     str(root / 'scripts/WallpaperCatalogChecks.java'),
 ], check=True)
 result = subprocess.run(

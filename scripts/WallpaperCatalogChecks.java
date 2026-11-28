@@ -127,6 +127,129 @@ public final class WallpaperCatalogChecks {
                 && !WallpaperCatalogPolicy.userVideoImportUrl("file:///sdcard/a.mp4")
                 && !WallpaperCatalogPolicy.userVideoImportUrl("https://user:pass@example.com/a.mp4"));
 
-        System.out.println("OK " + passed + " wallpaper catalog policy checks");
+        // Live wallpaper mount/surface timeout, multi-progress reveal, short-clip loops, stability latch & crop math.
+        check("live_mount_surface_timeout_waits_before_2000ms",
+                LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.TEXTURE, true,
+                        false, false, false, false, 0, 0, 1500, 0, 0, true)
+                        == LiveWallpaperPolicy.WatchdogAction.NONE);
+        check("live_mount_missing_texture_surface_falls_back_at_2000ms",
+                LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.TEXTURE, true,
+                        false, false, false, false, 0, 0, 2000, 0, 0, true)
+                        == LiveWallpaperPolicy.WatchdogAction.FALLBACK_TO_SURFACE);
+        check("live_mount_missing_surfaceview_callback_fails_cleanly_at_2000ms",
+                LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.SURFACE, true,
+                        false, false, false, false, 0, 0, 2000, 0, 0, false)
+                        == LiveWallpaperPolicy.WatchdogAction.FAIL_UNSUPPORTED);
+        check("live_texture_requires_real_frames_to_reveal",
+                !LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.TEXTURE, true, true, false, 0, 0)
+                && !LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.TEXTURE, true, true, false, 1, 0)
+                && LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.TEXTURE, true, true, false, 2, 0)
+                && LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.TEXTURE, true, true, true, 1, 0));
+        check("live_texture_stall_falls_back_to_surface",
+                LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.TEXTURE, true,
+                        true, true, false, false, 0, 0, 2500, 2400, 2200, true)
+                        == LiveWallpaperPolicy.WatchdogAction.FALLBACK_TO_SURFACE);
+        check("live_texture_prepare_timeout_falls_back_to_surface",
+                LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.TEXTURE, true,
+                        true, false, false, false, 0, 0, 8200, 8000, 0, true)
+                        == LiveWallpaperPolicy.WatchdogAction.FALLBACK_TO_SURFACE);
+        check("live_texture_post_reveal_freeze_falls_back_to_surface",
+                LiveWallpaperPolicy.evaluateTexturePostReveal(true, true, 2, 2, 10000, true)
+                        == LiveWallpaperPolicy.WatchdogAction.FALLBACK_TO_SURFACE
+                && LiveWallpaperPolicy.evaluateTexturePostReveal(true, true, 2, 60, 10000, true)
+                        == LiveWallpaperPolicy.WatchdogAction.NONE);
+
+        // SurfaceView reveal requires >=2 distinct progress changes (not renderingStarted or a single jump).
+        check("live_surface_requires_multiple_progress_changes_to_reveal",
+                !LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE, true, true, true, 0, 0)
+                && !LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE, true, true, true, 0, 1)
+                && LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE, true, true, false, 0, 2));
+
+        // ProgressTracker: normal forward progress confirms preferred only at >=5 changes.
+        LiveWallpaperPolicy.ProgressTracker normalTracker = new LiveWallpaperPolicy.ProgressTracker();
+        normalTracker.observe(true, 0, 10000);
+        normalTracker.observe(true, 250, 10000);
+        boolean beforeReveal = LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE,
+                true, true, true, 0, normalTracker.progressChanges());
+        normalTracker.observe(true, 500, 10000);
+        boolean atReveal = LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE,
+                true, true, false, 0, normalTracker.progressChanges());
+        LiveWallpaperPolicy.StabilityAction midStability = LiveWallpaperPolicy.evaluateSurfaceStability(
+                true, true, normalTracker.progressChanges(), normalTracker.consecutiveUnchanged());
+        normalTracker.observe(true, 750, 10000);
+        normalTracker.observe(true, 1000, 10000);
+        LiveWallpaperPolicy.StabilityAction atFourChanges = LiveWallpaperPolicy.evaluateSurfaceStability(
+                true, true, normalTracker.progressChanges(), normalTracker.consecutiveUnchanged());
+        normalTracker.observe(true, 1250, 10000);
+        LiveWallpaperPolicy.StabilityAction atFiveChanges = LiveWallpaperPolicy.evaluateSurfaceStability(
+                true, true, normalTracker.progressChanges(), normalTracker.consecutiveUnchanged());
+        check("live_surface_normal_progress_reveals_at_2_and_confirms_preferred_at_5",
+                !beforeReveal && atReveal
+                && midStability == LiveWallpaperPolicy.StabilityAction.CONTINUE_POLLING
+                && atFourChanges == LiveWallpaperPolicy.StabilityAction.CONTINUE_POLLING
+                && atFiveChanges == LiveWallpaperPolicy.StabilityAction.CONFIRM_PREFERRED);
+
+        // ProgressTracker: short looping clip (600 ms duration) wraps across polls and still confirms stability.
+        LiveWallpaperPolicy.ProgressTracker shortLoop = new LiveWallpaperPolicy.ProgressTracker();
+        shortLoop.observe(true, 200, 600);
+        shortLoop.observe(true, 450, 600);
+        shortLoop.observe(true, 100, 600); // wrap #1
+        shortLoop.observe(true, 350, 600);
+        shortLoop.observe(true, 550, 600);
+        shortLoop.observe(true, 150, 600); // wrap #2
+        check("live_surface_short_clip_loop_wrap_confirms_stability",
+                shortLoop.loopWraps() == 2 && shortLoop.progressChanges() == 5
+                && LiveWallpaperPolicy.evaluateSurfaceStability(true, true,
+                        shortLoop.progressChanges(), shortLoop.consecutiveUnchanged())
+                        == LiveWallpaperPolicy.StabilityAction.CONFIRM_PREFERRED);
+
+        // ProgressTracker: ultra-short clip assisted by OnCompletionListener counts completion loops.
+        LiveWallpaperPolicy.ProgressTracker completionLoop = new LiveWallpaperPolicy.ProgressTracker();
+        completionLoop.observe(true, 120, 300);
+        completionLoop.onLoopCompletion();
+        completionLoop.observe(true, 120, 300);
+        completionLoop.onLoopCompletion();
+        completionLoop.observe(true, 120, 300);
+        check("live_surface_completion_callback_counts_ultra_short_loops",
+                completionLoop.loopWraps() == 2 && completionLoop.progressChanges() == 2
+                && LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE,
+                        true, true, false, 0, completionLoop.progressChanges()));
+
+        // ProgressTracker: frozen position or tiny backward jitter never fakes reveal or preferred latch.
+        LiveWallpaperPolicy.ProgressTracker frozen = new LiveWallpaperPolicy.ProgressTracker();
+        frozen.observe(true, 100, 10000);
+        frozen.observe(true, 105, 10000); // single small step -> 1 change
+        for (int i = 0; i < 8; i++) {
+            frozen.observe(true, (i % 2 == 0) ? 100 : 105, 10000);
+        }
+        check("live_surface_jitter_never_reveals_and_stalls_out",
+                frozen.progressChanges() == 1 && frozen.consecutiveUnchanged() == 8
+                && !LiveWallpaperPolicy.shouldReveal(LiveWallpaperPolicy.Backend.SURFACE,
+                        true, true, true, 0, frozen.progressChanges())
+                && LiveWallpaperPolicy.evaluateStartup(LiveWallpaperPolicy.Backend.SURFACE, true,
+                        true, true, false, true, 0, frozen.progressChanges(), 5000, 4800, 4500, false)
+                        == LiveWallpaperPolicy.WatchdogAction.FAIL_UNSUPPORTED);
+
+        // Post-reveal SurfaceView stall fails cleanly WITHOUT confirming preferred.
+        check("live_surface_post_reveal_stall_fails_without_confirming_preferred",
+                LiveWallpaperPolicy.evaluateSurfaceStability(true, true, 2, 7)
+                        == LiveWallpaperPolicy.StabilityAction.CONTINUE_POLLING
+                && LiveWallpaperPolicy.evaluateSurfaceStability(true, true, 2, 8)
+                        == LiveWallpaperPolicy.StabilityAction.FAIL_UNSUPPORTED);
+
+        check("live_error_fallback_only_from_texture",
+                LiveWallpaperPolicy.shouldFallbackOnError(LiveWallpaperPolicy.Backend.TEXTURE, true)
+                && !LiveWallpaperPolicy.shouldFallbackOnError(LiveWallpaperPolicy.Backend.TEXTURE, false)
+                && !LiveWallpaperPolicy.shouldFallbackOnError(LiveWallpaperPolicy.Backend.SURFACE, true));
+
+        int[] wideCrop = LiveWallpaperPolicy.centerCropSize(1920, 1080, 2560, 1080);
+        int[] tallCrop = LiveWallpaperPolicy.centerCropSize(1920, 1080, 1080, 1920);
+        int[] exactCrop = LiveWallpaperPolicy.centerCropSize(1920, 1080, 1280, 720);
+        check("live_center_crop_math",
+                wideCrop[0] == 2560 && wideCrop[1] == 1080
+                && tallCrop[0] == 1920 && tallCrop[1] == 3413
+                && exactCrop[0] == 1920 && exactCrop[1] == 1080);
+
+        System.out.println("OK " + passed + " wallpaper catalog and live playback policy checks");
     }
 }

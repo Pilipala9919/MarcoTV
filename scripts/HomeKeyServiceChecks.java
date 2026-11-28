@@ -108,29 +108,39 @@ public final class HomeKeyServiceChecks {
                 && !service.onKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_HOME))
                 && service.startedActivities.isEmpty());
 
-        // OEM launcher window triggers 60ms window pullback to Marco desktop.
+        // OEM launcher window pulls immediately (0ms) via HomeWindowPullPolicy; same-class burst
+        // within 60ms schedules a bounded follow-up that cancels if Marco appears first, or fires once when due.
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
-        SystemClock.elapsed += 30;
-        Handler.runDue();
-        check("window_pullback_coalesces_before_60ms", service.startedActivities.isEmpty());
-        SystemClock.elapsed += 35;
-        Handler.runDue();
-        check("window_pullback_returns_to_marco_within_60ms",
+        check("window_pullback_returns_immediately_at_0ms",
                 service.startedActivities.size() == 1
                 && !service.startedActivities.get(0).getBooleanExtra("recent_apps", false)
+                && (service.startedActivities.get(0).getFlags() & Intent.FLAG_ACTIVITY_NO_ANIMATION) != 0
+                && "window_immediate".equals(service.startedActivities.get(0).getStringExtra("home_return_source"))
                 && Diagnostics.events.contains("HOME_WINDOW_FALLBACK"));
+        SystemClock.elapsed += 20;
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed += 45;
+        Handler.runDue();
+        check("window_pullback_followup_fires_once_when_due", service.startedActivities.size() == 2);
 
-        // If Marco appears before 60ms, pending fallback is cancelled without duplicate launch.
+        // If Marco appears before bounded follow-up is due, pending follow-up is cancelled without duplicate launch.
         service.startedActivities.clear();
+        service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed += 100;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
         SystemClock.elapsed += 20;
         service.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed += 10;
+        service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
         SystemClock.elapsed += 80;
         Handler.runDue();
-        check("window_pullback_cancelled_when_marco_appears", service.startedActivities.isEmpty());
+        check("window_pullback_cancelled_when_marco_appears", service.startedActivities.size() == 1);
 
         // Short-press HOME broadcast returns desktop; 2nd press within double-tap window opens Recents;
         // trailing OEM launcher window within 800ms pulls back while preserving recent_apps=true.
@@ -384,12 +394,12 @@ public final class HomeKeyServiceChecks {
         check("homekey_followup_cancelled_when_marco_settles", service.startedActivities.size() == 1);
 
         // Standby wake recovery works in WINDOW_PULLBACK mode.
-        service.startedActivities.clear();
-        Diagnostics.events.clear();
         SystemClock.elapsed += 15000;
         service.onAccessibilityEvent(new AccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
         Handler.clearDelayed();
+        service.startedActivities.clear();
+        Diagnostics.events.clear();
         service.powerManager.interactive = false;
         service.dispatchBroadcast(new Intent(Intent.ACTION_SCREEN_OFF));
         SystemClock.elapsed += 5000;
@@ -1494,6 +1504,183 @@ public final class HomeKeyServiceChecks {
         } catch (Exception e) { throw new RuntimeException(e); }
         TaskBridgeClient.resetForTest();
         retryYieldSvc.onDestroy();
+
+        // =========================================================================
+        // Hisense JUOS / Leading-edge Window Pull + Cross-Source Dedup + Key Timeout Regressions
+        // =========================================================================
+        // 1. Same short press: OEM launcher window arrives first (0ms), then homekey broadcast +50ms later.
+        HomeKeyService hs1 = freshService();
+        SystemClock.elapsed = 10000L;
+        hs1.onServiceConnected();
+        hs1.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        check("hs_svc_window_first_pulls_immediately_single_press",
+                hs1.startedActivities.size() == 1
+                && !hs1.startedActivities.get(0).getBooleanExtra("recent_apps", true)
+                && (hs1.startedActivities.get(0).getFlags() & Intent.FLAG_ACTIVITY_NO_ANIMATION) != 0
+                && "window_immediate".equals(hs1.startedActivities.get(0).getStringExtra("home_return_source"))
+                && hs1.startedActivities.get(0).getStringExtra(HomeSetup.EXTRA_EVENT_TOKEN) != null);
+        SystemClock.elapsed = 10050L;
+        hs1.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed = 10200L;
+        Handler.runDue();
+        check("hs_svc_window_first_then_broadcast_50ms_launches_only_once",
+                hs1.startedActivities.size() == 1
+                && !hs1.startedActivities.get(0).getBooleanExtra("recent_apps", true));
+        hs1.onDestroy();
+
+        // 1b. Variant where Marco already returned to front at +30ms before late +50ms broadcast.
+        HomeKeyService hs1b = freshService();
+        SystemClock.elapsed = 15000L;
+        hs1b.onServiceConnected();
+        hs1b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed = 15030L;
+        hs1b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed = 15050L;
+        hs1b.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("hs_svc_window_first_marco_returned_30ms_late_broadcast_50ms_still_deduped",
+                hs1b.startedActivities.size() == 1
+                && !hs1b.startedActivities.get(0).getBooleanExtra("recent_apps", true));
+        hs1b.onDestroy();
+
+        // 2. Two real short presses 200ms apart with Marco returned in between -> recognizes double-press (window->window & window->broadcast).
+        HomeKeyService hs2 = freshService();
+        SystemClock.elapsed = 20000L;
+        hs2.onServiceConnected();
+        hs2.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed = 20050L;
+        hs2.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed = 20080L;
+        hs2.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed = 20200L;
+        hs2.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed = 20250L;
+        hs2.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("hs_svc_two_real_short_presses_200ms_apart_window_then_window_recognizes_double",
+                hs2.startedActivities.size() == 2
+                && !hs2.startedActivities.get(0).getBooleanExtra("recent_apps", true)
+                && hs2.startedActivities.get(1).getBooleanExtra("recent_apps", false));
+        hs2.onDestroy();
+
+        HomeKeyService hs2b = freshService();
+        SystemClock.elapsed = 25000L;
+        hs2b.onServiceConnected();
+        hs2b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        SystemClock.elapsed = 25080L;
+        hs2b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed = 25200L;
+        hs2b.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("hs_svc_two_real_short_presses_200ms_apart_window_then_broadcast_recognizes_double",
+                hs2b.startedActivities.size() == 2
+                && !hs2b.startedActivities.get(0).getBooleanExtra("recent_apps", true)
+                && hs2b.startedActivities.get(1).getBooleanExtra("recent_apps", false));
+        SystemClock.elapsed = 25250L;
+        hs2b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        check("hs_svc_racing_window_after_double_broadcast_pulls_and_preserves_recent_apps",
+                hs2b.startedActivities.size() == 3
+                && hs2b.startedActivities.get(2).getBooleanExtra("recent_apps", false));
+        hs2b.onDestroy();
+
+        // 3. Broadcast-first order: homekey broadcast arrives first, racing OEM window +50ms later (and +30ms Marco return variant).
+        HomeKeyService hs3 = freshService();
+        SystemClock.elapsed = 30000L;
+        hs3.onServiceConnected();
+        hs3.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed = 30050L;
+        hs3.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        check("hs_svc_broadcast_first_then_window_50ms_pulls_without_double_counting",
+                hs3.startedActivities.size() == 2
+                && !hs3.startedActivities.get(0).getBooleanExtra("recent_apps", true)
+                && !hs3.startedActivities.get(1).getBooleanExtra("recent_apps", true));
+        SystemClock.elapsed = 30090L;
+        hs3.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed = 30200L;
+        hs3.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("hs_svc_broadcast_first_followed_by_real_second_press_200ms_recognizes_double",
+                hs3.startedActivities.size() == 3
+                && hs3.startedActivities.get(2).getBooleanExtra("recent_apps", false));
+        hs3.onDestroy();
+
+        HomeKeyService hs3b = freshService();
+        SystemClock.elapsed = 35000L;
+        hs3b.onServiceConnected();
+        hs3b.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        SystemClock.elapsed = 35030L;
+        hs3b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        SystemClock.elapsed = 35050L;
+        hs3b.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+        check("hs_svc_broadcast_first_marco_30ms_late_window_50ms_no_double_count",
+                hs3b.startedActivities.size() == 2
+                && !hs3b.startedActivities.get(0).getBooleanExtra("recent_apps", true)
+                && !hs3b.startedActivities.get(1).getBooleanExtra("recent_apps", true));
+        hs3b.onDestroy();
+
+        // 4. Three independent short-press rounds; other apps/settings & nav keys unaffected.
+        HomeKeyService hs4 = freshService();
+        hs4.onServiceConnected();
+        boolean threeRoundsOk = true;
+        for (int round = 0; round < 3; round++) {
+            long base = 70000L + round * 3000L;
+            SystemClock.elapsed = base;
+            hs4.onAccessibilityEvent(new AccessibilityEvent(
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.example.player", "com.example.player.MainActivity"));
+            SystemClock.elapsed = base + 500L;
+            hs4.onAccessibilityEvent(new AccessibilityEvent(
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.mitv.tvhome", "com.mitv.tvhome.MainActivityUserMode"));
+            SystemClock.elapsed = base + 550L;
+            hs4.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+            SystemClock.elapsed = base + 600L;
+            hs4.onAccessibilityEvent(new AccessibilityEvent(
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+            threeRoundsOk &= hs4.startedActivities.size() == round + 1
+                    && !hs4.startedActivities.get(round).getBooleanExtra("recent_apps", true);
+        }
+        check("hs_svc_three_independent_short_press_rounds_single_return_each", threeRoundsOk);
+        int launchesBeforeApps = hs4.startedActivities.size();
+        SystemClock.elapsed = 82000L;
+        hs4.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.tv.settings", "com.android.tv.settings.MainSettings"));
+        hs4.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.example.player", "com.example.player.MainActivity"));
+        boolean navPassedThrough = !hs4.onKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT));
+        check("hs_svc_other_apps_settings_and_nav_keys_unaffected",
+                hs4.startedActivities.size() == launchesBeforeApps && navPassedThrough);
+        hs4.onDestroy();
+
+        // 5. Stuck ACTION_DOWN without UP under key_filter recovers via 2500ms safety timeout.
+        HomeKeyService hs5 = freshService();
+        hs5.sysPrefs.edit()
+                .putString(SystemIntegration.PREF_GUARD_MODE, HomeSetupPolicy.GuardMode.KEY_FILTER.prefValue)
+                .putString("home_long_action", "marco")
+                .commit();
+        hs5.onServiceConnected();
+        SystemClock.elapsed = 85000L;
+        hs5.onKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HOME));
+        SystemClock.elapsed = 85600L;
+        Handler.runDue();
+        SystemClock.elapsed = 87500L;
+        Handler.runDue();
+        SystemClock.elapsed = 88000L;
+        hs5.onAccessibilityEvent(new AccessibilityEvent(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.pilipala.tvhome", "com.pilipala.tvhome.MainActivity"));
+        int beforeRecoveryPress = hs5.startedActivities.size();
+        SystemClock.elapsed = 89000L;
+        hs5.dispatchBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).putExtra("reason", "homekey"));
+        check("hs_svc_stuck_home_down_recovers_after_safety_timeout",
+                hs5.startedActivities.size() == beforeRecoveryPress + 1);
+        hs5.onDestroy();
 
         System.out.println("OK " + passed + " HomeKeyService runtime guard mode checks");
         System.exit(0);

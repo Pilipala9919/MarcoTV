@@ -47,7 +47,15 @@ final class AppearanceDeviceChecks {
             }catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(1800);
             ui(inst,()->{try{
                 android.view.ViewGroup root=(android.view.ViewGroup)field(host.panelWindow(),"root");
-                check.accept("settings_root_uses_fullscreen_canvas",root.getChildCount()==1&&root.getChildAt(0).getWidth()>=host.home.getWidth()-2);
+                android.view.Window win=host.panelWindow().getWindow();
+                View decor=win==null?null:win.getDecorView();
+                int[] rootLoc=new int[2],homeLoc=new int[2];
+                root.getLocationOnScreen(rootLoc);host.home.getLocationOnScreen(homeLoc);
+                check.accept("settings_root_uses_fullscreen_canvas",
+                        root.getChildCount()==1&&root.getChildAt(0).getWidth()>=host.home.getWidth()-2
+                        &&root.getWidth()>=host.home.getWidth()-2&&root.getHeight()>=host.home.getHeight()-2
+                        &&Math.abs(rootLoc[0]-homeLoc[0])<=1&&Math.abs(rootLoc[1]-homeLoc[1])<=1
+                        &&(decor==null||(decor.getPaddingLeft()==0&&decor.getPaddingTop()==0&&decor.getPaddingRight()==0&&decor.getPaddingBottom()==0)));
                 android.graphics.drawable.Drawable rootBg=root.getBackground();
                 check.accept("settings_canvas_is_fully_opaque",rootBg instanceof android.graphics.drawable.ColorDrawable&&Color.alpha(((android.graphics.drawable.ColorDrawable)rootBg).getColor())==255);
                 View aboutLabel=PhoneDeviceChecks.find(root,"关于 Marco TV");

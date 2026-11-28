@@ -357,6 +357,50 @@ public final class HomeSetupChecks {
         menu.expand(); menu.onLeaveTopRow();
         check("header_menu_leave_top_row_auto_collapses",
                 !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+
+        HomeWindowPullPolicy pull=new HomeWindowPullPolicy();
+        HomeWindowPullPolicy.Decision first=pull.onOriginalHomeWindow(10000,"com.hisense.tv.launcher.HomeActivity");
+        check("window_pull_first_notification_is_immediate",
+                first.action==HomeWindowPullPolicy.Action.PULL_NOW&&first.delayMs==0&&first.newEpisode&&pull.pullsInEpisode()==1);
+        HomeWindowPullPolicy.Decision dup1=pull.onOriginalHomeWindow(10020,"com.hisense.tv.launcher.HomeActivity");
+        check("window_pull_same_class_burst_schedules_bounded_followup",
+                dup1.action==HomeWindowPullPolicy.Action.SCHEDULE_FOLLOWUP&&dup1.delayMs==40&&!dup1.newEpisode&&pull.isFollowupPending());
+        HomeWindowPullPolicy.Decision dup2=pull.onOriginalHomeWindow(10045,"com.hisense.tv.launcher.HomeActivity");
+        check("window_pull_burst_never_slides_followup_forever",
+                dup2.action==HomeWindowPullPolicy.Action.KEEP_FOLLOWUP&&pull.isFollowupPending());
+        check("window_pull_followup_fires_once_when_due",
+                pull.onFollowupDue(10060)&&pull.pullsInEpisode()==2&&!pull.isFollowupPending()&&!pull.onFollowupDue(10070));
+        HomeWindowPullPolicy.Decision secondAct=pull.onOriginalHomeWindow(10080,"com.hisense.tv.launcher.SecondActivity");
+        check("window_pull_second_launcher_activity_pulls_immediately",
+                secondAct.action==HomeWindowPullPolicy.Action.PULL_NOW&&secondAct.delayMs==0&&!secondAct.newEpisode&&pull.pullsInEpisode()==3);
+        HomeWindowPullPolicy.Decision burstCap1=pull.onOriginalHomeWindow(10250,"com.hisense.tv.launcher.SecondActivity");
+        HomeWindowPullPolicy.Decision burstCap2=pull.onOriginalHomeWindow(10400,"com.hisense.tv.launcher.ThirdActivity");
+        check("window_pull_caps_episode_pulls",
+                burstCap1.action==HomeWindowPullPolicy.Action.PULL_NOW&&pull.pullsInEpisode()==4
+                &&burstCap2.action==HomeWindowPullPolicy.Action.IGNORE);
+        pull.onNonOriginalWindow();
+        check("window_pull_non_original_window_cancels_episode",!pull.isInEpisode()&&!pull.isFollowupPending()&&pull.pullsInEpisode()==0);
+
+        boolean threeIndependentRounds=true;
+        for (int round=0;round<3;round++) {
+            long base=20000L+round*3000L;
+            HomeWindowPullPolicy.Decision d=pull.onOriginalHomeWindow(base,"com.hisense.tv.launcher.HomeActivity");
+            threeIndependentRounds&=d.action==HomeWindowPullPolicy.Action.PULL_NOW&&d.delayMs==0&&d.newEpisode;
+            HomeWindowPullPolicy.Decision d2=pull.onOriginalHomeWindow(base+25,"com.hisense.tv.launcher.HomeActivity");
+            threeIndependentRounds&=d2.action==HomeWindowPullPolicy.Action.SCHEDULE_FOLLOWUP;
+            pull.onNonOriginalWindow();
+            threeIndependentRounds&=!pull.onFollowupDue(base+80);
+        }
+        check("window_pull_three_independent_short_press_rounds",threeIndependentRounds);
+
+        HomeWindowPullPolicy.Decision startEp=pull.onOriginalHomeWindow(40000,"com.hisense.tv.launcher.HomeActivity");
+        HomeWindowPullPolicy.Decision afterExpiry=pull.onOriginalHomeWindow(42000,"com.hisense.tv.launcher.HomeActivity");
+        check("window_pull_expired_episode_starts_fresh",startEp.newEpisode&&afterExpiry.newEpisode&&pull.pullsInEpisode()==1);
+
+        HomePressTracker tracker=new HomePressTracker();
+        check("home_press_tracker_single_then_double_then_reset",
+                !tracker.press(1000,400)&&tracker.press(1200,400)&&!tracker.press(1350,400));
+
         System.out.println("OK "+passed+" home setup policy checks");
     }
 }

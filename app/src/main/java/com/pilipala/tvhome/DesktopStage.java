@@ -86,6 +86,7 @@ final class DesktopStage extends FrameLayout {
         boolean active = overview > 0.001f;
         boolean wasActive = lastOverview > 0.001f;
         lastOverview = overview;
+        liveWallpaper.setOverviewActive(active);
 
         if (active) {
             if (backdropView.getVisibility() != VISIBLE) {

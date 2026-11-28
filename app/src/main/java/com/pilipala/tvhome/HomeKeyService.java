@@ -20,6 +20,9 @@ import android.view.KeyEvent;
 public final class HomeKeyService extends AccessibilityService {
     static final long VOLUME_YIELD_MS = 5000L;
     static final int VOLUME_YIELD_STREAM = 3; // AudioManager.STREAM_MUSIC
+    static final long HOME_HOLD_SAFETY_TIMEOUT_MS = 2500L;
+    static final long CROSS_SOURCE_INFLIGHT_DEDUP_MS = 350L;
+    static final long CROSS_SOURCE_SETTLED_DEDUP_MS = 100L;
     static final String ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION";
     static final String EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE";
     static final String EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE";
@@ -215,13 +218,36 @@ public final class HomeKeyService extends AccessibilityService {
                 +"; capabilities="+applied.getCapabilities()
                 +"; flags="+effectiveFlags);
     }
+    private void cancelWindowFallback() {
+        handler.removeCallbacks(fallback);
+        windowPullPolicy.reset();
+    }
+    private void resetCrossSourceState() {
+        lastPressTrackedAt = -10000L;
+        lastPressSource = "";
+        lastPressEventSource = "";
+        lastPressDouble = false;
+        returnedToMarcoSinceLastPress = true;
+    }
+    private boolean isCrossSourceDuplicate(String incomingSource, long now) {
+        if (lastPressTrackedAt < 0L || lastPressSource.isEmpty() || lastPressSource.equals(incomingSource)) {
+            return false;
+        }
+        long delta = now - lastPressTrackedAt;
+        if (delta < 0L) return false;
+        if (!returnedToMarcoSinceLastPress) {
+            return delta < CROSS_SOURCE_INFLIGHT_DEDUP_MS;
+        }
+        return delta < CROSS_SOURCE_SETTLED_DEDUP_MS;
+    }
     static boolean openSystemRecents(){
         return instance!=null&&instance.systemRecents();
     }
     private boolean systemRecents(){
-        handler.removeCallbacks(fallback);
+        cancelWindowFallback();
         handler.removeCallbacks(homeBroadcastFollowup);
         homePressTracker.reset();
+        resetCrossSourceState();
         suppressUntil=SystemClock.elapsedRealtime()+10000;
         recentAppsSuppressed=true;
         boolean result=performGlobalAction(GLOBAL_ACTION_RECENTS);
@@ -232,19 +258,42 @@ public final class HomeKeyService extends AccessibilityService {
         Diagnostics.event(result?"SYSTEM_RECENTS_REQUESTED":"SYSTEM_RECENTS_UNAVAILABLE");
         return result;
     }
+    private final Runnable handlingHomeTimeout = () -> {
+        if (this.handlingHome) {
+            Log.i("MarcoTVSystem", "HOME_TRACE signal=key_timeout resetting stuck handlingHome elapsed="
+                    + SystemClock.elapsedRealtime());
+            resetPress();
+        }
+    };
     private void resetPress(){
         handlingHome=false;
         held=false;
         handler.removeCallbacks(longHome);
+        handler.removeCallbacks(handlingHomeTimeout);
     }
     private final Runnable longHome=()->{
         if(!this.handlingHome||held||!canRedirect())return;
         held=true;
         this.homePressTracker.reset();
+        HomeSetup.cancelPendingShortPress();
+        HomeSetup.clearPendingHomeEvent(this);
         String action=SystemIntegration.prefs(this).getString("home_long_action","system");
+        long now=SystemClock.elapsedRealtime();
+        Log.i("MarcoTVSystem","HOME_TRACE signal=long_press action="+action+" elapsed="+now);
         if(action.equals("marco")){
+            lastPressTrackedAt=now;
+            lastPressSource="key";
+            lastPressEventSource=HomeSetup.SOURCE_COMPAT_KEY;
+            lastPressDouble=true;
+            returnedToMarcoSinceLastPress=false;
+            lastLaunchAt=now;
+            lastLaunchSource="long_marco";
             try{
-                startActivity(SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",true));
+                startActivity(SystemIntegration.homeIntent(this)
+                        .putExtra("home_press_handled",true)
+                        .putExtra("recent_apps",true)
+                        .putExtra("home_return_source","long_marco")
+                        .putExtra("home_return_at",now));
             }catch(RuntimeException e){
                 Log.w("MarcoTVSystem","Long HOME unavailable",e);
             }
@@ -254,20 +303,24 @@ public final class HomeKeyService extends AccessibilityService {
     };
     private long lastOpen;
     private long lastDirect=-10000;
-    private long lastHomeBroadcastAt=-10000;
-    private long lastWindowFallbackAt=-10000;
-    private String lastWindowFallbackComponent="";
-    private String pendingFallbackComponent="";
+    private long lastPressTrackedAt=-10000L;
+    private String lastPressSource="";
+    private String lastPressEventSource="";
+    private boolean lastPressDouble;
+    private boolean returnedToMarcoSinceLastPress=true;
+    private long lastLaunchAt=-10000L;
+    private String lastLaunchSource="";
     private long dismissingRecentAppsUntil;
     private boolean homeBroadcastSettled;
     private final HomePressTracker homePressTracker=new HomePressTracker();
     private final HomeInputGate inputGate=new HomeInputGate();
+    private final HomeWindowPullPolicy windowPullPolicy=new HomeWindowPullPolicy();
     private boolean canRedirect(){
         if(!HomeSetup.unlocked(this))return false;
         android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
         return inputGate.allow(power!=null&&power.isInteractive(),SystemClock.elapsedRealtime());
     }
-    private Intent homePressIntent(String source){
+    private Intent homePressIntent(String eventSource,String pressSource,String traceSource,boolean noAnimation){
         long now=SystemClock.elapsedRealtime();
         lastOpen=now;
         boolean twice=false;
@@ -278,7 +331,19 @@ public final class HomeKeyService extends AccessibilityService {
         }else{
             homePressTracker.reset();
         }
-        Intent intent=SystemIntegration.homeIntent(this).putExtra("home_press_handled",true).putExtra("recent_apps",twice);
+        lastPressTrackedAt=now;
+        lastPressSource=pressSource;
+        lastPressEventSource=eventSource==null?"":eventSource;
+        lastPressDouble=twice;
+        returnedToMarcoSinceLastPress=false;
+        lastLaunchAt=now;
+        lastLaunchSource=traceSource;
+        Intent intent=SystemIntegration.homeIntent(this)
+                .putExtra("home_press_handled",true)
+                .putExtra("recent_apps",twice)
+                .putExtra("home_return_source",traceSource)
+                .putExtra("home_return_at",now);
+        if(noAnimation)intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
         if(twice){
             preserveRecentsUntil=now+800;
             handler.removeCallbacks(fallback);
@@ -286,8 +351,8 @@ public final class HomeKeyService extends AccessibilityService {
             HomeSetup.clearPendingHomeEvent(this);
         }else{
             preserveRecentsUntil=0;
-            if(source!=null&&!source.isEmpty()){
-                intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,HomeSetup.issueHomeEvent(this,source));
+            if(eventSource!=null&&!eventSource.isEmpty()){
+                intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,HomeSetup.issueHomeEvent(this,eventSource));
             }
         }
         return intent;
@@ -360,7 +425,8 @@ public final class HomeKeyService extends AccessibilityService {
                 inputGate.screen(on,now);
                 resetPress();
                 homePressTracker.reset();
-                handler.removeCallbacks(fallback);
+                resetCrossSourceState();
+                cancelWindowFallback();
                 handler.removeCallbacks(homeBroadcastFollowup);
                 handler.removeCallbacks(wakeCheck);
                 if(!on&&volumeYieldActive){
@@ -392,7 +458,7 @@ public final class HomeKeyService extends AccessibilityService {
             boolean directKeyActive=runtimeKeyFilterRequested&&mode.handlesDirectHomeKey()&&!volumeYieldActive;
             if(!directKeyActive&&"assist".equals(reason)){
                 homeBroadcastSettled=true;
-                handler.removeCallbacks(fallback);
+                cancelWindowFallback();
                 handler.removeCallbacks(homeBroadcastFollowup);
                 suppressUntil=now+10000;
                 recentAppsSuppressed=false;
@@ -403,26 +469,29 @@ public final class HomeKeyService extends AccessibilityService {
                 // "recentapps" broadcast right after "homekey"; ignore only that closing echo.
                 if(now<dismissingRecentAppsUntil)return;
                 homeBroadcastSettled=true;
-                handler.removeCallbacks(fallback);
+                cancelWindowFallback();
                 handler.removeCallbacks(homeBroadcastFollowup);
                 suppressUntil=now+10000;
                 recentAppsSuppressed=true;
                 return;
             }
             if (!"homekey".equals(reason)) return;
-            if(handlingHome)return;
-            if(now-lastDirect<200)return;
+            boolean recentDirect=now-lastDirect<200;
+            boolean crossDup=isCrossSourceDuplicate("broadcast",now);
+            Log.i("MarcoTVSystem","HOME_TRACE signal=broadcast reason="+reason
+                    +" handling="+handlingHome+" recentDirect="+recentDirect
+                    +" crossDup="+crossDup+" returned="+returnedToMarcoSinceLastPress+" elapsed="+now);
+            if(handlingHome||recentDirect||crossDup)return;
             dismissingRecentAppsUntil=(recentAppsSuppressed&&suppressUntil>now)?now+600:0;
             recentAppsSuppressed=false;
             suppressUntil=0;
-            lastHomeBroadcastAt=now;
             homeBroadcastSettled=false;
-            handler.removeCallbacks(fallback);
+            cancelWindowFallback();
             handler.removeCallbacks(homeBroadcastFollowup);
             try {
-                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_BROADCAST));
+                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_BROADCAST,"broadcast","broadcast",true));
                 Diagnostics.event("HOME_BROADCAST_HANDLED");
-                Log.i("MarcoTVSystem", "HOME broadcast handled");
+                Log.i("MarcoTVSystem","HOME_TRACE action=launch source=broadcast double="+lastPressDouble+" elapsed="+now);
                 if(mode.handlesWindowFallback()&&!SystemIntegration.homeIsOurs(c)){
                     handler.postDelayed(homeBroadcastFollowup,450);
                 }
@@ -461,47 +530,85 @@ public final class HomeKeyService extends AccessibilityService {
         Diagnostics.event("HOME_SERVICE_CONNECTED");
     }
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private void launchHomeFallback(String source, String diagEvent, String logLabel) {
+    private final Runnable fallback = () -> {
         long now = SystemClock.elapsedRealtime();
+        if (!windowPullPolicy.onFollowupDue(now)) return;
+        performWindowFallback(now, false, "window_followup");
+    };
+    private void performWindowFallback(long now, boolean newEpisode, String traceSource) {
         if (HomeSetup.paused(this) || SystemIntegration.homeIsOurs(this) || !canRedirect() || !guardMode().handlesWindowFallback()
                 || now < suppressUntil || !SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
-        boolean windowPullback = HomeSetup.SOURCE_WINDOW_FALLBACK.equals(source);
-        if (windowPullback && now - lastWindowFallbackAt < 60
-                && pendingFallbackComponent.equals(lastWindowFallbackComponent)) return;
+        boolean crossDup = isCrossSourceDuplicate("window", now);
+        boolean countAsNewPress = newEpisode && !crossDup;
+        Intent intent;
+        boolean recentApps;
+        if (countAsNewPress) {
+            intent = homePressIntent(HomeSetup.SOURCE_WINDOW_FALLBACK, "window", traceSource, true);
+            recentApps = lastPressDouble;
+        } else {
+            recentApps = (crossDup && lastPressDouble) || now < preserveRecentsUntil;
+            intent = SystemIntegration.homeIntent(this)
+                    .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra("home_press_handled", true)
+                    .putExtra("recent_apps", recentApps)
+                    .putExtra("home_return_source", traceSource)
+                    .putExtra("home_return_at", now);
+            if (recentApps) {
+                HomeSetup.cancelPendingShortPress();
+                HomeSetup.clearPendingHomeEvent(this);
+            } else {
+                intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN,
+                        HomeSetup.issueHomeEvent(this, HomeSetup.SOURCE_WINDOW_FALLBACK));
+            }
+            returnedToMarcoSinceLastPress = false;
+            lastLaunchAt = now;
+            lastLaunchSource = traceSource;
+        }
+        try {
+            startActivity(intent);
+            Diagnostics.event("HOME_WINDOW_FALLBACK");
+            Log.i("MarcoTVSystem", "HOME_TRACE action=launch source=" + traceSource
+                    + " newEpisode=" + newEpisode + " crossDup=" + crossDup
+                    + " double=" + recentApps + " pulls=" + windowPullPolicy.pullsInEpisode()
+                    + " elapsed=" + now);
+        }
+        catch (RuntimeException e) {
+            if (!recentApps) HomeSetup.clearPendingHomeEvent(this);
+            Log.w("MarcoTVSystem", "Home redirection failed", e);
+        }
+    }
+    private final Runnable homeBroadcastFollowup = () -> {
+        if (homeBroadcastSettled || SystemIntegration.homeIsOurs(this)) return;
+        long now = SystemClock.elapsedRealtime();
+        if (HomeSetup.paused(this) || !canRedirect() || !guardMode().handlesWindowFallback()
+                || now < suppressUntil || !SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
         boolean keepRecents = now < preserveRecentsUntil;
         try {
-            Intent intent = SystemIntegration.homeIntent(this);
+            Intent intent = SystemIntegration.homeIntent(this)
+                    .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra("home_return_source", "broadcast_retry")
+                    .putExtra("home_return_at", now);
             if (keepRecents) {
                 intent.putExtra("home_press_handled", true).putExtra("recent_apps", true);
             } else {
-                String token = HomeSetup.issueHomeEvent(this, source);
-                intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN, token);
+                intent.putExtra(HomeSetup.EXTRA_EVENT_TOKEN, HomeSetup.issueHomeEvent(this, HomeSetup.SOURCE_COMPAT_BROADCAST));
             }
             startActivity(intent);
-            if (windowPullback) {
-                lastWindowFallbackAt = now;
-                lastWindowFallbackComponent = pendingFallbackComponent;
-            }
-            Diagnostics.event(diagEvent);
-            Log.i("MarcoTVSystem", logLabel + (keepRecents ? " (preserve recents)" : ""));
+            Diagnostics.event("HOME_BROADCAST_RETRY");
+            Log.i("MarcoTVSystem", "HOME broadcast retry" + (keepRecents ? " (preserve recents)" : ""));
         }
         catch (RuntimeException e) {
             if (!keepRecents) HomeSetup.clearPendingHomeEvent(this);
             Log.w("MarcoTVSystem", "Home redirection failed", e);
         }
-    }
-    private final Runnable fallback = () ->
-            launchHomeFallback(HomeSetup.SOURCE_WINDOW_FALLBACK, "HOME_WINDOW_FALLBACK", "HOME window fallback");
-    private final Runnable homeBroadcastFollowup = () -> {
-        if (homeBroadcastSettled || SystemIntegration.homeIsOurs(this)) return;
-        launchHomeFallback(HomeSetup.SOURCE_COMPAT_BROADCAST, "HOME_BROADCAST_RETRY", "HOME broadcast retry");
     };
     @Override protected boolean onKeyEvent(KeyEvent event) {
         if(event.getKeyCode()==KeyEvent.KEYCODE_POWER){
             inputGate.power(SystemClock.elapsedRealtime());
             resetPress();
             homePressTracker.reset();
-            handler.removeCallbacks(fallback);
+            resetCrossSourceState();
+            cancelWindowFallback();
             handler.removeCallbacks(homeBroadcastFollowup);
             return false;
         }
@@ -513,15 +620,18 @@ public final class HomeKeyService extends AccessibilityService {
             resetPress();
             return false;
         }
+        long now=SystemClock.elapsedRealtime();
         if(event.getAction()==KeyEvent.ACTION_DOWN){
             if(event.getRepeatCount()==0){
                 resetPress();
                 suppressUntil=0;
                 handlingHome=SystemIntegration.prefs(this).getBoolean("home_compat",false);
+                Log.i("MarcoTVSystem","HOME_TRACE signal=key action=DOWN repeat=0 handling="+handlingHome+" elapsed="+now);
                 if(handlingHome){
-                    handler.removeCallbacks(fallback);
-                    lastDirect=SystemClock.elapsedRealtime();
+                    cancelWindowFallback();
+                    lastDirect=now;
                     handler.postDelayed(longHome,600);
+                    handler.postDelayed(handlingHomeTimeout,HOME_HOLD_SAFETY_TIMEOUT_MS);
                 }
             }
             if(handlingHome&&!held&&event.isLongPress()){
@@ -531,13 +641,16 @@ public final class HomeKeyService extends AccessibilityService {
             return handlingHome;
         }
         boolean consumed=handlingHome;
-        if(consumed)lastDirect=SystemClock.elapsedRealtime();
+        Log.i("MarcoTVSystem","HOME_TRACE signal=key action=UP consumed="+consumed+" held="+held+" canceled="+event.isCanceled()+" elapsed="+now);
+        if(consumed)lastDirect=now;
         handler.removeCallbacks(longHome);
+        handler.removeCallbacks(handlingHomeTimeout);
         if(consumed&&!held&&!event.isCanceled()){
-            lastDirect=SystemClock.elapsedRealtime();
+            lastDirect=now;
             try{
-                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_KEY));
+                startActivity(homePressIntent(HomeSetup.SOURCE_COMPAT_KEY,"key","key",false));
                 Diagnostics.event("HOME_DIRECT_HANDLED");
+                Log.i("MarcoTVSystem","HOME_TRACE action=launch source=key double="+lastPressDouble+" elapsed="+now);
             }
             catch(RuntimeException e){
                 HomeSetup.clearPendingHomeEvent(this);
@@ -556,12 +669,11 @@ public final class HomeKeyService extends AccessibilityService {
         boolean originalWindow = isOriginalHomePackage(shown);
         if (!originalWindow) {
             // Any non-OEM-launcher foreground window (Marco, user app, or system assistant/overlay)
-            // cancels a pending Home broadcast retry and resets same-component pullback dedup so a
+            // cancels a pending Home broadcast retry and resets window pullback policy so a
             // subsequent OEM launcher appearance is never skipped.
             homeBroadcastSettled = true;
             handler.removeCallbacks(homeBroadcastFollowup);
-            lastWindowFallbackAt = -10000;
-            lastWindowFallbackComponent = "";
+            cancelWindowFallback();
         }
         if (getPackageName().equals(shown)) {
             lastActivePackage = shown;
@@ -569,12 +681,17 @@ public final class HomeKeyService extends AccessibilityService {
             wakeOriginalSeen = false;
             wakeOtherAppSeen = false;
             wasOriginalHomeBeforeSleep = false;
+            returnedToMarcoSinceLastPress = true;
+            cancelWindowFallback();
             handler.removeCallbacks(wakeCheck);
             if (interactive) SystemIntegration.clearStandbyWakeReturn(this);
+            if (lastLaunchAt > 0L && now - lastLaunchAt < 3000L) {
+                Log.i("MarcoTVSystem", "HOME_TRACE signal=window target=self source=" + lastLaunchSource
+                        + " sinceLaunchMs=" + (now - lastLaunchAt) + " elapsed=" + now);
+            }
         } else if (originalWindow) {
             lastActivePackage = shown;
             lastOriginalHomeAt = now;
-            pendingFallbackComponent = shown + "/" + (event.getClassName() != null ? event.getClassName().toString() : "");
             wakeOriginalSeen = true;
             wakeOtherAppSeen = false;
         } else if (!isWakeSystemOverlay(shown)) {
@@ -588,7 +705,7 @@ public final class HomeKeyService extends AccessibilityService {
             }
         }
         if(!canRedirect()){
-            handler.removeCallbacks(fallback);
+            cancelWindowFallback();
             handler.removeCallbacks(homeBroadcastFollowup);
             return;
         }
@@ -606,22 +723,39 @@ public final class HomeKeyService extends AccessibilityService {
             return;
         }
         if (SystemIntegration.homeIsOurs(this)) {
-            handler.removeCallbacks(fallback);
+            cancelWindowFallback();
             handler.removeCallbacks(homeBroadcastFollowup);
             return;
         }
         if (!SystemIntegration.prefs(this).getBoolean("home_compat", false)) return;
-        if(!guardMode().handlesWindowFallback()||handlingHome||now<suppressUntil)return;
-        if (!originalWindow){
-            handler.removeCallbacks(fallback);
+        String className = event.getClassName() == null ? "" : event.getClassName().toString();
+        if(!guardMode().handlesWindowFallback()||handlingHome||now<suppressUntil){
+            if (originalWindow) {
+                Log.i("MarcoTVSystem", "HOME_TRACE signal=window target=original_home class=" + className
+                        + " skipped=true mode=" + guardMode().prefValue + " handling=" + handlingHome
+                        + " suppressed=" + (now < suppressUntil) + " elapsed=" + now);
+            }
             return;
         }
-        // OEM HOME can open a second launcher activity immediately afterwards.
-        // Coalesce passive events, but pull back immediately when an active Home broadcast is in flight.
-        handler.removeCallbacks(fallback);
-        handler.removeCallbacks(homeBroadcastFollowup);
-        long delay = now - lastHomeBroadcastAt <= 1200 ? 0 : 60;
-        handler.postDelayed(fallback, delay);
+        if (!originalWindow){
+            cancelWindowFallback();
+            return;
+        }
+        // Pull back immediately on the first OEM Home notification instead of waiting behind
+        // a sliding 60 ms debounce; coalesce duplicate same-class bursts into one bounded check.
+        HomeWindowPullPolicy.Decision decision = windowPullPolicy.onOriginalHomeWindow(now, className);
+        Log.i("MarcoTVSystem", "HOME_TRACE signal=window target=original_home class=" + className
+                + " decision=" + decision.action + " delayMs=" + decision.delayMs
+                + " newEpisode=" + decision.newEpisode + " elapsed=" + now);
+        if (decision.action == HomeWindowPullPolicy.Action.PULL_NOW) {
+            handler.removeCallbacks(fallback);
+            handler.removeCallbacks(homeBroadcastFollowup);
+            performWindowFallback(now, decision.newEpisode, "window_immediate");
+        } else if (decision.action == HomeWindowPullPolicy.Action.SCHEDULE_FOLLOWUP) {
+            handler.removeCallbacks(fallback);
+            handler.removeCallbacks(homeBroadcastFollowup);
+            handler.postDelayed(fallback, decision.delayMs);
+        }
     }
     @Override public boolean onUnbind(Intent intent) {
         clearLocalVolumeYieldState();

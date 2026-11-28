@@ -62,6 +62,10 @@ public final class MainActivity extends Activity {
     final AppCatalog catalog = new AppCatalog(this);
     private final WallpaperLoader wallpapers = new WallpaperLoader(this);
     private boolean ambientRequested;
+    private String pendingHomeReturnSource;
+    private long pendingHomeReturnAt = -1L;
+    private boolean lastLiveWallpaperAllowed;
+    private boolean liveWallpaperLoggedOnce;
     final Handler handler = new Handler(Looper.getMainLooper());
     final ExecutorService loader = Executors.newSingleThreadExecutor();
     final LatestTaskQueue appReads=new LatestTaskQueue("Marco-apps");
@@ -124,6 +128,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         normalizeViewportMetrics();
         arrivalGate.onCreateIntent(getIntent(), getIntent().getBooleanExtra("recent_apps", false), state != null);
+        captureHomeReturnTrace(getIntent(), "on_create");
         SystemIntegration.clearStandbyWakeReturn(this);
         HomeSetup.markCompatResetIfInterrupted(this);
         Diagnostics.init(this);
@@ -292,11 +297,55 @@ public final class MainActivity extends Activity {
         }
         if(defaultHome!=null)defaultHome.resumed();
         FeedbackPanel.maybeOffer(this);
+        if (pendingHomeReturnAt >= 0L) {
+            long now = SystemClock.elapsedRealtime();
+            android.util.Log.i("MarcoTVSystem", "HOME_TRACE focus=resumed source=" + pendingHomeReturnSource
+                    + " sinceLaunchMs=" + (now - pendingHomeReturnAt)
+                    + " hasWindowFocus=" + hasWindowFocus() + " elapsed=" + now);
+            if (hasWindowFocus()) {
+                android.util.Log.i("MarcoTVSystem", "HOME_TRACE focus=window_focused source=" + pendingHomeReturnSource
+                        + " sinceLaunchMs=" + (now - pendingHomeReturnAt) + " elapsed=" + now);
+                pendingHomeReturnAt = -1L;
+                pendingHomeReturnSource = null;
+            }
+        }
+    }
+
+    private void captureHomeReturnTrace(Intent intent, String stageName) {
+        if (intent == null) return;
+        String source = intent.getStringExtra("home_return_source");
+        long at = intent.getLongExtra("home_return_at", -1L);
+        if (source == null && Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            source = "native_home";
+            at = SystemClock.elapsedRealtime();
+        }
+        if (source != null && at >= 0L) {
+            intent.removeExtra("home_return_source");
+            intent.removeExtra("home_return_at");
+            pendingHomeReturnSource = source;
+            pendingHomeReturnAt = at;
+            long now = SystemClock.elapsedRealtime();
+            android.util.Log.i("MarcoTVSystem", "HOME_TRACE focus=" + stageName + " source=" + source
+                    + " sinceLaunchMs=" + (now - at) + " elapsed=" + now);
+        }
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         arrivalGate.onWindowFocusChanged(this, hasFocus, isPanelWindowFocused(), isFinishing(), isDestroyed());
+        if (hasFocus) {
+            if (pendingHomeReturnAt >= 0L) {
+                long now = SystemClock.elapsedRealtime();
+                android.util.Log.i("MarcoTVSystem", "HOME_TRACE focus=window_focused source=" + pendingHomeReturnSource
+                        + " sinceLaunchMs=" + (now - pendingHomeReturnAt) + " elapsed=" + now);
+                pendingHomeReturnAt = -1L;
+                pendingHomeReturnSource = null;
+            }
+            if (foreground) {
+                fullscreen();
+                syncLiveWallpaper();
+            }
+        }
     }
 
     @Override protected void onPause() {
@@ -367,6 +416,7 @@ public final class MainActivity extends Activity {
                 preferences.getInt("recent_double_ms",400));
         else if(!intent.hasCategory(Intent.CATEGORY_HOME))homePressTracker.reset();
         arrivalGate.onNewIntent(intent, recent);
+        captureHomeReturnTrace(intent, "new_intent");
         recents.close();
         if(cast!=null&&cast.isPlaying())cast.stopPlayback();
         closeMenus();
@@ -396,13 +446,24 @@ public final class MainActivity extends Activity {
 
     void syncLiveWallpaper() {
         if (stage == null) return;
+        boolean opaqueDialog = dialogs.isOpaqueFullscreen();
+        boolean animatingClose = panels != null && panels.isAnimatingClose();
+        boolean castPlaying = cast != null && cast.isPlaying();
         boolean allow = foreground
                 && !isDestroyed()
                 && !isFinishing()
                 && !screensaver.sleepReleased
-                && (cast == null || !cast.isPlaying())
-                && !dialogs.isOpaqueFullscreen()
-                && (panels == null || !panels.isAnimatingClose());
+                && !castPlaying
+                && !opaqueDialog
+                && !animatingClose;
+        if (stage.liveWallpaper.hasVideo() && (!liveWallpaperLoggedOnce || allow != lastLiveWallpaperAllowed)) {
+            liveWallpaperLoggedOnce = true;
+            lastLiveWallpaperAllowed = allow;
+            android.util.Log.i("MarcoTV", "Live wallpaper sync allow=" + allow
+                    + " fg=" + foreground + " sleepReleased=" + screensaver.sleepReleased
+                    + " cast=" + castPlaying + " opaqueDialog=" + opaqueDialog
+                    + " closingPanel=" + animatingClose);
+        }
         stage.liveWallpaper.setActive(allow);
     }
 

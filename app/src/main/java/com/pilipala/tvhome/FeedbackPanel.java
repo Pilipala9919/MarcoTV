@@ -62,11 +62,15 @@ final class FeedbackPanel {
     }
     void send(boolean retry){
         final int epoch=host.menuEpoch;
-        host.showDialog(new TvDialog.Builder(host).setPageId("feedback_sending").setTitle("正在提交")
-                .setMessage("正在等待接收端回执…\n离开页面不会撤回已发送的报告。").setNegativeButton("返回",null).create());
+        final TvDialog sending = new TvDialog.Builder(host).setPageId("feedback_sending").setTitle("正在提交")
+                .setMessage("正在等待接收端回执…\n离开页面不会撤回已发送的报告。").setNegativeButton("返回",null).create();
+        host.showDialog(sending);
         FeedbackManager.Result result=text->{
-            if(host.foreground&&host.menuEpoch==epoch&&host.isPage("feedback_sending"))
-                host.showDialog(new TvDialog.Builder(host).setPageId("feedback_result").setTitle("提交结果").setMessage(text).setNegativeButton("返回",null).create());
+            if(host.foreground&&host.menuEpoch==epoch&&host.isPage("feedback_sending")){
+                TvDialog done = new TvDialog.Builder(host).setPageId("feedback_result").setTitle("提交结果")
+                        .setMessage(text).setNegativeButton("返回",null).create();
+                host.dialogs.replace(sending, done);
+            }
         };
         if(retry)FeedbackManager.retry(host,result);else FeedbackManager.send(host,report,result);
     }

@@ -44,6 +44,12 @@ for target_apk in (standard, apk):
     badging=output(executable(TOOLS,'aapt2'),'dump','badging',target_apk)
     req_features=[line.strip() for line in badging.splitlines() if line.strip().startswith('uses-feature:')]
     assert not req_features, f'Unexpected required hardware features in {target_apk.name}: {req_features}'
+    resources=output(executable(TOOLS,'aapt2'),'dump','resources',target_apk)
+    panel_idx=resources.find('style/PanelWindowTheme')
+    assert panel_idx>=0, f'Missing style/PanelWindowTheme in {target_apk.name}'
+    panel_block=resources[panel_idx:panel_idx+900]
+    for token in ('0x01010054=@0x0106000d','0x01010057=false','0x01010058=true','0x0101020d=true','0x0101021f=false','0x01010490=0.000000dp'):
+        assert token in panel_block, f'Missing {token} in PanelWindowTheme of {target_apk.name}'
     sig=output(executable(JDK/'bin','java'),'-jar',TOOLS/'lib/apksigner.jar','verify','--min-sdk-version','23','--verbose',target_apk)
     for scheme in ('v1 scheme (JAR signing): true','v2 scheme (APK Signature Scheme v2): true','v3 scheme (APK Signature Scheme v3): true'):
         assert scheme in sig, f'Missing {scheme} in {target_apk.name}'

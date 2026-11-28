@@ -230,6 +230,7 @@ final class HomeView extends View {
     void setLiveVideoReady(boolean ready){
         if(liveVideoReady==ready)return;
         liveVideoReady=ready;
+        android.util.Log.i("MarcoTV", "HomeView poster overlay ready=" + ready + " posterAlpha=" + posterOverlayAlpha);
         if(posterRevealMotion==null){
             posterRevealMotion=new UiMotion(this,posterOverlayAlpha,18,v->{
                 posterOverlayAlpha=Math.max(0f,Math.min(1f,v));
@@ -494,10 +495,10 @@ final class HomeView extends View {
 
     @Override protected void onDetachedFromWindow() {
         stopMotion();
-        if(overviewAnimation!=null)overviewAnimation.dispose();
-        if(previewAmbientMotion!=null)previewAmbientMotion.dispose();
-        if(previewRecentMotion!=null)previewRecentMotion.dispose();
-        if(posterRevealMotion!=null)posterRevealMotion.dispose();
+        if(overviewAnimation!=null){overviewAnimation.dispose();overviewAnimation=null;}
+        if(previewAmbientMotion!=null){previewAmbientMotion.dispose();previewAmbientMotion=null;}
+        if(previewRecentMotion!=null){previewRecentMotion.dispose();previewRecentMotion=null;}
+        if(posterRevealMotion!=null){posterRevealMotion.dispose();posterRevealMotion=null;}
         clockScene.release();
         overviewRenderer.detach();
         recycleShadows();
