@@ -90,8 +90,8 @@ final class SettingsNavigator {
     }
     void maintenance(){
         host.showDialog(new TvDialog.Builder(host).setPageId("maintenance").setTitle("维护与帮助")
-                .setOrder("maintenance","health","backup","diagnostics","guide","info","about","updates")
-                .setItems(new String[]{"状态中心","备份与恢复","本地诊断","首次使用引导","设备信息","关于 Marco TV","软件更新"},(d,w)->{
+                .setOrder("maintenance","health","backup","diagnostics","contact","guide","info","about","updates")
+                .setItems(new String[]{"状态中心","备份与恢复","本地诊断","联系与反馈作者","首次使用引导","设备信息","关于 Marco TV","软件更新"},(d,w)->{
             switch(w){
                 case 0:
                     host.health.status();
@@ -103,19 +103,39 @@ final class SettingsNavigator {
                     host.health.diagnostics();
                     break;
                 case 3:
-                    host.health.guide(0);
+                    contactAuthor();
                     break;
                 case 4:
-                    deviceInfo();
+                    host.health.guide(0);
                     break;
                 case 5:
-                    about();
+                    deviceInfo();
                     break;
                 case 6:
+                    about();
+                    break;
+                case 7:
                     host.updates.show();
                     break;
             }
         }).setNegativeButton("返回",null).create());
+    }
+    void contactAuthor(){
+        LinearLayout card=HealthPanel.qrInfoCard(host,ProjectInfo.COMMUNITY_GROUP_URL,
+                "手机扫码打开官网交流群","官网交流群二维码",ProjectInfo.contactAuthor());
+        host.showDialog(new TvDialog.Builder(host).centered()
+                .setPageId("contact_author")
+                .setTitle("联系与反馈作者")
+                .setView(card)
+                .setPositiveButton("提交问题反馈",(d,w)->new FeedbackPanel(host).show())
+                .setNeutralButton("打开官网交流群",(d,w)->{
+                    try{
+                        host.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(ProjectInfo.COMMUNITY_GROUP_URL)));
+                    }catch(RuntimeException error){
+                        host.toast("电视未提供浏览器，请用手机扫描左侧二维码打开官网交流群");
+                    }
+                })
+                .setNegativeButton("返回",null).create());
     }
     void deviceInfo(){
         host.showDialog(new TvDialog.Builder(host).setPageId("device_info").setTitle("设备信息")

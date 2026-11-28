@@ -116,6 +116,247 @@ public final class HomeSetupChecks {
         check("input_gate_screen_on_settle_window",!gate.isScreenOff()&&gate.remainingSettleMs(2100)==600&&gate.remainingSettleMs(2700)==0);
         gate.power(2200);
         check("input_gate_power_extends_settle_window",gate.remainingSettleMs(2900)==1100&&gate.remainingSettleMs(4000)==0);
+        check("guard_mode_window_capabilities",
+                !HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.requestsKeyFilter()
+                &&!HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesDirectHomeKey()
+                &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesHomeBroadcast()
+                &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesWindowFallback()
+                &&HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesWakeFallback());
+        check("guard_mode_key_filter_capabilities",
+                HomeSetupPolicy.GuardMode.KEY_FILTER.requestsKeyFilter()
+                &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesDirectHomeKey()
+                &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesHomeBroadcast()
+                &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWindowFallback()
+                &&HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWakeFallback());
+        check("guard_mode_native_only_capabilities",
+                !HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.requestsKeyFilter()
+                &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesDirectHomeKey()
+                &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesHomeBroadcast()
+                &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWindowFallback()
+                &&!HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWakeFallback());
+        check("resolve_guard_mode_defaults_to_window_pullback",
+                HomeSetupPolicy.resolveGuardMode("",false)==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                &&HomeSetupPolicy.resolveGuardMode(null,false)==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                &&HomeSetupPolicy.resolveGuardMode("unknown",false)==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        check("resolve_guard_mode_preserves_legacy_native_keys",
+                HomeSetupPolicy.resolveGuardMode("",true)==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY
+                &&HomeSetupPolicy.resolveGuardMode("unknown",true)==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        check("resolve_guard_mode_honors_explicit_choice",
+                HomeSetupPolicy.resolveGuardMode("window",true)==HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                &&HomeSetupPolicy.resolveGuardMode("key_filter",false)==HomeSetupPolicy.GuardMode.KEY_FILTER
+                &&HomeSetupPolicy.resolveGuardMode("key_filter",true)==HomeSetupPolicy.GuardMode.KEY_FILTER
+                &&HomeSetupPolicy.resolveGuardMode("native_only",false)==HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        check("should_request_key_filter_requires_compat_unpaused_and_key_filter",
+                HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldRequestKeyFilter(true,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY));
+        check("apply_key_filter_flag_clears_or_sets_only_filter_bit",
+                HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)==0x05
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)==0x05
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x05,0x20,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x25
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,true,true,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,null)==0x05);
+        check("wake_fallback_matches_guard_mode_policy",
+                HomeSetupPolicy.wakeFallback(true,false,false,true,
+                        !HomeSetupPolicy.GuardMode.WINDOW_PULLBACK.handlesWakeFallback(),true,true,false,true)
+                &&HomeSetupPolicy.wakeFallback(true,false,false,true,
+                        !HomeSetupPolicy.GuardMode.KEY_FILTER.handlesWakeFallback(),true,true,false,true)
+                &&!HomeSetupPolicy.wakeFallback(true,false,false,true,
+                        !HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY.handlesWakeFallback(),true,true,false,true));
+        // Native HOME priority stops key filtering & extra Home interception
+        check("native_home_stops_key_filter_and_compat_interception",
+                !HomeSetupPolicy.shouldRequestKeyFilter(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&HomeSetupPolicy.shouldRequestKeyFilter(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,true,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)
+                &&HomeSetupPolicy.shouldInterceptHomeCompat(true,false,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK)
+                &&!HomeSetupPolicy.shouldInterceptHomeCompat(true,false,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY)
+                &&HomeSetupPolicy.applyKeyFilterFlag(0x25,0x20,true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER)==0x05);
+        // 3B no-bridge volume yield only applies to opt-in KEY_FILTER without bridge assist
+        check("volume_yield_only_for_key_filter_without_bridge_assist",
+                HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,true)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,true,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,false,false,HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(false,false,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false)
+                &&!HomeSetupPolicy.shouldUseVolumeYield(true,true,false,HomeSetupPolicy.GuardMode.KEY_FILTER,false));
+        // Unified DesktopState projection: user choice, effective mode, and degradation reason
+        HomeSetupPolicy.DesktopState nativeState=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false);
+        check("desktop_state_native_priority_stops_extra_interception",
+                "系统默认桌面".equals(nativeState.userChoiceLabel)
+                &&nativeState.effectiveModeLabel.contains("已停止额外 Home 拦截")
+                &&nativeState.extraHomeInterceptionStopped
+                &&!nativeState.keyFilterExpected);
+        HomeSetupPolicy.DesktopState fallbackWindow=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false);
+        check("desktop_state_native_unavailable_reports_window_degradation",
+                "系统默认桌面".equals(fallbackWindow.userChoiceLabel)
+                &&fallbackWindow.effectiveModeLabel.contains("窗口回拉")
+                &&fallbackWindow.fallbackReason.contains("com.mitv.tvhome"));
+        HomeSetupPolicy.DesktopState fastBridge=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false);
+        check("desktop_state_fast_home_with_bridge_reports_3a",
+                "快速 Home".equals(fastBridge.userChoiceLabel)
+                &&fastBridge.effectiveModeLabel.contains("快速 Home ＋ 任务桥")
+                &&fastBridge.volumeBridgeAssistExpected&&!fastBridge.volumeYieldMode);
+        HomeSetupPolicy.DesktopState fastNoBridge=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false);
+        check("desktop_state_fast_home_without_bridge_reports_3b_instruction",
+                fastNoBridge.effectiveModeLabel.contains("先点一下音量，松手后再长按")
+                &&fastNoBridge.fallbackReason.contains("先点一下音量，松手后再长按")
+                &&fastNoBridge.volumeYieldMode&&!fastNoBridge.volumeBridgeAssistExpected);
+        // Codex rework policy regressions:
+        // 1. Native HOME is Marco + guard paused -> STILL displays system HOME = Marco TV & guard paused!
+        HomeSetupPolicy.DesktopState nativePaused=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,true,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",false,false,false,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false);
+        check("desktop_state_native_home_while_paused_shows_marco_and_paused",
+                nativePaused.effectiveModeLabel.contains("系统默认桌面")
+                &&nativePaused.effectiveModeLabel.contains("Marco TV")
+                &&nativePaused.effectiveModeLabel.contains("已暂停")
+                &&!nativePaused.effectiveModeLabel.contains("原厂桌面")
+                &&nativePaused.extraHomeInterceptionStopped);
+        // 2. System refused enabling KEY_FILTER -> never claims 快速 Home or 3A/3B active!
+        HomeSetupPolicy.DesktopState filterRejected=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,true,true,false,
+                false,false,false);
+        check("desktop_state_key_filter_rejected_reports_window_fallback",
+                filterRejected.effectiveModeLabel.contains("系统拒绝开启按键过滤")
+                &&!filterRejected.keyFilterExpected
+                &&!filterRejected.volumeBridgeAssistExpected
+                &&!filterRejected.volumeYieldMode);
+        // 3. System refused revoking KEY_FILTER during 3B yield -> never claims yielding 5s!
+        HomeSetupPolicy.DesktopState yieldRejected=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.KEY_FILTER,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false,
+                true,true,true);
+        check("desktop_state_yield_rejected_never_claims_yielding",
+                yieldRejected.effectiveModeLabel.contains("系统拒绝临时撤销按键过滤")
+                &&!yieldRejected.effectiveModeLabel.contains("让渡 5 秒中")
+                &&!yieldRejected.volumeYieldMode);
+        // 4. Codex P1 #3B: System refused revoking KEY_FILTER after switching to WINDOW_PULLBACK / NATIVE_KEYS_ONLY / paused / nativeHome ->
+        // MUST report filter bit still ON, set keyFilterStillActiveUnexpectedly=true, and NEVER claim keys are handled by system!
+        HomeSetupPolicy.DesktopState stuckWindow=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.WINDOW_PULLBACK,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckNativeKeys=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_KEYS_ONLY,false,false,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckPaused=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.OFF,false,true,false,
+                "com.mitv.tvhome/.MainActivityUserMode",true,true,true,
+                HomeSetupPolicy.GuardMode.WINDOW_PULLBACK,false,false,false,
+                true,false,false);
+        HomeSetupPolicy.DesktopState stuckNativeHome=HomeSetupPolicy.resolveDesktopState(
+                HomeSetupPolicy.DesktopChoice.NATIVE_HOME,false,false,true,
+                "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity",true,true,true,
+                HomeSetupPolicy.GuardMode.KEY_FILTER,false,false,false,
+                true,false,false);
+        check("desktop_state_filter_revoke_rejected_warns_in_all_non_filter_modes",
+                stuckWindow.keyFilterStillActiveUnexpectedly
+                &&stuckWindow.effectiveModeLabel.contains("过滤位仍开启")
+                &&!stuckWindow.effectiveModeLabel.contains("音量和方向键交由系统处理")
+                &&!stuckWindow.fallbackReason.contains("音量和方向键交由系统处理")
+                &&stuckNativeKeys.keyFilterStillActiveUnexpectedly
+                &&stuckNativeKeys.effectiveModeLabel.contains("过滤位仍开启")
+                &&!stuckNativeKeys.effectiveModeLabel.contains("音量和方向键交由系统处理")
+                &&stuckPaused.keyFilterStillActiveUnexpectedly
+                &&stuckPaused.effectiveModeLabel.contains("过滤位仍开启")
+                &&stuckNativeHome.keyFilterStillActiveUnexpectedly
+                &&stuckNativeHome.effectiveModeLabel.contains("过滤位仍开启"));
+        check("oem_exp_production_allowlist_stays_empty",
+                OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST.isEmpty()
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.size() >= 3
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.get(0).contains("独立恢复")
+                && OemLauncherExperimentPolicy.OPENING_PREREQUISITES.get(1).contains("实际进入前台"));
+        // Experimental OEM launcher disable policy gating
+        check("oem_exp_blocks_restricted_edition",
+                OemLauncherExperimentPolicy.evaluate(true,"VerifiedTV","1.0","com.vendor.home",
+                        java.util.Collections.singletonList(new OemLauncherExperimentPolicy.VerifiedDevice("VerifiedTV","1.0","com.vendor.home","ok")))
+                        .eligibility==OemLauncherExperimentPolicy.Eligibility.BLOCKED_RESTRICTED);
+        check("oem_exp_blocks_mitv_astp0_1385_and_mitv_mftr0",
+                OemLauncherExperimentPolicy.evaluate(false,"MiTV-ASTP0","22.8.30.1385","com.mitv.tvhome").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_KNOWN_UNSAFE
+                &&OemLauncherExperimentPolicy.evaluate(false,"MiTV-MFTR0","any.firmware","com.mitv.tvhome").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_KNOWN_UNSAFE);
+        check("oem_exp_blocks_unverified_and_allows_explicit_verified_entry",
+                OemLauncherExperimentPolicy.evaluate(false,"UnknownTV","1.0","com.vendor.home").eligibility
+                        ==OemLauncherExperimentPolicy.Eligibility.BLOCKED_UNVERIFIED
+                &&OemLauncherExperimentPolicy.evaluate(false,"VerifiedTV","1.0","com.vendor.home",
+                        java.util.Collections.singletonList(new OemLauncherExperimentPolicy.VerifiedDevice("VerifiedTV","1.0","com.vendor.home","ok")))
+                        .allowed());
+        check("oem_exp_rejects_fallback_home_and_accepts_marco",
+                !OemLauncherExperimentPolicy.isValidPostDisableHome("com.android.tv.settings/.system.FallbackHome","com.pilipala.tvhome")
+                &&!OemLauncherExperimentPolicy.isValidPostDisableHome("android/com.android.internal.app.ResolverActivity","com.pilipala.tvhome")
+                &&!OemLauncherExperimentPolicy.isValidPostDisableHome("","com.pilipala.tvhome")
+                &&OemLauncherExperimentPolicy.isValidPostDisableHome("com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity","com.pilipala.tvhome"));
+        // Collapsible top-left MarcoTV header menu state machine checks
+        HomeHeaderMenu menu = new HomeHeaderMenu();
+        check("header_menu_starts_collapsed_with_exact_labels",
+                !menu.isExpanded()
+                && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && "MarcoTV".equals(HomeHeaderMenu.BRAND_LABEL)
+                && java.util.Arrays.equals(HomeHeaderMenu.EXPANDED_LABELS,
+                        new String[]{"桌面设置", "Marco互联", "MagicDesktop", "应用管理"}));
+        check("header_menu_collapsed_right_jumps_to_wifi_and_left_returns",
+                menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_WIFI && !menu.isExpanded()
+                && menu.onLeft() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        check("header_menu_confirm_expands_and_focuses_settings",
+                menu.onConfirm() == HomeHeaderMenu.Action.EXPANDED
+                && menu.isExpanded()
+                && menu.selected() == HomeHeaderMenu.SLOT_SETTINGS);
+        check("header_menu_back_collapses_to_brand",
+                menu.onBack() && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && !menu.onBack());
+        menu.expand();
+        check("header_menu_confirm_brand_when_expanded_collapses",
+                menu.onLeft() && menu.selected() == HomeHeaderMenu.SLOT_BRAND
+                && menu.onConfirm() == HomeHeaderMenu.Action.COLLAPSED
+                && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        menu.expand();
+        check("header_menu_navigates_all_four_items_and_glides_to_wifi",
+                menu.selected() == HomeHeaderMenu.SLOT_SETTINGS
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_CONNECT
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_MAGIC
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_APP_MANAGER
+                && menu.onRight() && menu.selected() == HomeHeaderMenu.SLOT_WIFI && !menu.isExpanded());
+        menu.expand();
+        check("header_menu_activates_settings_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_SETTINGS && !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
+        menu.expand(); menu.onRight();
+        check("header_menu_activates_connect_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_CONNECT && !menu.isExpanded());
+        menu.expand(); menu.onRight(); menu.onRight();
+        check("header_menu_activates_magic_desktop_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_MAGIC_DESKTOP && !menu.isExpanded());
+        menu.expand(); menu.onRight(); menu.onRight(); menu.onRight();
+        check("header_menu_activates_app_manager_and_collapses",
+                menu.onConfirm() == HomeHeaderMenu.Action.OPEN_APP_MANAGER && !menu.isExpanded());
+        menu.expand(); menu.onLeaveTopRow();
+        check("header_menu_leave_top_row_auto_collapses",
+                !menu.isExpanded() && menu.selected() == HomeHeaderMenu.SLOT_BRAND);
         System.out.println("OK "+passed+" home setup policy checks");
     }
 }

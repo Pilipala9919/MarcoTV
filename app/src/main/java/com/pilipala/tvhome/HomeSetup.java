@@ -311,6 +311,7 @@ final class HomeSetup {
     static boolean markCompatResetIfInterrupted(Context c) {
         SharedPreferences p = prefs(c);
         if (p.getBoolean("setup_compat_reset_pending", false)) return false;
+        if (SystemIntegration.isOwnRebindInProgress(c)) return false;
         if (!HomeSetupPolicy.compatResetAfterStop(unlocked(c), paused(c),
                 p.getBoolean("home_compat", false), p.getBoolean("setup_accessibility_pending", false),
                 p.getBoolean("compat_seen_present", false), p.getBoolean("compat_service_active", false),
@@ -373,6 +374,9 @@ final class HomeSetup {
     static void acceptNative(Context c) {
         SharedPreferences p = prefs(c);
         if (!p.getBoolean("setup_requested", false) || paused(c) || !SystemIntegration.homeIsOurs(c)) return;
+        // Native HOME is resolved to Marco: immediately stop extra Home interception & key filtering.
+        HomeKeyService.syncRuntimeKeyFilter(c);
+        TaskBridgeClient.sync(c);
         // Preserve user-toggled boot_home choice during routine checks once native HOME was already accepted.
         if (p.getBoolean("setup_native_seen", false)) return;
         p.edit().putBoolean("setup_native_seen", true).putBoolean("boot_home", true).apply();
@@ -383,6 +387,7 @@ final class HomeSetup {
         prefs(c).edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
                 .putBoolean("setup_accessibility_pending", true)
                 .remove("setup_accessibility_deferred").commit();
+        HomeKeyService.syncRuntimeKeyFilter(c);
         // While consent is pending, bridge wake recovery must stay off until enabled.
         TaskBridgeClient.sync(c);
     }
@@ -412,9 +417,11 @@ final class HomeSetup {
             p.edit().putBoolean("home_compat", false)
                     .putBoolean("boot_home", !paused(c) && SystemIntegration.homeIsOurs(c)).commit();
         }
+        HomeKeyService.syncRuntimeKeyFilter(c);
         TaskBridgeClient.sync(c);
     }
     static void pause(Context c, String reason) {
+        SystemIntegration.cancelOwnRebind(c);
         cancelPendingShortPress();
         prefs(c).edit().putBoolean("setup_paused", true).putString("setup_pause_reason", reason)
                 .putBoolean("home_compat", false).putBoolean("boot_home", false)
@@ -430,7 +437,8 @@ final class HomeSetup {
                 .remove("setup_compat_reset_pending")
                 .remove("compat_seen_present")
                 .remove("compat_service_active")
-                .remove("standby_wake_return").apply();
+                .remove("standby_wake_return").commit();
+        HomeKeyService.syncRuntimeKeyFilter(c);
         // Never infer that an external change was necessarily the user's action.
         TaskBridgeClient.sync(c);
     }
@@ -474,7 +482,10 @@ final class HomeSetup {
             if (serviceEnabled(c)) clearCompatReset(c);
             return;
         }
-        if (p.getBoolean("home_compat", false) && !p.getBoolean("setup_accessibility_pending", false) && !serviceEnabled(c)) {
+        if (p.getBoolean("home_compat", false)
+                && !p.getBoolean("setup_accessibility_pending", false)
+                && !SystemIntegration.isOwnRebindInProgress(c)
+                && !serviceEnabled(c)) {
             pause(c, "Home 服务不可用，需确认后继续恢复。");
             return;
         }
@@ -1097,15 +1108,19 @@ final class HomeSetup {
         SharedPreferences p = prefs(c);
         boolean nativeHome = SystemIntegration.homeIsOurs(c);
         String current = SystemIntegration.currentHome(c);
+        HomeSetupPolicy.DesktopState state = SystemIntegration.desktopState(c);
         String nativeLine = BuildEdition.RESTRICTED
                 ? "不适用（受限兼容版不含系统默认桌面声明）"
                 : nativeHome
-                        ? "已生效（系统当前解析为 Marco TV）"
+                        ? "已生效（系统当前解析为 Marco TV，已停止额外 Home 拦截）"
                         : "未生效（系统当前解析：" + (current.isEmpty() ? "未指定或原厂桌面" : current) + "）"
                                 + (SystemIntegration.homePreferenceIsOurs(c) ? "；偏好表曾记录 Marco 但实际仍指向其他桌面" : "");
         StringBuilder out = new StringBuilder();
         if (BuildEdition.RESTRICTED) out.append("受限系统兼容版 · 无系统默认桌面入口\n");
-        out.append("原生默认桌面  ·  ").append(nativeLine);
+        out.append("用户选择  ·  ").append(state.userChoiceLabel);
+        out.append("\n当前生效  ·  ").append(state.effectiveModeLabel);
+        out.append("\n降级原因  ·  ").append(state.fallbackReason);
+        out.append("\n原生默认桌面  ·  ").append(nativeLine);
         out.append("\nHome 兼容服务  ·  ").append(serviceStatusLabel(c));
         String tracked = SystemIntegration.trackedHome(c);
         if (SystemIntegration.trackedHomeInvalid(c)) {

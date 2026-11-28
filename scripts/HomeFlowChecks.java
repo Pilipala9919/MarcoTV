@@ -61,7 +61,11 @@ public final class HomeFlowChecks {
         Handler.clearDelayed();
         HomeSetup.bootIdOverride = "boot-uuid-1";
         HomeSetup.resetProcessSessionForTest();
-        HomeKeyService.connected = false;
+        SystemIntegration.resetRebindStateForTest();
+        Settings.Secure.failNextPutStrings = 0;
+        Settings.Secure.failNextPutInts = 0;
+        Settings.Secure.throwNextPutInts = 0;
+        HomeKeyService.resetForTest();
         RecoveryService.running = false;
         Diagnostics.events.clear();
         LocalAdbWire.reset();
@@ -1922,6 +1926,2292 @@ public final class HomeFlowChecks {
                 && host.sysPrefs.getBoolean("boot_home", false));
     }
 
+    static void testGuardModeAndFilterRefresh() throws Exception {
+        MainActivity host = freshEnv();
+        host.secureAuthorized = true;
+        host.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
+        check("guard_mode_default_is_window_pullback",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+
+        // Legacy home_native_keys=true without home_guard_mode migrates to NATIVE_KEYS_ONLY.
+        host.sysPrefs.edit().putBoolean("home_native_keys", true).commit();
+        check("guard_mode_legacy_native_migrates",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+
+        // Switching guard modes persists home_guard_mode, syncs legacy flag and live runtime filter.
+        HomeKeyService.connected = true;
+        SystemIntegration.setGuardMode(host, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        check("guard_mode_key_filter_persists_and_syncs",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.KEY_FILTER
+                && "key_filter".equals(host.sysPrefs.getString(SystemIntegration.PREF_GUARD_MODE, ""))
+                && !host.sysPrefs.getBoolean("home_native_keys", true)
+                && HomeKeyService.runtimeKeyFilterRequested
+                && HomeKeyService.runtimeFlags == 32
+                && StatusSnapshot.local(host).contains("快速 Home（请求按键过滤）")
+                && StatusSnapshot.local(host).contains("按键过滤：已请求"));
+
+        SystemIntegration.setGuardMode(host, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        check("guard_mode_window_pullback_clears_runtime_filter",
+                SystemIntegration.guardMode(host) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                && "window".equals(host.sysPrefs.getString(SystemIntegration.PREF_GUARD_MODE, ""))
+                && !host.sysPrefs.getBoolean("home_native_keys", true)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && HomeKeyService.runtimeFlags == 0
+                && StatusSnapshot.local(host).contains("窗口回拉（兼容模式，不拦截按键）")
+                && StatusSnapshot.local(host).contains("按键过滤：未请求"));
+
+        // P1 #1 + P2 #2 repro: upgrade unbinds Marco; 50ms later reconcile() runs (e.g. settings resume) and
+        // MUST recognize own rebind without pausing home_compat/boot_home; 310ms later Marco is written back
+        // (state="written", awaiting connect -> revision STILL 1); only AFTER HomeKeyService connects and
+        // applies the chosen guard mode is home_filter_revision committed to HOME_FILTER_REVISION.
+        String xiaoAi = "com.xiaomi.voicecontrol/.VoiceAccessibilityService";
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        host.sysPrefs.edit().putInt("home_filter_revision", 1).putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
+        int beforeSync = HomeKeyService.syncCalls.get();
+        SystemIntegration.refreshHomeService(host);
+        // Simulate Android unbinding the service when Marco removed itself from ENABLED_ACCESSIBILITY_SERVICES.
+        HomeKeyService.connected = false;
+        HomeKeyService.runtimeModeApplied = false;
+        String duringRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("p1_1_upgrade_rebind_removes_only_own_and_defers_revision_commit",
+                xiaoAi.equals(duringRebind)
+                && SystemIntegration.isOwnRebindInProgress(host)
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && HomeKeyService.syncCalls.get() == beforeSync + 1);
+
+        // At +50ms: settings/panel resumes -> HomeSetup.reconcile() + premature recover() run.
+        SystemClock.elapsed += 50;
+        HomeSetup.reconcile(host);
+        SystemIntegration.recover(host);
+        check("p1_1_reconcile_at_50ms_preserves_compat_and_boot_and_no_premature_readd",
+                !HomeSetup.paused(host)
+                && host.sysPrefs.getBoolean("home_compat", false)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1);
+
+        // At +310ms: delayed rebind writes Marco back, but service has NOT connected yet ->
+        // MUST report "已写回、等待连接" and MUST NOT mark home_filter_revision complete yet!
+        Diagnostics.events.clear();
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        String afterRebind = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("p2_2_written_before_connect_awaits_binding_and_defers_revision",
+                !HomeSetup.paused(host)
+                && host.sysPrefs.getBoolean("home_compat", false)
+                && host.sysPrefs.getBoolean("boot_home", false)
+                && !SystemIntegration.isOwnRebindInProgress(host)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && afterRebind != null && afterRebind.contains(xiaoAi) && afterRebind.contains(HomeSetup.SERVICE)
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_AWAITING_CONNECT")
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && StatusSnapshot.local(host).contains("已写回、等待连接"));
+
+        // Calling refreshHomeService again while awaiting connect must NOT unbind again.
+        SystemIntegration.refreshHomeService(host);
+        check("p2_2_refresh_while_awaiting_connect_does_not_reunbind",
+                HomeSetup.serviceEnabled(host)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 1);
+
+        // Once HomeKeyService connects and applies the chosen guard mode, revision=2 commits cleanly.
+        HomeKeyService.simulateConnect(host);
+        check("p1_1_rebind_commits_revision_only_after_service_connects_and_applies_mode",
+                host.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && host.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND")
+                && StatusSnapshot.local(host).contains("已连接并应用模式"));
+
+        // Second refresh at current revision does not unbind again.
+        SystemIntegration.refreshHomeService(host);
+        check("refresh_home_service_noop_after_revision_current",
+                Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(HomeSetup.SERVICE));
+
+        // P1 #1b: transient restore failure retries automatically and commits revision once connected.
+        MainActivity retryHost = freshEnv();
+        retryHost.secureAuthorized = true;
+        retryHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(retryHost);
+        Settings.Secure.failNextPutStrings = 1;
+        SystemClock.elapsed += 300;
+        Handler.runDue();
+        check("p1_1b_failed_restore_defers_revision_and_schedules_retry",
+                !HomeSetup.serviceEnabled(retryHost)
+                && retryHost.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.isOwnRebindInProgress(retryHost));
+        SystemClock.elapsed += 100;
+        HomeSetup.reconcile(retryHost);
+        check("p1_1b_reconcile_during_retry_window_does_not_pause",
+                !HomeSetup.paused(retryHost) && retryHost.sysPrefs.getBoolean("home_compat", false));
+        SystemClock.elapsed += 210;
+        Handler.runDue();
+        check("p1_1b_retry_writes_back_and_awaits_connect",
+                HomeSetup.serviceEnabled(retryHost)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && retryHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(retryHost);
+        check("p1_1b_retry_commits_revision_after_connect",
+                retryHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // P1 #1f (process exit mid-rebind): temporary unbind -> process dies -> reopen app ->
+        // home_compat & boot_home MUST stay ON, service written back, revision committed on connect!
+        MainActivity crashHost = freshEnv();
+        crashHost.secureAuthorized = true;
+        crashHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(crashHost);
+        // Simulate process kill right after temporary unbind!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        // Fresh process opens app: reconcile() then refreshHomeService()!
+        HomeSetup.reconcile(crashHost);
+        check("p1_1f_process_exit_reopen_reconcile_preserves_compat_and_boot",
+                !HomeSetup.paused(crashHost)
+                && crashHost.sysPrefs.getBoolean("home_compat", false)
+                && crashHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.isOwnRebindInProgress(crashHost));
+        SystemIntegration.refreshHomeService(crashHost);
+        check("p1_1f_process_exit_reopen_restores_service_and_awaits_connect",
+                !HomeSetup.paused(crashHost)
+                && crashHost.sysPrefs.getBoolean("home_compat", false)
+                && crashHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(crashHost)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && crashHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(crashHost);
+        check("p1_1f_process_exit_reopen_commits_revision_after_connect",
+                crashHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // P1 #1c (3 consecutive write-back failures -> writes recover -> app re-enters):
+        // preserves user's home_compat/boot_home, never marks revision done early, and finishes on re-entry!
+        MainActivity failHost = freshEnv();
+        failHost.secureAuthorized = true;
+        failHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(failHost);
+        Settings.Secure.failNextPutStrings = 5;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.failNextPutStrings = 0;
+        check("p1_1c_exhausted_rebind_retries_preserve_settings_and_never_mark_revision_done",
+                !HomeSetup.serviceEnabled(failHost)
+                && !HomeSetup.paused(failHost)
+                && failHost.sysPrefs.getBoolean("home_compat", false)
+                && failHost.sysPrefs.getBoolean("boot_home", false)
+                && failHost.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_FAILED"));
+        // Writes recover & user re-opens app (even after a process restart!):
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        HomeSetup.reconcile(failHost);
+        SystemIntegration.refreshHomeService(failHost);
+        check("p1_1c_reentry_after_writes_recover_preserves_settings_and_restores_service",
+                !HomeSetup.paused(failHost)
+                && failHost.sysPrefs.getBoolean("home_compat", false)
+                && failHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(failHost)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && failHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(failHost);
+        check("p1_1c_reentry_commits_revision_after_connect",
+                failHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // P1 #1g (partial write path): Marco is the ONLY enabled accessibility service; system rejects
+        // putString("") -> global ACCESSIBILITY_ENABLED MUST stay 1 and not be shut off!
+        MainActivity partialHost = freshEnv();
+        partialHost.secureAuthorized = true;
+        partialHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        Settings.Secure.failNextPutStrings = 1;
+        SystemIntegration.refreshHomeService(partialHost);
+        check("p1_1g_rejected_service_list_update_never_disables_global_accessibility",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && partialHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && partialHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        Settings.Secure.failNextPutStrings = 1;
+        boolean removedWhenRejected = SystemIntegration.removeOwnHomeService(partialHost);
+        check("p1_1g_remove_own_rejected_never_disables_global_accessibility",
+                !removedWhenRejected
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)));
+
+        // P1 #1d: active user revocation during rebind (turning accessibility off externally) IS respected,
+        // and user revocation AFTER "written" state (before connect) is ALSO respected!
+        MainActivity revokeHost = freshEnv();
+        revokeHost.secureAuthorized = true;
+        revokeHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(revokeHost);
+        SystemClock.elapsed += 50;
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        HomeSetup.reconcile(revokeHost);
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        check("p1_1d_user_revocation_during_rebind_pauses_and_never_restores",
+                HomeSetup.paused(revokeHost)
+                && !revokeHost.sysPrefs.getBoolean("home_compat", true)
+                && !revokeHost.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.serviceEnabled(revokeHost)
+                && revokeHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+
+        MainActivity revokeWrittenHost = freshEnv();
+        revokeWrittenHost.secureAuthorized = true;
+        revokeWrittenHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(revokeWrittenHost);
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        // Now in "written" state (awaiting connect); user removes Marco externally.
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        HomeSetup.reconcile(revokeWrittenHost);
+        check("p1_1d_user_revocation_after_written_state_pauses_cleanly",
+                HomeSetup.paused(revokeWrittenHost)
+                && !revokeWrittenHost.sysPrefs.getBoolean("home_compat", true)
+                && !revokeWrittenHost.sysPrefs.getBoolean("boot_home", true)
+                && revokeWrittenHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // P1 #1e: paused user is untouched by refreshHomeService.
+        HomeSetup.pause(host, "manual");
+        host.sysPrefs.edit().putInt("home_filter_revision", 0).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(host);
+        check("refresh_home_service_skips_when_paused",
+                (xiaoAi + ":" + HomeSetup.SERVICE).equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && host.sysPrefs.getInt("home_filter_revision", 0) == 0);
+
+        // P1 #2 repro: manual accessibility only (no WRITE_SECURE_SETTINGS) + KEY_FILTER -> disableHomeCompat
+        // immediately clears runtime key filter even while service remains bound in Settings.Secure.
+        MainActivity manualHost = freshEnv();
+        manualHost.secureAuthorized = false;
+        manualHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        setService(true, true);
+        SystemIntegration.setGuardMode(manualHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        check("p1_2_manual_key_filter_enabled_before_disable",
+                HomeKeyService.runtimeKeyFilterRequested && HomeKeyService.runtimeFlags == 32);
+        SystemIntegration.disableHomeCompat(manualHost);
+        check("p1_2_disable_compat_without_secure_settings_revokes_key_filter_immediately",
+                HomeSetup.paused(manualHost)
+                && !manualHost.sysPrefs.getBoolean("home_compat", true)
+                && HomeSetup.serviceEnabled(manualHost)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && HomeKeyService.runtimeFlags == 0);
+
+        // P2 #3 repro: NATIVE_KEYS_ONLY disables TaskBridge wake and syncs a running bridge immediately on switch.
+        MainActivity bridgeHost = freshEnv();
+        bridgeHost.sysPrefs.edit()
+                .putBoolean("home_compat", true)
+                .putString("original_home", "com.mitv.tvhome/com.mitv.tvhome.MainActivityUserMode")
+                .commit();
+        bridgeHost.homePrefs.edit().putBoolean("recent_wake", true).commit();
+        setService(true, true);
+        final List<JSONObject> modeBridgeConfigs = Collections.synchronizedList(new ArrayList<>());
+        TaskBridgeClient.attach(new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) modeBridgeConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("wake", req.optBoolean("wake")).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        });
+        check("p2_3_window_mode_allows_bridge_wake", TaskBridgeClient.shouldEnableWake(bridgeHost));
+        SystemIntegration.setGuardMode(bridgeHost, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        long deadline = System.currentTimeMillis() + 2000;
+        while (modeBridgeConfigs.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(10);
+        check("p2_3_native_keys_only_disables_and_syncs_bridge_wake_off",
+                !TaskBridgeClient.shouldEnableWake(bridgeHost)
+                && !modeBridgeConfigs.isEmpty()
+                && !modeBridgeConfigs.get(modeBridgeConfigs.size() - 1).optBoolean("wake", true));
+
+        int beforeRestoreCfg = modeBridgeConfigs.size();
+        SystemIntegration.setGuardMode(bridgeHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        deadline = System.currentTimeMillis() + 2000;
+        while (modeBridgeConfigs.size() <= beforeRestoreCfg && System.currentTimeMillis() < deadline) Thread.sleep(10);
+        check("p2_3_switching_back_to_window_syncs_bridge_wake_on",
+                TaskBridgeClient.shouldEnableWake(bridgeHost)
+                && modeBridgeConfigs.size() > beforeRestoreCfg
+                && modeBridgeConfigs.get(modeBridgeConfigs.size() - 1).optBoolean("wake", false));
+
+        // === Round 5 Upgrade Rebind Regressions ===
+        // 1A (P1): Only Marco enabled; removal write puts services="" OK but putInt(0) FAILS ->
+        // disk is ("", 1). Re-entering page preserves home_compat & boot_home, recovers to (Marco, 1),
+        // and still respects active user revocation (turning ACCESSIBILITY_ENABLED=0 externally).
+        MainActivity partialRemoveHost = freshEnv();
+        partialRemoveHost.secureAuthorized = true;
+        partialRemoveHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(partialRemoveHost);
+        Settings.Secure.failNextPutInts = 1;
+        SystemIntegration.refreshHomeService(partialRemoveHost);
+        check("r5_p1_partial_removal_write_keeps_rebind_in_progress",
+                !HomeSetup.serviceEnabled(partialRemoveHost)
+                && "".equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.isOwnRebindInProgress(partialRemoveHost));
+        SystemClock.elapsed += 50;
+        partialRemoveHost.simulateOnResume(true);
+        check("r5_p1_partial_removal_reentry_preserves_compat_and_boot",
+                !HomeSetup.paused(partialRemoveHost)
+                && partialRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && partialRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && partialRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        check("r5_p1_partial_removal_recovers_service_and_awaits_new_connect",
+                HomeSetup.serviceEnabled(partialRemoveHost)
+                && !HomeSetup.paused(partialRemoveHost)
+                && partialRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && partialRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(partialRemoveHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && partialRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateUnbind(partialRemoveHost);
+        HomeKeyService.simulateConnect(partialRemoveHost);
+        check("r5_p1_partial_removal_completes_on_new_connect",
+                partialRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && partialRemoveHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1A-restart: Process exits right after partial removal write ("", 1) -> cold start recovers cleanly!
+        MainActivity partialRemoveCrash = freshEnv();
+        partialRemoveCrash.secureAuthorized = true;
+        partialRemoveCrash.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(partialRemoveCrash);
+        Settings.Secure.failNextPutInts = 1;
+        SystemIntegration.refreshHomeService(partialRemoveCrash);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        MainActivity partialRemoveRestart = new MainActivity();
+        partialRemoveRestart.sysPrefs = partialRemoveCrash.sysPrefs;
+        partialRemoveRestart.homePrefs = partialRemoveCrash.homePrefs;
+        partialRemoveRestart.pm = partialRemoveCrash.pm;
+        partialRemoveRestart.secureAuthorized = true;
+        partialRemoveRestart.defaultHome = new DefaultHomePanel(partialRemoveRestart);
+        partialRemoveRestart.simulateRealColdStart(true);
+        check("r5_p1_partial_removal_process_exit_recovers_on_cold_start",
+                !HomeSetup.compatResetPending(partialRemoveRestart)
+                && !HomeSetup.paused(partialRemoveRestart)
+                && partialRemoveRestart.sysPrefs.getBoolean("home_compat", false)
+                && partialRemoveRestart.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(partialRemoveRestart)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(partialRemoveRestart.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+
+        // 1A-revoke: Active user turning off global ACCESSIBILITY_ENABLED during partial removal ("", 1) -> pauses!
+        MainActivity partialRemoveRevoke = freshEnv();
+        partialRemoveRevoke.secureAuthorized = true;
+        partialRemoveRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        Settings.Secure.failNextPutInts = 1;
+        SystemIntegration.refreshHomeService(partialRemoveRevoke);
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        partialRemoveRevoke.simulateOnResume(true);
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("r5_p1_partial_removal_user_revocation_still_pauses",
+                HomeSetup.paused(partialRemoveRevoke)
+                && !partialRemoveRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !partialRemoveRevoke.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.serviceEnabled(partialRemoveRevoke));
+
+        // 1B (P1): Only Marco enabled; removal writes ("", 0) cleanly, then restore puts services=Marco OK
+        // but putInt(1) FAILS across all retries -> disk is (Marco, 0). Re-entering page preserves both switches
+        // while still failing, recovers once putInt works again, and still honors active user removal!
+        MainActivity partialRestoreHost = freshEnv();
+        partialRestoreHost.secureAuthorized = true;
+        partialRestoreHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(partialRestoreHost);
+        SystemIntegration.refreshHomeService(partialRestoreHost);
+        HomeKeyService.simulateUnbind(partialRestoreHost);
+        Settings.Secure.failNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        check("r5_p1_partial_restore_exhausted_keeps_switches_and_snapshot",
+                HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && !HomeSetup.serviceEnabled(partialRestoreHost)
+                && !HomeSetup.paused(partialRestoreHost)
+                && partialRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && partialRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.isOwnRebindInProgress(partialRestoreHost)
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_FAILED"));
+        // Re-entering page while putInt still fails keeps both switches ON.
+        partialRestoreHost.simulateOnResume(true);
+        check("r5_p1_partial_restore_reentry_while_failing_preserves_switches",
+                !HomeSetup.paused(partialRestoreHost)
+                && partialRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && partialRestoreHost.sysPrefs.getBoolean("boot_home", false));
+        // Once putInt recovers and user re-enters page, service restores to (Marco, 1) and completes on connect!
+        Settings.Secure.failNextPutInts = 0;
+        SystemClock.elapsed += 310;
+        partialRestoreHost.simulateOnResume(true);
+        check("r5_p1_partial_restore_reentry_recovers_once_putint_succeeds",
+                !HomeSetup.paused(partialRestoreHost)
+                && partialRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && partialRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(partialRestoreHost)
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(partialRestoreHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && partialRestoreHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(partialRestoreHost);
+        check("r5_p1_partial_restore_completes_on_new_connect",
+                partialRestoreHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && partialRestoreHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1B-revoke: While stuck in partial restore (Marco, 0), user removes Marco from list -> disk ("", 0) -> pauses!
+        MainActivity partialRestoreRevoke = freshEnv();
+        partialRestoreRevoke.secureAuthorized = true;
+        partialRestoreRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(partialRestoreRevoke);
+        Settings.Secure.failNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.failNextPutInts = 0;
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        partialRestoreRevoke.simulateOnResume(true);
+        check("r5_p1_partial_restore_user_revocation_pauses_and_never_restores",
+                HomeSetup.paused(partialRestoreRevoke)
+                && !partialRestoreRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !partialRestoreRevoke.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.serviceEnabled(partialRestoreRevoke)
+                && partialRestoreRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 2 (P2): Process exits BEFORE onUnbind() (compat_service_active=true still on disk) AND AFTER onUnbind(),
+        // restarted in exact real MainActivity.onCreate() -> onResume() order.
+        MainActivity preUnbindOld = freshEnv();
+        preUnbindOld.secureAuthorized = true;
+        preUnbindOld.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(preUnbindOld);
+        check("r5_p2_pre_unbind_active_marker_present",
+                preUnbindOld.sysPrefs.getBoolean("compat_service_active", false)
+                && preUnbindOld.sysPrefs.getBoolean("compat_seen_present", false));
+        SystemIntegration.refreshHomeService(preUnbindOld);
+        // Process dies BEFORE onUnbind() runs! compat_service_active stays true on disk.
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Diagnostics.events.clear();
+        MainActivity preUnbindRestart = new MainActivity();
+        preUnbindRestart.sysPrefs = preUnbindOld.sysPrefs;
+        preUnbindRestart.homePrefs = preUnbindOld.homePrefs;
+        preUnbindRestart.pm = preUnbindOld.pm;
+        preUnbindRestart.secureAuthorized = true;
+        preUnbindRestart.defaultHome = new DefaultHomePanel(preUnbindRestart);
+        preUnbindRestart.simulateRealColdStart(true);
+        check("r5_p2_exit_before_unbind_real_startup_restores_without_false_reset",
+                !HomeSetup.compatResetPending(preUnbindRestart)
+                && !Diagnostics.events.contains("HOME_COMPAT_RESET_AFTER_STOP")
+                && !preUnbindRestart.isPage("home_compat_reset")
+                && !HomeSetup.paused(preUnbindRestart)
+                && preUnbindRestart.sysPrefs.getBoolean("home_compat", false)
+                && preUnbindRestart.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(preUnbindRestart)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(preUnbindRestart.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && preUnbindRestart.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(preUnbindRestart);
+        check("r5_p2_exit_before_unbind_commits_revision_on_new_connect",
+                preUnbindRestart.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && preUnbindRestart.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+
+        // 2B (P2): Process exits AFTER onUnbind() (compat_service_active=false on disk), same real startup order.
+        MainActivity postUnbindOld = freshEnv();
+        postUnbindOld.secureAuthorized = true;
+        postUnbindOld.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(postUnbindOld);
+        SystemIntegration.refreshHomeService(postUnbindOld);
+        HomeKeyService.simulateUnbind(postUnbindOld);
+        check("r5_p2_post_unbind_active_marker_cleared",
+                !postUnbindOld.sysPrefs.getBoolean("compat_service_active", true));
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Diagnostics.events.clear();
+        MainActivity postUnbindRestart = new MainActivity();
+        postUnbindRestart.sysPrefs = postUnbindOld.sysPrefs;
+        postUnbindRestart.homePrefs = postUnbindOld.homePrefs;
+        postUnbindRestart.pm = postUnbindOld.pm;
+        postUnbindRestart.secureAuthorized = true;
+        postUnbindRestart.defaultHome = new DefaultHomePanel(postUnbindRestart);
+        postUnbindRestart.simulateRealColdStart(true);
+        check("r5_p2_exit_after_unbind_real_startup_restores_cleanly",
+                !HomeSetup.compatResetPending(postUnbindRestart)
+                && !HomeSetup.paused(postUnbindRestart)
+                && postUnbindRestart.sysPrefs.getBoolean("home_compat", false)
+                && postUnbindRestart.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(postUnbindRestart)
+                && Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).contains(xiaoAi)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(postUnbindRestart.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && postUnbindRestart.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        HomeKeyService.simulateConnect(postUnbindRestart);
+        check("r5_p2_exit_after_unbind_commits_revision_on_new_connect",
+                postUnbindRestart.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+
+        // 2C (contrast): Real external abrupt stop (NOT our rebind) still triggers markCompatResetIfInterrupted.
+        MainActivity realStopHost = freshEnv();
+        realStopHost.secureAuthorized = true;
+        realStopHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putBoolean("compat_seen_present", true).putBoolean("compat_service_active", true)
+                .putInt("home_filter_revision", SystemIntegration.HOME_FILTER_REVISION).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        check("r5_p2_non_rebind_abrupt_stop_still_marks_compat_reset",
+                HomeSetup.markCompatResetIfInterrupted(realStopHost)
+                && HomeSetup.compatResetPending(realStopHost));
+
+        // 3 (P2): Old connection stays bound past write-back (delayed onUnbind); stale connection MUST NOT
+        // mark rebind complete until a brand-new connection arrives and applies the guard mode!
+        MainActivity staleConnHost = freshEnv();
+        staleConnHost.secureAuthorized = true;
+        staleConnHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(staleConnHost);
+        long oldGen = HomeKeyService.connectionGeneration;
+        Diagnostics.events.clear();
+        SystemIntegration.refreshHomeService(staleConnHost);
+        // Old connection does NOT unbind before write-back at +310ms!
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("r5_p2_stale_connection_cannot_complete_rebind_on_writeback",
+                HomeSetup.serviceEnabled(staleConnHost)
+                && HomeKeyService.connected
+                && HomeKeyService.connectionGeneration == oldGen
+                && staleConnHost.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(staleConnHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && !SystemIntegration.isGuardModeReady(staleConnHost)
+                && "已写回、等待连接".equals(SystemIntegration.rebindStatusLabel(staleConnHost))
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_AWAITING_CONNECT")
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        // Even calling syncRuntimeKeyFilter & refreshHomeService again while still on oldGen must not complete!
+        HomeKeyService.syncRuntimeKeyFilter(staleConnHost);
+        SystemIntegration.refreshHomeService(staleConnHost);
+        check("r5_p2_stale_connection_sync_and_refresh_still_await_new_connect",
+                staleConnHost.sysPrefs.getInt("home_filter_revision", 0) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(staleConnHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, ""))
+                && !Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+        // Delayed unbind of old connection, then brand-new connection arrives -> NOW marks complete!
+        HomeKeyService.simulateUnbind(staleConnHost);
+        HomeKeyService.simulateConnect(staleConnHost);
+        check("r5_p2_new_connection_after_delayed_unbind_completes_rebind",
+                HomeKeyService.connectionGeneration > oldGen
+                && staleConnHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION
+                && staleConnHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && SystemIntegration.isGuardModeReady(staleConnHost)
+                && "已连接并应用模式".equals(SystemIntegration.rebindStatusLabel(staleConnHost))
+                && Diagnostics.events.contains("HOME_SERVICE_REBOUND"));
+
+        // === Round 6 Final Upgrade Rebind Regressions ===
+        // 1A (P1 Boot - global switch off during REBIND_STATE_REMOVED): immediate reboot MUST preserve
+        // ACCESSIBILITY_ENABLED=0 and MUST NOT re-add Marco!
+        MainActivity bootOffHost = freshEnv();
+        bootOffHost.secureAuthorized = true;
+        bootOffHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putBoolean("compat_seen_present", true).putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootOffHost);
+        SystemIntegration.refreshHomeService(bootOffHost);
+        // User turns global accessibility switch OFF in System Settings before rebind completes, then reboots!
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1a";
+        new BootReceiver().onReceive(bootOffHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_global_switch_off_during_removed_rebind",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootOffHost)
+                && HomeSetup.paused(bootOffHost)
+                && !bootOffHost.sysPrefs.getBoolean("home_compat", true)
+                && !bootOffHost.sysPrefs.getBoolean("boot_home", true)
+                && bootOffHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty()
+                && bootOffHost.startedActivities.isEmpty());
+
+        // 1B (P1 Boot - Marco removed from list during REBIND_STATE_WRITTEN): immediate reboot MUST preserve
+        // system state without re-adding Marco or flipping global switch back to 1!
+        MainActivity bootWrittenRevoke = freshEnv();
+        bootWrittenRevoke.secureAuthorized = true;
+        bootWrittenRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootWrittenRevoke);
+        SystemIntegration.refreshHomeService(bootWrittenRevoke);
+        SystemClock.elapsed += 310;
+        Handler.runDue();
+        check("r6_p1_boot_written_precondition",
+                SystemIntegration.REBIND_STATE_WRITTEN.equals(bootWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        // User removes Marco and turns global switch OFF before new connection completes, then reboots!
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1b";
+        new BootReceiver().onReceive(bootWrittenRevoke, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_user_disable_during_written_rebind",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootWrittenRevoke)
+                && HomeSetup.paused(bootWrittenRevoke)
+                && !bootWrittenRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !bootWrittenRevoke.sysPrefs.getBoolean("boot_home", true)
+                && bootWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1C (P1 Boot - user removes Marco from partial-restore snapshot (Marco, 0) -> ("", 0) then reboots):
+        MainActivity bootPartialRevoke = freshEnv();
+        bootPartialRevoke.secureAuthorized = true;
+        bootPartialRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootPartialRevoke);
+        SystemIntegration.refreshHomeService(bootPartialRevoke);
+        Settings.Secure.failNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.failNextPutInts = 0;
+        // User removes Marco from list -> ("", 0), then reboots!
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 6);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1c";
+        new BootReceiver().onReceive(bootPartialRevoke, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        check("r6_p1_boot_respects_user_removal_from_partial_restore_snapshot",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && "".equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(bootPartialRevoke)
+                && HomeSetup.paused(bootPartialRevoke)
+                && !bootPartialRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !bootPartialRevoke.sysPrefs.getBoolean("boot_home", true));
+
+        // 1D (P1 Boot CONTROL GROUP - NO external change during REBIND_STATE_REMOVED -> immediate reboot):
+        // MUST restore Marco AND preserve XiaoAi!
+        MainActivity bootControlHost = freshEnv();
+        bootControlHost.secureAuthorized = true;
+        bootControlHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(bootControlHost);
+        SystemIntegration.refreshHomeService(bootControlHost);
+        // NO external change; immediate reboot mid-rebind!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        Settings.Global.ints.put("boot_count", 7);
+        HomeSetup.bootIdOverride = "boot-uuid-r6-1d";
+        new BootReceiver().onReceive(bootControlHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        String bootControlServices = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("r6_p1_boot_control_without_external_change_restores_marco_and_preserves_xiaoai",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.serviceEnabled(bootControlHost)
+                && bootControlServices != null && bootControlServices.contains(xiaoAi) && bootControlServices.contains(HomeSetup.SERVICE)
+                && !HomeSetup.paused(bootControlHost)
+                && bootControlHost.sysPrefs.getBoolean("home_compat", false)
+                && bootControlHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(bootControlHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(bootControlHost);
+        check("r6_p1_boot_control_commits_revision_on_connect",
+                bootControlHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 1E (P1 Standby - global switch off during REBIND_STATE_REMOVED with compat_service_active=true retained):
+        MainActivity standbyOffHost = freshEnv();
+        standbyOffHost.secureAuthorized = true;
+        standbyOffHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyOffHost); // sets compat_service_active=true!
+        SystemIntegration.refreshHomeService(standbyOffHost);
+        // User turns global switch OFF before onUnbind; TV sleeps and standby recovery runs in fresh process!
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyOffHost.powerManager.interactive = false;
+        boolean standbyOffRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyOffHost);
+        check("r6_p1_standby_respects_global_switch_off_with_retained_active_marker",
+                !standbyOffRestored
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(standbyOffHost)
+                && HomeSetup.paused(standbyOffHost)
+                && !standbyOffHost.sysPrefs.getBoolean("home_compat", true)
+                && !standbyOffHost.sysPrefs.getBoolean("boot_home", true)
+                && standbyOffHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1F (P1 Standby - Marco removed from list during REBIND_STATE_WRITTEN with compat_service_active=true):
+        MainActivity standbyWrittenRevoke = freshEnv();
+        standbyWrittenRevoke.secureAuthorized = true;
+        standbyWrittenRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyWrittenRevoke);
+        SystemIntegration.refreshHomeService(standbyWrittenRevoke);
+        SystemClock.elapsed += 310;
+        Handler.runDue(); // now REBIND_STATE_WRITTEN while compat_service_active is still true
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi);
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyWrittenRevoke.powerManager.interactive = false;
+        boolean standbyWrittenRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyWrittenRevoke);
+        check("r6_p1_standby_respects_marco_removed_during_written_rebind",
+                !standbyWrittenRestored
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && !HomeSetup.serviceEnabled(standbyWrittenRevoke)
+                && HomeSetup.paused(standbyWrittenRevoke)
+                && !standbyWrittenRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !standbyWrittenRevoke.sysPrefs.getBoolean("boot_home", true)
+                && standbyWrittenRevoke.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "").isEmpty());
+
+        // 1G (P1 Standby CONTROL GROUP - NO external change during REBIND_STATE_REMOVED with compat_service_active=true):
+        // MUST restore Marco AND preserve XiaoAi!
+        MainActivity standbyControlHost = freshEnv();
+        standbyControlHost.secureAuthorized = true;
+        standbyControlHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(standbyControlHost);
+        SystemIntegration.refreshHomeService(standbyControlHost);
+        // NO external change; process restarts on standby while compat_service_active=true!
+        Handler.clearDelayed();
+        SystemIntegration.resetRebindStateForTest();
+        HomeKeyService.resetForTest();
+        standbyControlHost.powerManager.interactive = false;
+        boolean standbyControlRestored = SystemIntegration.restoreCompatAfterStandbyKill(standbyControlHost);
+        String standbyControlServices = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("r6_p1_standby_control_without_external_change_restores_marco_and_preserves_xiaoai",
+                standbyControlRestored
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && HomeSetup.serviceEnabled(standbyControlHost)
+                && standbyControlServices != null && standbyControlServices.contains(xiaoAi) && standbyControlServices.contains(HomeSetup.SERVICE)
+                && !HomeSetup.paused(standbyControlHost)
+                && standbyControlHost.sysPrefs.getBoolean("home_compat", false)
+                && standbyControlHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(standbyControlHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(standbyControlHost);
+        check("r6_p1_standby_control_commits_revision_on_connect",
+                standbyControlHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 1H (P1 Foreground direct recover/refresh check when external change occurred during rebind):
+        MainActivity fgExternalHost = freshEnv();
+        fgExternalHost.secureAuthorized = true;
+        fgExternalHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, xiaoAi + ":" + HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(fgExternalHost);
+        SystemIntegration.refreshHomeService(fgExternalHost);
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        SystemIntegration.refreshHomeService(fgExternalHost);
+        SystemIntegration.recover(fgExternalHost);
+        check("r6_p1_foreground_refresh_and_recover_respect_external_disable",
+                Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && xiaoAi.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && HomeSetup.paused(fgExternalHost)
+                && !fgExternalHost.sysPrefs.getBoolean("home_compat", true)
+                && !fgExternalHost.sysPrefs.getBoolean("boot_home", true));
+
+        // 2A (P2 Removal direction - putString("") succeeds, putInt(0) throws SecurityException):
+        // Re-entering page preserves home_compat & boot_home and recovers cleanly!
+        MainActivity secExRemoveHost = freshEnv();
+        secExRemoveHost.secureAuthorized = true;
+        secExRemoveHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(secExRemoveHost);
+        Settings.Secure.throwNextPutInts = 1;
+        SystemIntegration.refreshHomeService(secExRemoveHost);
+        check("r6_p2_removal_security_exception_keeps_actual_snapshot_and_rebind",
+                !HomeSetup.serviceEnabled(secExRemoveHost)
+                && "".equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.isOwnRebindInProgress(secExRemoveHost));
+        SystemClock.elapsed += 50;
+        secExRemoveHost.simulateOnResume(true);
+        check("r6_p2_removal_security_exception_reentry_preserves_switches",
+                !HomeSetup.paused(secExRemoveHost)
+                && secExRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && secExRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == 1);
+        SystemClock.elapsed += 260;
+        Handler.runDue();
+        check("r6_p2_removal_security_exception_recovers_and_awaits_new_connect",
+                HomeSetup.serviceEnabled(secExRemoveHost)
+                && !HomeSetup.paused(secExRemoveHost)
+                && secExRemoveHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRemoveHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(secExRemoveHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateUnbind(secExRemoveHost);
+        HomeKeyService.simulateConnect(secExRemoveHost);
+        check("r6_p2_removal_security_exception_completes_on_new_connect",
+                secExRemoveHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 2B (P2 Restore direction - clean removal ("", 0), then restore putString(Marco) succeeds
+        // while putInt(1) throws SecurityException across retries -> disk is (Marco, 0)):
+        // Re-entering page preserves home_compat & boot_home, recovers once SecurityException clears,
+        // and still respects external user removal!
+        MainActivity secExRestoreHost = freshEnv();
+        secExRestoreHost.secureAuthorized = true;
+        secExRestoreHost.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        HomeKeyService.simulateConnect(secExRestoreHost);
+        SystemIntegration.refreshHomeService(secExRestoreHost);
+        HomeKeyService.simulateUnbind(secExRestoreHost);
+        Settings.Secure.throwNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        check("r6_p2_restore_security_exception_records_partial_snapshot_and_keeps_switches",
+                HomeSetup.SERVICE.equals(Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 0
+                && !HomeSetup.serviceEnabled(secExRestoreHost)
+                && !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && SystemIntegration.isOwnRebindInProgress(secExRestoreHost)
+                && Diagnostics.events.contains("SYSTEM_RECOVERY_FAILED")
+                && Diagnostics.events.contains("HOME_SERVICE_REBIND_FAILED"));
+        // Re-entering page while putInt still throws SecurityException preserves both switches!
+        secExRestoreHost.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_reentry_while_throwing_preserves_switches",
+                !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false));
+        // Once SecurityException stops and user re-enters page, service restores to (Marco, 1) and completes on connect!
+        Settings.Secure.throwNextPutInts = 0;
+        SystemClock.elapsed += 310;
+        secExRestoreHost.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_recovers_on_reentry_once_allowed",
+                !HomeSetup.paused(secExRestoreHost)
+                && secExRestoreHost.sysPrefs.getBoolean("home_compat", false)
+                && secExRestoreHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(secExRestoreHost)
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1
+                && SystemIntegration.REBIND_STATE_WRITTEN.equals(secExRestoreHost.sysPrefs.getString(SystemIntegration.PREF_REBIND_STATE, "")));
+        HomeKeyService.simulateConnect(secExRestoreHost);
+        check("r6_p2_restore_security_exception_completes_on_new_connect",
+                secExRestoreHost.sysPrefs.getInt("home_filter_revision", 0) == SystemIntegration.HOME_FILTER_REVISION);
+
+        // 2B-revoke: While stuck in (Marco, 0) after restore SecurityException, user removes Marco -> pauses on re-entry!
+        MainActivity secExRestoreRevoke = freshEnv();
+        secExRestoreRevoke.secureAuthorized = true;
+        secExRestoreRevoke.sysPrefs.edit()
+                .putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, HomeSetup.SERVICE);
+        SystemIntegration.refreshHomeService(secExRestoreRevoke);
+        Settings.Secure.throwNextPutInts = 10;
+        for (int i = 0; i < 4; i++) { SystemClock.elapsed += 310; Handler.runDue(); }
+        Settings.Secure.throwNextPutInts = 0;
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+        secExRestoreRevoke.simulateOnResume(true);
+        check("r6_p2_restore_security_exception_user_revocation_pauses_cleanly",
+                HomeSetup.paused(secExRestoreRevoke)
+                && !secExRestoreRevoke.sysPrefs.getBoolean("home_compat", true)
+                && !secExRestoreRevoke.sysPrefs.getBoolean("boot_home", true)
+                && !HomeSetup.serviceEnabled(secExRestoreRevoke));
+    }
+
+    static void testDesktopModesAndOemExperiment() throws Exception {
+        // 1. DefaultHomePanel.show() integrates all 4 clear entries + User Choice / Effective Mode / Fallback Reason!
+        MainActivity host = freshEnv();
+        setService(true, true);
+        HomeKeyService.simulateConnect(host);
+        host.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        host.defaultHome.show();
+        TvDialog dlg = host.dialogs.active();
+        check("feat_default_home_has_four_clear_entries_and_status_lines",
+                dlg.items.length == 6
+                && dlg.items[1].contains("系统默认桌面")
+                && dlg.items[2].contains("窗口回拉（兼容模式")
+                && dlg.items[3].contains("快速 Home")
+                && dlg.items[4].contains("原厂按键")
+                && dlg.message.contains("用户选择")
+                && dlg.message.contains("当前生效")
+                && dlg.message.contains("降级原因"));
+
+        // Selecting 快速 Home without bridge shows explicit tap-then-hold instruction + switch to 窗口回拉!
+        dlg.clickItem(3);
+        TvDialog fastDlg = host.dialogs.active();
+        check("feat_fast_home_no_bridge_shows_tap_then_hold_and_window_fallback",
+                "home_fast_mode_confirm".equals(fastDlg.pageKey())
+                && fastDlg.message.contains("先点一下音量，松手后再长按")
+                && fastDlg.items[1].contains("窗口回拉"));
+
+        // 2. Selecting NATIVE_KEYS_ONLY or disabling guard survives reboot, upgrade, standby wake, and TaskBridge reconnect!
+        MainActivity nativeKeysHost = freshEnv();
+        nativeKeysHost.secureAuthorized = true;
+        nativeKeysHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true)
+                .putInt("home_filter_revision", 1).commit();
+        setService(true, true);
+        HomeKeyService.simulateConnect(nativeKeysHost);
+        SystemIntegration.setGuardMode(nativeKeysHost, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY);
+        // Upgrade broadcast
+        new BootReceiver().onReceive(nativeKeysHost, new Intent(Intent.ACTION_MY_PACKAGE_REPLACED));
+        SystemClock.elapsed += 350; Handler.runDue();
+        // Reboot broadcast
+        Settings.Global.ints.put("boot_count", 4);
+        HomeSetup.bootIdOverride = "boot-native-keys";
+        new BootReceiver().onReceive(nativeKeysHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        // Standby wake
+        nativeKeysHost.powerManager.interactive = false;
+        SystemIntegration.restoreCompatAfterStandbyKill(nativeKeysHost);
+        nativeKeysHost.powerManager.interactive = true;
+        // TaskBridge reconnect
+        final List<JSONObject> nkConfigs = Collections.synchronizedList(new ArrayList<>());
+        IBinder nkBridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                try {
+                    JSONObject req = new JSONObject(data.readString());
+                    if ("configure".equals(req.optString("action"))) nkConfigs.add(req);
+                    reply.writeNoException();
+                    reply.writeString(new JSONObject().put("ok", true).put("volumeAssistActive", false).toString());
+                    return true;
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        };
+        TaskBridgeClient.attach(nativeKeysHost, nkBridge);
+        TaskBridgeClient.configure(nativeKeysHost);
+        check("feat_native_keys_only_preserved_across_upgrade_reboot_standby_bridge",
+                SystemIntegration.guardMode(nativeKeysHost) == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && !TaskBridgeClient.shouldEnableWake(nativeKeysHost)
+                && !TaskBridgeClient.shouldEnableVolumeAssist(nativeKeysHost)
+                && !nkConfigs.isEmpty()
+                && !nkConfigs.get(nkConfigs.size() - 1).optBoolean("wake", true)
+                && !nkConfigs.get(nkConfigs.size() - 1).optBoolean("volumeAssist", true));
+
+        // Guard disabled (paused / home_compat=false) also preserved across upgrade, reboot, standby, bridge reconnect!
+        MainActivity offHost = freshEnv();
+        offHost.secureAuthorized = true;
+        SystemIntegration.disableHomeCompat(offHost);
+        new BootReceiver().onReceive(offHost, new Intent(Intent.ACTION_MY_PACKAGE_REPLACED));
+        Settings.Global.ints.put("boot_count", 5);
+        HomeSetup.bootIdOverride = "boot-off-guard";
+        new BootReceiver().onReceive(offHost, new Intent(Intent.ACTION_BOOT_COMPLETED));
+        offHost.powerManager.interactive = false;
+        SystemIntegration.restoreCompatAfterStandbyKill(offHost);
+        TaskBridgeClient.configure(offHost);
+        check("feat_disabled_guard_preserved_across_upgrade_reboot_standby_bridge",
+                HomeSetup.paused(offHost)
+                && !offHost.sysPrefs.getBoolean("home_compat", true)
+                && !HomeSetup.serviceEnabled(offHost)
+                && !TaskBridgeClient.shouldEnableWake(offHost)
+                && !TaskBridgeClient.shouldEnableVolumeAssist(offHost));
+        TaskBridgeClient.resetForTest();
+
+        // 3. Standard-only OEM launcher disable experiment gating, auto-rollback on FallbackHome & foreground failure, and restore!
+        List<OemLauncherExperimentPolicy.VerifiedDevice> testAllowlist = Collections.singletonList(
+                new OemLauncherExperimentPolicy.VerifiedDevice("TestVerifiedTV", "1.0.0", "com.oem.tvhome", "test verified"));
+
+        // 3a. MiTV-ASTP0 / 22.8.30.1385 blocked cleanly with zero pm disable-user commands!
+        MainActivity astp0 = freshEnv();
+        List<String> astp0Cmds = new ArrayList<>();
+        HomeShellSetup astp0Shell = new HomeShellSetup(cmd -> { astp0Cmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 0);
+        astp0Shell.authenticate();
+        String astp0Res = SystemIntegration.executeOemExperimentDisable(astp0, astp0Shell, 0, "MiTV-ASTP0", "22.8.30.1385", testAllowlist, true);
+        check("feat_oem_exp_blocks_mitv_astp0_1385",
+                astp0Res.contains("已阻止") && astp0Res.contains("FallbackHome")
+                && astp0Cmds.stream().noneMatch(c -> c.contains("disable-user")));
+
+        // 3b. Restricted edition completely blocked even if model/firmware in allowlist!
+        MainActivity restHost = freshEnv();
+        BuildEdition.RESTRICTED = true;
+        List<String> restCmds = new ArrayList<>();
+        HomeShellSetup restShell = new HomeShellSetup(cmd -> { restCmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 0);
+        restShell.authenticate();
+        String restRes = SystemIntegration.executeOemExperimentDisable(restHost, restShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_blocks_restricted_edition",
+                restRes.contains("受限兼容版") && restCmds.stream().noneMatch(c -> c.contains("disable-user")));
+        BuildEdition.RESTRICTED = false;
+
+        // 3c. Verified device whose readback falls to FallbackHome -> auto-rollbacks with exact prior_state (--user) and verifies OEM usable!
+        android.os.Process.uid = 10059; // User 0
+        MainActivity fbHost = freshEnv();
+        fbHost.pm.homes.clear();
+        ResolveInfo oemHome = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        fbHost.pm.homes.add(oemHome);
+        fbHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        fbHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        fbHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        List<String> fbCmds = new ArrayList<>();
+        HomeShellSetup fbShell = new HomeShellSetup(cmd -> {
+            fbCmds.add(cmd);
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                oemHome.activityInfo.applicationInfo.enabled = false;
+                fbHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                fbHost.pm.currentHome = "com.android.tv.settings/com.android.tv.settings.system.FallbackHome";
+            }
+            if (cmd.contains("pm default-state --user 0 'com.oem.tvhome'")) {
+                oemHome.activityInfo.applicationInfo.enabled = true;
+                fbHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+            }
+            if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                fbHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        fbShell.authenticate();
+        Diagnostics.events.clear();
+        String fbRes = SystemIntegration.executeOemExperimentDisable(fbHost, fbShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_fallback_home_auto_rolls_back_and_verifies_oem_usable",
+                fbRes.contains("已自动恢复原厂桌面")
+                && fbCmds.stream().anyMatch(c -> c.equals("pm default-state --user 0 'com.oem.tvhome'"))
+                && fbCmds.stream().noneMatch(c -> c.contains("|| pm enable"))
+                && oemHome.activityInfo.applicationInfo.enabled
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(fbHost.pm.currentHome)
+                && !SystemIntegration.hasDisabledOemExperiment(fbHost)
+                && Diagnostics.events.contains("OEM_EXP_AUTO_ROLLBACK_OK"));
+
+        // 3d. Verified device where Marco resolves as HOME AND can foreground -> succeeds, stops extra interception, and explicit Restore restores exact state & HOME!
+        MainActivity okHost = freshEnv();
+        okHost.pm.homes.clear();
+        ResolveInfo okOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        okHost.pm.homes.add(okOem);
+        okHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        okHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        okHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        okHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        SystemIntegration.setGuardMode(okHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        HomeKeyService.simulateConnect(okHost);
+        List<String> okCmds = new ArrayList<>();
+        HomeShellSetup okShell = new HomeShellSetup(cmd -> {
+            okCmds.add(cmd);
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                okOem.activityInfo.applicationInfo.enabled = false;
+                okHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                okHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+            }
+            if (cmd.contains("pm default-state --user 0 'com.oem.tvhome'")) {
+                okOem.activityInfo.applicationInfo.enabled = true;
+                okHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+            }
+            if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                okHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        okShell.authenticate();
+        Diagnostics.events.clear();
+        String okRes = SystemIntegration.executeOemExperimentDisable(okHost, okShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, true);
+        check("feat_oem_exp_verified_success_stops_key_filter_and_persists_restore_snapshot",
+                okRes.contains("已停用原厂桌面")
+                && SystemIntegration.homeIsOurs(okHost)
+                && !HomeKeyService.runtimeKeyFilterRequested
+                && SystemIntegration.hasDisabledOemExperiment(okHost)
+                && Diagnostics.events.contains("OEM_EXP_DISABLE_VERIFIED"));
+        String restoredRes = SystemIntegration.executeOemExperimentRestore(okHost, okShell);
+        check("feat_oem_exp_explicit_restore_reenables_oem_and_clears_snapshot",
+                restoredRes.contains("已按快照恢复原厂桌面")
+                && okCmds.stream().anyMatch(c -> c.equals("pm default-state --user 0 'com.oem.tvhome'"))
+                && okCmds.stream().noneMatch(c -> c.contains("|| pm enable"))
+                && okOem.activityInfo.applicationInfo.enabled
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(okHost.pm.currentHome)
+                && !SystemIntegration.hasDisabledOemExperiment(okHost)
+                && Diagnostics.events.contains("OEM_EXP_RESTORED"));
+
+        // =========================================================================
+        // Codex Rework Regressions: OEM restore safety/threading & Mode switches
+        // =========================================================================
+        // Codex #3A: No valid current-user snapshot (current HOME is 3rd-party launcher) ->
+        // ZERO shell writes, ZERO ADB connects, and UI hides "恢复原厂桌面"!
+        MainActivity noSnapHost = freshEnv();
+        noSnapHost.pm.homes.clear();
+        noSnapHost.pm.homes.add(homeEntry("com.third.launcher", "com.third.launcher.Home", true, true, true, false));
+        noSnapHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        noSnapHost.pm.currentHome = "com.third.launcher/com.third.launcher.Home";
+        noSnapHost.defaultHome.oemExperiment();
+        boolean oemDialogHasRestore = false;
+        for (String it : noSnapHost.dialogs.active().items) if (it.contains("恢复原厂桌面")) oemDialogHasRestore = true;
+        noSnapHost.defaultHome.help();
+        boolean helpDialogHasRestore = false;
+        for (String it : noSnapHost.dialogs.active().items) if (it.contains("恢复原厂桌面")) helpDialogHasRestore = true;
+        List<String> noSnapCmds = new ArrayList<>();
+        HomeShellSetup noSnapShell = new HomeShellSetup(cmd -> { noSnapCmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 0);
+        noSnapShell.authenticate();
+        noSnapCmds.clear();
+        String noSnapRes = SystemIntegration.executeOemExperimentRestore(noSnapHost, noSnapShell, 0);
+        final AtomicInteger noSnapConnects = new AtomicInteger();
+        final CountDownLatch noSnapLatch = new CountDownLatch(1);
+        final String[] noSnapAuthRes = {null};
+        LocalHomeAuthorizer noSnapAuth = new LocalHomeAuthorizer(noSnapHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) { noSnapConnects.incrementAndGet(); throw new AssertionError("must not connect"); }
+            @Override public void close() {}
+        }, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+        noSnapAuth.restoreOemExperiment(res -> { noSnapAuthRes[0] = res; noSnapLatch.countDown(); });
+        check("codex_3a_no_snapshot_zero_writes_zero_adb_and_no_restore_button",
+                !oemDialogHasRestore
+                && !helpDialogHasRestore
+                && noSnapCmds.isEmpty()
+                && noSnapRes.contains("未执行任何修改")
+                && noSnapLatch.await(5, TimeUnit.SECONDS)
+                && noSnapConnects.get() == 0
+                && noSnapAuthRes[0] != null && noSnapAuthRes[0].contains("未执行任何修改"));
+
+        // Wrong user ID snapshot (saved for user 0, restore invoked as user 10) -> ZERO writes!
+        MainActivity wrongUserHost = freshEnv();
+        SystemIntegration.saveOemExperimentSnapshot(wrongUserHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        List<String> wrongUserCmds = new ArrayList<>();
+        HomeShellSetup wrongUserShell = new HomeShellSetup(cmd -> { wrongUserCmds.add(cmd); return "id -u".equals(cmd) ? "2000" : ""; }, 10);
+        wrongUserShell.authenticate();
+        wrongUserCmds.clear();
+        String wrongUserRes = SystemIntegration.executeOemExperimentRestore(wrongUserHost, wrongUserShell, 10);
+        check("codex_3a_wrong_user_snapshot_zero_writes_and_preserves_user0_snapshot",
+                wrongUserCmds.isEmpty()
+                && wrongUserRes.contains("未执行任何修改")
+                && SystemIntegration.hasValidOemExperimentSnapshot(wrongUserHost, 0)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(wrongUserHost, 10));
+
+        // Codex #3B: Valid snapshot exists, but after restore system HOME still points to Marco OR another 3rd-party launcher ->
+        // MUST report failure AND KEEP snapshot!
+        MainActivity stuckHomeHost = freshEnv();
+        stuckHomeHost.pm.homes.clear();
+        ResolveInfo stuckOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        stuckHomeHost.pm.homes.add(stuckOem);
+        stuckHomeHost.pm.homes.add(homeEntry("com.other.launcher", "com.other.launcher.Home", true, true, true, false));
+        stuckHomeHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        stuckHomeHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+        stuckHomeHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        SystemIntegration.saveOemExperimentSnapshot(stuckHomeHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        HomeShellSetup stuckShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm default-state --user 0 'com.oem.tvhome'")) {
+                stuckOem.activityInfo.applicationInfo.enabled = true;
+                stuckHomeHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+            }
+            // Deliberately keep currentHome unchanged (Marco, then other 3rd-party)!
+            return "";
+        }, 0);
+        stuckShell.authenticate();
+        String stuckMarcoRes = SystemIntegration.executeOemExperimentRestore(stuckHomeHost, stuckShell, 0);
+        check("codex_3b_restore_stuck_on_marco_fails_and_keeps_snapshot",
+                stuckMarcoRes.contains("未通过核验")
+                && stuckMarcoRes.contains("快照仍保留")
+                && SystemIntegration.hasValidOemExperimentSnapshot(stuckHomeHost, 0));
+        stuckHomeHost.pm.currentHome = "com.other.launcher/com.other.launcher.Home";
+        String stuckOtherRes = SystemIntegration.executeOemExperimentRestore(stuckHomeHost, stuckShell, 0);
+        check("codex_3b_restore_stuck_on_third_party_fails_and_keeps_snapshot",
+                stuckOtherRes.contains("未通过核验")
+                && SystemIntegration.hasValidOemExperimentSnapshot(stuckHomeHost, 0));
+        // Even if currentHome matches priorHome, wrong package enabled state (ENABLED=1 instead of DEFAULT=0) fails & keeps snapshot!
+        stuckHomeHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        stuckHomeHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_ENABLED);
+        HomeShellSetup wrongStateShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            return "";
+        }, 0);
+        wrongStateShell.authenticate();
+        String wrongStateRes = SystemIntegration.executeOemExperimentRestore(stuckHomeHost, wrongStateShell, 0);
+        check("codex_3b_restore_mismatched_prior_state_fails_and_keeps_snapshot",
+                wrongStateRes.contains("未通过核验")
+                && SystemIntegration.hasValidOemExperimentSnapshot(stuckHomeHost, 0));
+
+        // Codex #3D: LocalHomeAuthorizer runs ALL ADB shell I/O OFF main thread (slow response + mid-flight cancel)!
+        final Thread testMainThread = Thread.currentThread();
+        MainActivity slowHost = freshEnv();
+        slowHost.pm.homes.clear();
+        ResolveInfo slowOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        slowHost.pm.homes.add(slowOem);
+        slowHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+        slowHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        SystemIntegration.saveOemExperimentSnapshot(slowHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final boolean[] sawMainThreadInShell = {false};
+        final CountDownLatch slowDone = new CountDownLatch(1);
+        final String[] slowOutcome = {null};
+        LocalHomeAuthorizer slowAuth = new LocalHomeAuthorizer(slowHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                if (Handler.inMainPost.get() || Thread.currentThread() == testMainThread) sawMainThreadInShell[0] = true;
+                HomeShellSetup s = new HomeShellSetup(cmd -> {
+                    if (Handler.inMainPost.get() || Thread.currentThread() == testMainThread) sawMainThreadInShell[0] = true;
+                    if ("id -u".equals(cmd)) return "2000";
+                    if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                    Thread.sleep(120); // simulate slow ADB shell response
+                    if (cmd.contains("pm default-state --user 0 'com.oem.tvhome'")) {
+                        slowOem.activityInfo.applicationInfo.enabled = true;
+                        slowHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                    }
+                    if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                        slowHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                    }
+                    return "";
+                }, userId);
+                s.authenticate();
+                return s;
+            }
+            @Override public void close() {}
+        }, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+        slowAuth.restoreOemExperiment(res -> { slowOutcome[0] = res; slowDone.countDown(); });
+        check("codex_3d_slow_oem_restore_runs_off_main_thread_and_succeeds",
+                slowDone.await(5, TimeUnit.SECONDS)
+                && !sawMainThreadInShell[0]
+                && slowOutcome[0] != null && slowOutcome[0].contains("已按快照恢复原厂桌面")
+                && !SystemIntegration.hasValidOemExperimentSnapshot(slowHost, 0));
+
+        // Mid-flight cancellation during blocking ADB shell closes session, aborts remaining commands, keeps snapshot, suppresses callback!
+        MainActivity cancelHost = freshEnv();
+        SystemIntegration.saveOemExperimentSnapshot(cancelHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final CountDownLatch enteredShell = new CountDownLatch(1);
+        final CountDownLatch closedLatch = new CountDownLatch(1);
+        final AtomicInteger selectHomeCalls = new AtomicInteger();
+        final AtomicInteger cancelCallbacks = new AtomicInteger();
+        LocalHomeAuthorizer cancelAuth = new LocalHomeAuthorizer(cancelHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                HomeShellSetup s = new HomeShellSetup(cmd -> {
+                    if ("id -u".equals(cmd)) return "2000";
+                    if (cmd.contains("pm default-state")) {
+                        enteredShell.countDown();
+                        try { Thread.sleep(5000); } catch (InterruptedException ie) { throw new java.io.IOException("cancelled"); }
+                    }
+                    if (cmd.contains("set-home-activity")) selectHomeCalls.incrementAndGet();
+                    return "";
+                }, userId);
+                s.authenticate();
+                return s;
+            }
+            @Override public void close() { closedLatch.countDown(); }
+        }, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+        cancelAuth.restoreOemExperiment(res -> cancelCallbacks.incrementAndGet());
+        check("codex_3d_mid_flight_cancel_closes_session_keeps_snapshot_no_callback",
+                enteredShell.await(3, TimeUnit.SECONDS));
+        cancelAuth.cancel();
+        check("codex_3d_mid_flight_cancel_verified",
+                closedLatch.await(3, TimeUnit.SECONDS)
+                && selectHomeCalls.get() == 0
+                && cancelCallbacks.get() == 0
+                && SystemIntegration.hasValidOemExperimentSnapshot(cancelHost, 0));
+
+        // Codex #4A: Previously selected KEY_FILTER or NATIVE_KEYS_ONLY -> native HOME setup fails ->
+        // clicking "改用 Home 兼容（无需调试）" switches runtime mode to WINDOW_PULLBACK while preserving NATIVE_HOME choice!
+        for (HomeSetupPolicy.GuardMode prior : new HomeSetupPolicy.GuardMode[]{
+                HomeSetupPolicy.GuardMode.KEY_FILTER, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY}) {
+            MainActivity modeSwitchHost = freshEnv();
+            Build.VERSION.SDK_INT = 29;
+            modeSwitchHost.roleAvailable = true;
+            modeSwitchHost.secureAuthorized = true;
+            SystemIntegration.setGuardMode(modeSwitchHost, prior);
+            modeSwitchHost.defaultHome.show();
+            modeSwitchHost.dialogs.active().clickItem(1); // "系统默认桌面"
+            modeSwitchHost.defaultHome.onPickerResult(Activity.RESULT_CANCELED);
+            modeSwitchHost.defaultHome.resumed();
+            check("codex_4a_picker_failed_page_open_" + prior.name(),
+                    modeSwitchHost.isPage("home_picker_next"));
+            modeSwitchHost.dialogs.active().clickItem(0); // "改用 Home 兼容（无需调试）"
+            modeSwitchHost.dialogs.active().clickPositive(); // confirm compat consent
+            HomeKeyService.simulateConnect(modeSwitchHost);
+            HomeSetupPolicy.DesktopState switchedState = SystemIntegration.desktopState(modeSwitchHost);
+            check("codex_4a_compat_fallback_enters_window_pullback_from_" + prior.name(),
+                    modeSwitchHost.sysPrefs.getBoolean("home_compat", false)
+                    && SystemIntegration.guardMode(modeSwitchHost) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                    && SystemIntegration.desktopChoice(modeSwitchHost) == HomeSetupPolicy.DesktopChoice.NATIVE_HOME
+                    && !HomeKeyService.runtimeKeyFilterRequested
+                    && switchedState.effectiveModeLabel.contains("窗口回拉")
+                    && HomeSetupPolicy.shouldInterceptHomeCompat(true, false, false, SystemIntegration.guardMode(modeSwitchHost)));
+        }
+        // Explicit "快速 Home" entry still activates KEY_FILTER!
+        MainActivity fastExplicit = freshEnv();
+        fastExplicit.secureAuthorized = true;
+        fastExplicit.defaultHome.show();
+        fastExplicit.dialogs.active().clickItem(3); // "快速 Home"
+        fastExplicit.dialogs.active().clickItem(0); // "启用快速 Home"
+        fastExplicit.dialogs.active().clickPositive(); // confirm compat consent
+        check("codex_4a_explicit_fast_home_still_activates_key_filter",
+                fastExplicit.sysPrefs.getBoolean("home_compat", false)
+                && SystemIntegration.guardMode(fastExplicit) == HomeSetupPolicy.GuardMode.KEY_FILTER);
+
+        // Codex #4B: Native HOME is ALREADY Marco + user pauses guard ->
+        // DefaultHomePanel & desktopState STILL display system HOME = Marco TV (and guard paused), NOT OEM launcher!
+        MainActivity nativePausedHost = freshEnv();
+        nativePausedHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+        HomeSetup.pause(nativePausedHost, "你已暂停自动恢复。");
+        HomeSetupPolicy.DesktopState npState = SystemIntegration.desktopState(nativePausedHost);
+        nativePausedHost.defaultHome.show();
+        check("codex_4b_native_marco_paused_displays_system_default_marco",
+                npState.effectiveModeLabel.contains("系统默认桌面")
+                && npState.effectiveModeLabel.contains("Marco TV")
+                && npState.effectiveModeLabel.contains("已暂停")
+                && !npState.effectiveModeLabel.contains("原厂桌面")
+                && nativePausedHost.dialogs.active().message.contains("系统默认桌面")
+                && nativePausedHost.dialogs.active().items[1].contains("✓"));
+
+        // =========================================================================
+        // Codex 82c1c8d Rework Regressions:
+        // =========================================================================
+        // 3C. No-picker -> LocalHomeAuthorizer auto-setup -> OEM keeps HOME ->
+        // switches prior KEY_FILTER AND prior NATIVE_KEYS_ONLY to WINDOW_PULLBACK while preserving NATIVE_HOME choice!
+        for (HomeSetupPolicy.GuardMode prior : new HomeSetupPolicy.GuardMode[]{
+                HomeSetupPolicy.GuardMode.KEY_FILTER, HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY}) {
+            MainActivity autoFbHost = freshEnv();
+            autoFbHost.roleAvailable = false;
+            autoFbHost.pm.actions.remove(Settings.ACTION_HOME_SETTINGS);
+            autoFbHost.pm.actions.remove(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            autoFbHost.secureAuthorized = true;
+            LocalAdbWire.selectSucceeds = false;
+            SystemIntegration.setGuardMode(autoFbHost, prior);
+            autoFbHost.dialogs.armResultLatch();
+            autoFbHost.defaultHome.show();
+            autoFbHost.dialogs.active().clickItem(1); // "系统默认桌面" -> no picker -> home_local_consent
+            check("codex82_3c_no_picker_enters_local_consent_" + prior.name(),
+                    autoFbHost.isPage("home_local_consent"));
+            autoFbHost.dialogs.active().clickPositive();
+            check("codex82_3c_auto_setup_completes_" + prior.name(), autoFbHost.dialogs.awaitResult());
+            HomeKeyService.simulateConnect(autoFbHost);
+            HomeSetupPolicy.DesktopState afterAutoFb = SystemIntegration.desktopState(autoFbHost);
+            check("codex82_3c_no_picker_auto_setup_fail_enters_window_pullback_from_" + prior.name(),
+                    autoFbHost.sysPrefs.getBoolean("home_compat", false)
+                    && SystemIntegration.desktopChoice(autoFbHost) == HomeSetupPolicy.DesktopChoice.NATIVE_HOME
+                    && SystemIntegration.guardMode(autoFbHost) == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK
+                    && !HomeKeyService.runtimeKeyFilterRequested
+                    && afterAutoFb.effectiveModeLabel.contains("窗口回拉")
+                    && HomeSetupPolicy.shouldInterceptHomeCompat(true, false, false, SystemIntegration.guardMode(autoFbHost)));
+        }
+
+        // Bonus UI: Open DefaultHomePanel live-refreshes BOTH message AND item labels when TaskBridge disconnects!
+        TaskBridgeClient.resetForTest();
+        MainActivity livePanelHost = freshEnv();
+        livePanelHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        setService(true, true);
+        SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+        HomeKeyService.simulateConnect(livePanelHost);
+        final String[] liveReply = {
+                "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":true,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"ready\"}"
+        };
+        IBinder liveBridge = new IBinder() {
+            @Override public boolean isBinderAlive() { return true; }
+            @Override public void linkToDeath(DeathRecipient r, int flags) { }
+            @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                data.readInterfaceToken();
+                data.readString();
+                reply.writeNoException();
+                reply.writeString(liveReply[0]);
+                return true;
+            }
+        };
+        TaskBridgeClient.attach(livePanelHost, liveBridge);
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog openPanel = livePanelHost.dialogs.active();
+        boolean beforeDropShowedBridge = openPanel.items[3].contains("任务桥辅助") && openPanel.message.contains("任务桥");
+        // Now push bridge drop / device disconnect while dialog remains open!
+        TaskBridgeClient.onServerStateChanged(livePanelHost, new JSONObject(
+                "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}"));
+        // e33d5ae P3: Already in KEY_FILTER + connected bridge + 0 volume input devices (both Standard & Restricted)
+        // MUST NOT claim "当前窗口模式" or "切换快速 Home 后验证"!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog fastNoInputStd = livePanelHost.dialogs.active();
+        String stdBridgeLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+        fastNoInputStd.clickItem(3); // chooseFastHome confirm page while ALREADY in KEY_FILTER
+        String stdFastGuide = livePanelHost.dialogs.active().message;
+        BuildEdition.RESTRICTED = true;
+        String restrictedBridgeLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+        livePanelHost.defaultHome.show();
+        livePanelHost.dialogs.active().clickItem(3);
+        String restrictedFastGuide = livePanelHost.dialogs.active().message;
+        BuildEdition.RESTRICTED = false;
+        check("e33d5ae_p3_fast_home_connected_zero_inputs_copy_accurate_for_standard_and_restricted",
+                stdBridgeLabel.contains("未检测到可用音量输入源")
+                && !stdBridgeLabel.contains("切换快速 Home 后验证")
+                && stdFastGuide.contains("未检测到可用的音量键输入源")
+                && stdFastGuide.contains("先点一下音量，松手后再长按")
+                && !stdFastGuide.contains("当前窗口模式")
+                && restrictedBridgeLabel.contains("未检测到可用音量输入源")
+                && !restrictedBridgeLabel.contains("切换快速 Home 后验证")
+                && restrictedFastGuide.contains("未检测到可用的音量键输入源")
+                && !restrictedFastGuide.contains("当前窗口模式"));
+
+        // 1383c3e P3: Bridge reports audio read failure (audio_read_unavailable with 1 remote input, OR audio_unavailable with 0 inputs) ->
+        // BOTH Standard & Restricted MUST display "系统音量读取受限" and no-bridge usage, NEVER blame remote / missing input!
+        // Only genuine no_volume_input_device (audioReady=true, inputs=0) prompts checking the remote.
+        for (boolean restricted : new boolean[]{false, true}) {
+            BuildEdition.RESTRICTED = restricted;
+            String tag = restricted ? "restricted" : "standard";
+            // Case A: audio_read_unavailable with 1 recognized remote input
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":1,\"volumeAssistReason\":\"audio_read_unavailable\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String readFailLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            TvDialog readFailDh = livePanelHost.dialogs.active();
+            String readFailDhMsg = readFailDh.message;
+            String readFailDhItem = readFailDh.items[3];
+            readFailDh.clickItem(3);
+            String readFailGuide = livePanelHost.dialogs.active().message;
+            SystemIntegration.homeGestures(livePanelHost, livePanelHost.dialogs::show);
+            TvDialog readFailHg = livePanelHost.dialogs.active();
+            String readFailHgMsg = readFailHg.message;
+            String readFailHgItem = readFailHg.items[2];
+            check("1383c3e_p3_audio_read_unavailable_copy_" + tag,
+                    readFailLabel.contains("系统音量读取受限")
+                    && !readFailLabel.contains("未检测到可用音量输入源")
+                    && readFailDhMsg.contains("系统音量读取受限")
+                    && readFailDhItem.contains("系统音量读取受限")
+                    && readFailGuide.contains("系统音量读取受限")
+                    && readFailGuide.contains("先点一下音量，松手后再长按")
+                    && !readFailGuide.contains("未检测到可用的音量键输入源")
+                    && !readFailGuide.contains("检查蓝牙遥控器")
+                    && readFailHgMsg.contains("系统音量读取受限")
+                    && readFailHgItem.contains("系统音量读取受限"));
+            // Case B: audio_unavailable with 0 inputs
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":false,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"audio_unavailable\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String audioUnavailLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            livePanelHost.dialogs.active().clickItem(3);
+            String audioUnavailGuide = livePanelHost.dialogs.active().message;
+            check("1383c3e_p3_audio_unavailable_copy_" + tag,
+                    audioUnavailLabel.contains("系统音量读取受限")
+                    && !audioUnavailLabel.contains("未检测到可用音量输入源")
+                    && audioUnavailGuide.contains("系统音量读取受限")
+                    && !audioUnavailGuide.contains("检查蓝牙遥控器"));
+            // Case C: genuine no_volume_input_device (audioReady=true, inputs=0) DOES prompt checking remote
+            liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":true,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeAudioWriteFailed\":false,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"no_volume_input_device\"}";
+            TaskBridgeClient.configure(livePanelHost);
+            String noInputLabel = SystemIntegration.bridgeStatusLabel(livePanelHost);
+            livePanelHost.defaultHome.show();
+            livePanelHost.dialogs.active().clickItem(3);
+            String noInputGuide = livePanelHost.dialogs.active().message;
+            check("1383c3e_p3_genuine_no_input_prompts_remote_" + tag,
+                    noInputLabel.contains("未检测到可用音量输入源")
+                    && !noInputLabel.contains("系统音量读取受限")
+                    && noInputGuide.contains("检查蓝牙遥控器")
+                    && !noInputGuide.contains("系统音量读取受限"));
+        }
+        BuildEdition.RESTRICTED = false;
+        // Open DefaultHomePanel with TaskBridge ready in WINDOW_PULLBACK -> recommends 快速 Home + notes window flash!
+        check("codex82_ui_open_default_home_panel_updates_items_and_message_on_bridge_drop",
+                beforeDropShowedBridge
+                && openPanel.items[3].contains("无桥让渡")
+                && !openPanel.items[3].contains("任务桥辅助")
+                && openPanel.message.contains("先点一下音量，松手后再长按"));
+        // Verify dynamic recommendation shifts to 快速 Home when TaskBridge audio+input is ready in WINDOW_PULLBACK!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":2,\"volumeAssistReason\":\"disabled\"}";
+        SystemIntegration.setGuardMode(livePanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        drainBridgeSync();
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog recDlg = livePanelHost.dialogs.active();
+        check("ux_bridge_ready_recommends_fast_home_and_notes_window_flash",
+                recDlg.items[2].contains("部分固件可能短暂闪过原厂桌面")
+                && recDlg.items[3].contains("推荐")
+                && recDlg.message.contains("快速 Home ＋ 任务桥")
+                && !recDlg.items[3].contains("不闪原厂桌面")
+                && !recDlg.message.contains("不闪原厂桌面"));
+        // f0983a3 P2 #4: Window mode + connected v3 TaskBridge (volumeInputDeviceCount == 0 because window mode
+        // does not open input readers) MUST display "任务桥已连接，切换快速 Home 后验证音量辅助" and NEVER "当前未连接任务桥"!
+        liveReply[0] = "{\"ok\":true,\"volumeProtocolVersion\":3,\"volumeAssist\":false,\"volumeAssistActive\":false,\"volumeAudioReady\":true,\"volumeInputDeviceCount\":0,\"volumeAssistReason\":\"disabled\"}";
+        TaskBridgeClient.configure(livePanelHost);
+        livePanelHost.defaultHome.show();
+        TvDialog winConnDlg = livePanelHost.dialogs.active();
+        String winConnMsg = winConnDlg.message;
+        String winConnFastItem = winConnDlg.items[3];
+        winConnDlg.clickItem(3); // open chooseFastHome confirm page
+        TvDialog fastConfirmDlg = livePanelHost.dialogs.active();
+        String fastConfirmMsg = fastConfirmDlg.message;
+        SystemIntegration.homeGestures(livePanelHost, livePanelHost.dialogs::show);
+        TvDialog gestConnDlg = livePanelHost.dialogs.active();
+        String gestConnMsg = gestConnDlg.message;
+        String gestConnFastItem = gestConnDlg.items[2];
+        check("f0983a3_p2_window_mode_connected_bridge_zero_readers_copy_truthful",
+                winConnMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && winConnFastItem.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && fastConfirmMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && !fastConfirmMsg.contains("当前未连接任务桥")
+                && !fastConfirmMsg.contains("不闪原厂桌面")
+                && !fastConfirmMsg.contains("避免闪出原厂桌面")
+                && gestConnMsg.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && gestConnFastItem.contains("任务桥已连接，切换快速 Home 后验证音量辅助")
+                && !gestConnMsg.contains("不闪原厂桌面"));
+        TaskBridgeClient.resetForTest();
+
+        // f0983a3 P2 #2 [StuckActionProbe]: BOTH DefaultHomePanel AND SystemIntegration.homeGestures MUST:
+        // 1) Keep dialog open -> anomaly starts -> dynamically ADD release button (6->7 / 8->9)
+        // 2) Keep dialog open -> anomaly self-recovers -> dynamically REMOVE release button (7->6 / 9->8)
+        // 3) Clicking stale release action after self-recovery -> ZERO writes (guard, service, boot_home stay ON)!
+        MainActivity probeHost = freshEnv();
+        probeHost.secureAuthorized = true;
+        probeHost.sysPrefs.edit().putBoolean("home_compat", true).putBoolean("boot_home", true).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                "com.xiaomi.voicecontrol/.VoiceAccessibilityService:" + HomeSetup.SERVICE);
+        SystemIntegration.setGuardMode(probeHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        HomeKeyService.connected = true;
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        probeHost.defaultHome.show();
+        TvDialog dhLive = probeHost.dialogs.active();
+        int dhInitialRows = dhLive.items.length;
+        // Become stuck WITHOUT closing dialog!
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        int dhStuckRows = dhLive.items.length;
+        boolean dhStuckWarn = dhLive.message.contains("过滤位仍开启") && dhLive.items[6].contains("仅关闭 Marco 辅助服务");
+        // Self-recover WITHOUT closing dialog!
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        int dhRecoveredRows = dhLive.items.length;
+        boolean dhRecoveredNoWarn = !dhLive.message.contains("过滤位仍开启");
+        // Simulate clicking stale release index 6 after self-recovery!
+        dhLive.clickItem(6);
+        boolean dhPreservedAll = !HomeSetup.paused(probeHost)
+                && probeHost.sysPrefs.getBoolean("home_compat", false)
+                && probeHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(probeHost);
+        check("f0983a3_p2_default_home_panel_live_add_remove_and_stale_release_noop",
+                dhInitialRows == 6 && dhStuckRows == 7 && dhStuckWarn
+                && dhRecoveredRows == 6 && dhRecoveredNoWarn && dhPreservedAll);
+
+        // Repeat exact same lifecycle for SystemIntegration.homeGestures (8 -> 9 -> 8 -> stale click 8)!
+        SystemIntegration.homeGestures(probeHost, probeHost.dialogs::show);
+        TvDialog hgLive = probeHost.dialogs.active();
+        int hgInitialRows = hgLive.items.length;
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        int hgStuckRows = hgLive.items.length;
+        boolean hgStuckWarn = hgLive.message.contains("过滤位仍开启") && hgLive.items[8].contains("仅关闭 Marco 辅助服务");
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        int hgRecoveredRows = hgLive.items.length;
+        boolean hgRecoveredNoWarn = !hgLive.message.contains("过滤位仍开启");
+        hgLive.clickItem(8);
+        boolean hgPreservedAll = !HomeSetup.paused(probeHost)
+                && probeHost.sysPrefs.getBoolean("home_compat", false)
+                && probeHost.sysPrefs.getBoolean("boot_home", false)
+                && HomeSetup.serviceEnabled(probeHost);
+        check("f0983a3_p2_home_gestures_live_add_remove_and_stale_release_noop",
+                hgInitialRows == 8 && hgStuckRows == 9 && hgStuckWarn
+                && hgRecoveredRows == 8 && hgRecoveredNoWarn && hgPreservedAll);
+        probeHost.closeMenus();
+
+        // e33d5ae P2 #4: Anomaly appearing OR clearing WHILE user is on a child dialog MUST immediately
+        // refresh parent rows, message, and focus when Back returns to the reused parent dialog!
+        probeHost.defaultHome.show();
+        TvDialog dhParent = probeHost.dialogs.active();
+        check("e33d5ae_p2_dh_parent_initial_6_rows", dhParent.items.length == 6);
+        dhParent.clickItem(3); // open child page (home_fast_mode_confirm); dhParent is now hidden underneath
+        HomeKeyService.runtimeKeyFilterRequested = true; // anomaly happens while child is visible!
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back(); // Back reuses dhParent!
+        boolean dhAddedOnReturn = probeHost.dialogs.active() == dhParent
+                && dhParent.items.length == 7
+                && dhParent.message.contains("过滤位仍开启")
+                && dhParent.items[6].contains("仅关闭 Marco 辅助服务");
+        dhParent.clickItem(3); // open child again
+        HomeKeyService.runtimeKeyFilterRequested = false; // anomaly clears while child is visible!
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back(); // Back reuses dhParent!
+        boolean dhRemovedOnReturn = probeHost.dialogs.active() == dhParent
+                && dhParent.items.length == 6
+                && !dhParent.message.contains("过滤位仍开启");
+        check("e33d5ae_p2_default_home_parent_refreshes_on_back_from_child",
+                dhAddedOnReturn && dhRemovedOnReturn);
+        probeHost.closeMenus();
+
+        SystemIntegration.homeGestures(probeHost, probeHost.dialogs::show);
+        TvDialog hgParent = probeHost.dialogs.active();
+        check("e33d5ae_p2_hg_parent_initial_8_rows", hgParent.items.length == 8);
+        probeHost.dialogs.show(new TvDialog.Builder(probeHost).setPageId("child_sub").setTitle("子页").create());
+        HomeKeyService.runtimeKeyFilterRequested = true;
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back();
+        boolean hgAddedOnReturn = probeHost.dialogs.active() == hgParent
+                && hgParent.items.length == 9
+                && hgParent.message.contains("过滤位仍开启")
+                && hgParent.items[8].contains("仅关闭 Marco 辅助服务");
+        probeHost.dialogs.show(new TvDialog.Builder(probeHost).setPageId("child_sub2").setTitle("子页2").create());
+        HomeKeyService.runtimeKeyFilterRequested = false;
+        TaskBridgeClient.notifyStateChanged();
+        probeHost.dialogs.back();
+        boolean hgRemovedOnReturn = probeHost.dialogs.active() == hgParent
+                && hgParent.items.length == 8
+                && !hgParent.message.contains("过滤位仍开启");
+        check("e33d5ae_p2_home_gestures_parent_refreshes_on_back_from_child",
+                hgAddedOnReturn && hgRemovedOnReturn);
+        probeHost.closeMenus();
+
+        // e33d5ae P2 #2 (UI entries): Clicking "启用快速 Home" in DefaultHomePanel OR "快速 Home" in
+        // SystemIntegration.homeGestures DURING 5s yield retains pending retry and recovers after yield expires!
+        for (int entry = 0; entry < 2; entry++) {
+            TaskBridgeClient.resetForTest();
+            MainActivity uiRetryHost = freshEnv();
+            uiRetryHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(uiRetryHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(uiRetryHost);
+            final boolean[] uiWriteFailed = {true};
+            final boolean[] uiAssistCfg = {false};
+            final AtomicInteger uiRetryCount = new AtomicInteger();
+            IBinder uiRetryBridge = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("configure".equals(act)) {
+                            boolean next = req.optBoolean("volumeAssist", false);
+                            boolean retry = req.optBoolean("retryVolumeAssist", false);
+                            uiAssistCfg[0] = next;
+                            if (next && retry) {
+                                uiRetryCount.incrementAndGet();
+                                uiWriteFailed[0] = false;
+                            }
+                        } else if ("status".equals(act)) {
+                            boolean active = uiAssistCfg[0] && !uiWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3)
+                                    .put("volumeAssist", uiAssistCfg[0])
+                                    .put("volumeAssistActive", active)
+                                    .put("volumeAudioReady", !uiWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", uiWriteFailed[0])
+                                    .put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 2 : 0)
+                                    .put("volumeAssistReason", !uiAssistCfg[0] ? "disabled" : (uiWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(uiRetryHost, uiRetryBridge);
+            TaskBridgeClient.configure(uiRetryHost);
+            // Enter 5s yield state
+            HomeKeyService.runtimeVolumeYieldActive = true;
+            HomeKeyService.runtimeKeyFilterRequested = false;
+            TaskBridgeClient.configure(uiRetryHost);
+            // User explicitly clicks retry via entry 0 (DefaultHomePanel) or entry 1 (homeGestures) DURING 5s yield!
+            if (entry == 0) {
+                uiRetryHost.defaultHome.show();
+                uiRetryHost.dialogs.active().clickItem(3); // 快速 Home
+                uiRetryHost.dialogs.active().clickItem(0); // 启用快速 Home
+            } else {
+                SystemIntegration.homeGestures(uiRetryHost, uiRetryHost.dialogs::show);
+                uiRetryHost.dialogs.active().clickItem(2); // 快速 Home
+            }
+            drainBridgeSync();
+            // Now 5s yield ends -> passive sync fires deferred one-shot retry and recovers!
+            HomeKeyService.runtimeVolumeYieldActive = false;
+            HomeKeyService.runtimeKeyFilterRequested = true;
+            TaskBridgeClient.sync(uiRetryHost);
+            drainBridgeSync();
+            check("e33d5ae_p2_ui_entry_" + entry + "_retry_during_yield_recovers_after_yield_expiry",
+                    uiRetryCount.get() == 1 && !uiWriteFailed[0] && TaskBridgeClient.volumeAssistActive());
+            uiRetryHost.closeMenus();
+        }
+
+        // =========================================================================
+        // 1383c3e P2: Strict single-shot retry token across BOTH production UI call sequences:
+        // (1) Normal UI clicks with 2ms status latency (10x per entry = 20 clicks) -> EXACTLY 1 retry each!
+        // (2) Yield click with backlogged worker crossing expiry -> EXACTLY 1 retry total!
+        // (3) Peer swap during preStatus AND right after configure -> old peer <=1, NEW peer ALWAYS 0!
+        // (4) No-click control -> 0 retries, write failure preserved!
+        // =========================================================================
+        for (int entry = 0; entry < 2; entry++) {
+            TaskBridgeClient.resetForTest();
+            MainActivity sHost = freshEnv();
+            sHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(sHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(sHost);
+            final AtomicInteger clickRetries = new AtomicInteger();
+            final boolean[] sWriteFailed = {true};
+            final boolean[] sAssist = {false};
+            IBinder slowStatusV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("status".equals(act)) {
+                            Thread.sleep(2); // matches Codex's 2ms status probe
+                            boolean active = sAssist[0] && !sWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3).put("volumeAssist", sAssist[0])
+                                    .put("volumeAssistActive", active).put("volumeAudioReady", !sWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", sWriteFailed[0]).put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 1 : 0)
+                                    .put("volumeAssistReason", !sAssist[0] ? "disabled" : (sWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        } else if ("configure".equals(act)) {
+                            sAssist[0] = req.optBoolean("volumeAssist", false);
+                            if (req.optBoolean("retryVolumeAssist", false)) {
+                                clickRetries.incrementAndGet();
+                                sWriteFailed[0] = false;
+                            }
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(sHost, slowStatusV3);
+            TaskBridgeClient.configure(sHost);
+            boolean allExactOne = true;
+            for (int c = 0; c < 10; c++) {
+                sWriteFailed[0] = true;
+                clickRetries.set(0);
+                if (entry == 0) {
+                    sHost.defaultHome.show();
+                    sHost.dialogs.active().clickItem(3);
+                    sHost.dialogs.active().clickItem(0);
+                } else {
+                    SystemIntegration.homeGestures(sHost, sHost.dialogs::show);
+                    sHost.dialogs.active().clickItem(2);
+                }
+                drainBridgeSync();
+                if (clickRetries.get() != 1) allExactOne = false;
+                sHost.closeMenus();
+            }
+            check("1383c3e_p2_normal_click_10x_single_retry_entry_" + entry, allExactOne);
+        }
+
+        // Backlogged worker queue crossing 5s yield expiry -> EXACTLY 1 retry!
+        {
+            TaskBridgeClient.resetForTest();
+            MainActivity blHost = freshEnv();
+            blHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(blHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(blHost);
+            final AtomicInteger blRetries = new AtomicInteger();
+            final CountDownLatch blEntered = new CountDownLatch(1);
+            final CountDownLatch blRelease = new CountDownLatch(1);
+            final boolean[] blBlockNextStatus = {false};
+            final boolean[] blWriteFailed = {true};
+            final boolean[] blAssist = {false};
+            IBinder blBridge = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        JSONObject ans = new JSONObject().put("ok", true);
+                        if ("status".equals(act)) {
+                            if (blBlockNextStatus[0]) {
+                                blBlockNextStatus[0] = false;
+                                blEntered.countDown();
+                                blRelease.await(5, TimeUnit.SECONDS);
+                            }
+                            boolean active = blAssist[0] && !blWriteFailed[0];
+                            ans.put("volumeProtocolVersion", 3).put("volumeAssist", blAssist[0])
+                                    .put("volumeAssistActive", active).put("volumeAudioReady", !blWriteFailed[0])
+                                    .put("volumeAudioWriteFailed", blWriteFailed[0]).put("volumeInputReady", active)
+                                    .put("volumeInputDeviceCount", active ? 1 : 0)
+                                    .put("volumeAssistReason", !blAssist[0] ? "disabled" : (blWriteFailed[0] ? "audio_adjust_failed" : "ready"));
+                        } else if ("configure".equals(act)) {
+                            blAssist[0] = req.optBoolean("volumeAssist", false);
+                            if (req.optBoolean("retryVolumeAssist", false)) {
+                                blRetries.incrementAndGet();
+                                blWriteFailed[0] = false;
+                            }
+                        }
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(blHost, blBridge);
+            TaskBridgeClient.configure(blHost);
+            // Enter yield, start a blocked worker sync so click tasks queue up behind it, then expire yield BEFORE releasing!
+            HomeKeyService.runtimeVolumeYieldActive = true;
+            HomeKeyService.runtimeKeyFilterRequested = false;
+            blBlockNextStatus[0] = true;
+            TaskBridgeClient.sync(blHost);
+            check("1383c3e_p2_backlog_worker_entered", blEntered.await(3, TimeUnit.SECONDS));
+            // Production UI call order during yield while worker is backlogged:
+            blHost.defaultHome.show();
+            blHost.dialogs.active().clickItem(3);
+            blHost.dialogs.active().clickItem(0); // calls setGuardMode(KEY_FILTER) + retryVolumeAssist()
+            // Yield expires BEFORE queued click tasks run!
+            HomeKeyService.runtimeVolumeYieldActive = false;
+            HomeKeyService.runtimeKeyFilterRequested = true;
+            TaskBridgeClient.sync(blHost);
+            blRelease.countDown();
+            drainBridgeSync();
+            check("1383c3e_p2_backlog_crossing_yield_expiry_sends_exactly_one_retry",
+                    blRetries.get() == 1 && !blWriteFailed[0] && TaskBridgeClient.volumeAssistActive());
+            blHost.closeMenus();
+        }
+
+        // Peer swap (v3 first -> v3 second) during preStatus AND right after configure send:
+        // original peer receives <=1 retry, NEW peer receives ZERO retries!
+        for (final boolean swapAfterSend : new boolean[]{false, true}) {
+            TaskBridgeClient.resetForTest();
+            MainActivity swHost = freshEnv();
+            swHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+            setService(true, true);
+            SystemIntegration.setGuardMode(swHost, HomeSetupPolicy.GuardMode.KEY_FILTER);
+            HomeKeyService.simulateConnect(swHost);
+            final AtomicInteger firstRetries = new AtomicInteger();
+            final AtomicInteger secondRetries = new AtomicInteger();
+            final IBinder secondV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        if ("configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                            secondRetries.incrementAndGet();
+                        }
+                        JSONObject ans = new JSONObject().put("ok", true)
+                                .put("volumeProtocolVersion", 3).put("volumeAssist", true)
+                                .put("volumeAssistActive", false).put("volumeAudioReady", false)
+                                .put("volumeAudioWriteFailed", true).put("volumeInputDeviceCount", 0)
+                                .put("volumeAssistReason", "audio_adjust_failed");
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            final boolean[] armedSwap = {false};
+            final boolean[] didSwap = {false};
+            final IBinder firstV3 = new IBinder() {
+                @Override public boolean isBinderAlive() { return true; }
+                @Override public void linkToDeath(DeathRecipient r, int flags) { }
+                @Override public boolean transact(int code, Parcel data, Parcel reply, int flags) {
+                    data.readInterfaceToken();
+                    try {
+                        JSONObject req = new JSONObject(data.readString());
+                        String act = req.optString("action");
+                        if ("configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                            firstRetries.incrementAndGet();
+                        }
+                        if (armedSwap[0] && !didSwap[0]) {
+                            if (!swapAfterSend && "status".equals(act)) {
+                                didSwap[0] = true;
+                                TaskBridgeClient.attach(swHost, secondV3);
+                            } else if (swapAfterSend && "configure".equals(act) && req.optBoolean("retryVolumeAssist", false)) {
+                                didSwap[0] = true;
+                                TaskBridgeClient.attach(swHost, secondV3);
+                            }
+                        }
+                        JSONObject ans = new JSONObject().put("ok", true)
+                                .put("volumeProtocolVersion", 3).put("volumeAssist", true)
+                                .put("volumeAssistActive", false).put("volumeAudioReady", false)
+                                .put("volumeAudioWriteFailed", true).put("volumeInputDeviceCount", 0)
+                                .put("volumeAssistReason", "audio_adjust_failed");
+                        reply.writeNoException();
+                        reply.writeString(ans.toString());
+                        return true;
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }
+            };
+            TaskBridgeClient.attach(swHost, firstV3);
+            TaskBridgeClient.configure(swHost);
+            armedSwap[0] = true;
+            // Production UI call order:
+            swHost.defaultHome.show();
+            swHost.dialogs.active().clickItem(3);
+            swHost.dialogs.active().clickItem(0);
+            drainBridgeSync();
+            TaskBridgeClient.configure(swHost); // subsequent sync on new peer must also send 0 retries
+            check("1383c3e_p2_peer_swap_" + (swapAfterSend ? "post_send" : "pre_status") + "_new_peer_zero_retries",
+                    didSwap[0]
+                    && firstRetries.get() == (swapAfterSend ? 1 : 0)
+                    && secondRetries.get() == 0);
+            swHost.closeMenus();
+        }
+        TaskBridgeClient.resetForTest();
+
+        // 3B UI: When system refuses to revoke filter bit, DefaultHomePanel shows one-click release action
+        // that disables ONLY Marco's accessibility service while preserving XiaoAi!
+        MainActivity stuckPanelHost = freshEnv();
+        stuckPanelHost.secureAuthorized = true;
+        stuckPanelHost.sysPrefs.edit().putBoolean("home_compat", true).commit();
+        Settings.Secure.ints.put(Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        Settings.Secure.strings.put(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                "com.xiaomi.voicecontrol/.VoiceAccessibilityService:" + HomeSetup.SERVICE);
+        SystemIntegration.setGuardMode(stuckPanelHost, HomeSetupPolicy.GuardMode.WINDOW_PULLBACK);
+        HomeKeyService.connected = true;
+        HomeKeyService.runtimeKeyFilterRequested = true; // simulate system refused revoke!
+        stuckPanelHost.defaultHome.show();
+        TvDialog stuckDlg = stuckPanelHost.dialogs.active();
+        boolean hasReleaseItem = stuckDlg.items.length == 7 && stuckDlg.items[6].contains("仅关闭 Marco 辅助服务");
+        stuckDlg.clickItem(6);
+        String remainingSvcs = Settings.Secure.strings.get(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        check("codex82_3b_stuck_filter_release_button_removes_only_marco_preserves_xiaoai",
+                hasReleaseItem
+                && !HomeSetup.serviceEnabled(stuckPanelHost)
+                && remainingSvcs != null && remainingSvcs.contains("com.xiaomi.voicecontrol/.VoiceAccessibilityService")
+                && !remainingSvcs.contains("com.pilipala.tvhome")
+                && Settings.Secure.ints.get(Settings.Secure.ACCESSIBILITY_ENABLED) == 1);
+
+        // 4A. OEM pre-allowlist: getApplicationEnabledSetting throwing SecurityException MUST return UNKNOWN (-1),
+        // NEVER DEFAULT (0), so restore fails truthfully and preserves snapshot!
+        MainActivity readErrHost = freshEnv();
+        readErrHost.pm.homes.clear();
+        readErrHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        readErrHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        readErrHost.pm.throwOnAppEnabledState = true;
+        SystemIntegration.saveOemExperimentSnapshot(readErrHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        HomeShellSetup readErrShell = new HomeShellSetup(cmd -> "id -u".equals(cmd) ? "2000" : "", 0);
+        readErrShell.authenticate();
+        String readErrRes = SystemIntegration.executeOemExperimentRestore(readErrHost, readErrShell, 0);
+        check("codex82_4a_package_state_read_exception_never_treated_as_default",
+                SystemIntegration.readApplicationEnabledState(readErrHost, "com.oem.tvhome") == SystemIntegration.APPLICATION_ENABLED_STATE_UNKNOWN
+                && readErrRes.contains("未通过核验")
+                && SystemIntegration.hasValidOemExperimentSnapshot(readErrHost, 0));
+
+        // 4B. OEM pre-allowlist: Already restored externally -> LocalHomeAuthorizer.restoreOemExperiment()
+        // verifies locally and clears snapshot with ZERO ADB connects and ZERO shell writes!
+        MainActivity extRestoredHost = freshEnv();
+        extRestoredHost.pm.homes.clear();
+        extRestoredHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        extRestoredHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        extRestoredHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        SystemIntegration.saveOemExperimentSnapshot(extRestoredHost, 0, "com.oem.tvhome/com.oem.tvhome.Main",
+                "com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final AtomicInteger extConnects = new AtomicInteger();
+        final CountDownLatch extLatch = new CountDownLatch(1);
+        final String[] extOutcome = {null};
+        LocalHomeAuthorizer extAuth = new LocalHomeAuthorizer(extRestoredHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) { extConnects.incrementAndGet(); throw new AssertionError("must not connect ADB when already restored externally"); }
+            @Override public void close() {}
+        }, OemLauncherExperimentPolicy.VERIFIED_ALLOWLIST);
+        extAuth.restoreOemExperiment(res -> { extOutcome[0] = res; extLatch.countDown(); });
+        check("codex82_4b_external_restore_clears_snapshot_with_zero_adb_connects",
+                extLatch.await(5, TimeUnit.SECONDS)
+                && extConnects.get() == 0
+                && extOutcome[0] != null && extOutcome[0].contains("未执行 ADB 写入")
+                && !SystemIntegration.hasValidOemExperimentSnapshot(extRestoredHost, 0));
+
+        // 4C. OEM pre-allowlist: Disable command refused (HOME switches to Marco yet OEM package stays enabled) ->
+        // MUST fail verification and trigger rollback instead of reporting "已停用"!
+        MainActivity refDisHost = freshEnv();
+        refDisHost.pm.homes.clear();
+        ResolveInfo refOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        refDisHost.pm.homes.add(refOem);
+        refDisHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        refDisHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        refDisHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        HomeShellSetup refDisShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                // OEM stays enabled (command refused), even though HOME temporarily resolves to Marco!
+                refDisHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                return "SecurityException: Cannot disable protected package";
+            }
+            if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                refDisHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        refDisShell.authenticate();
+        String refDisRes = SystemIntegration.executeOemExperimentDisable(refDisHost, refDisShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, null);
+        check("codex82_4c_refused_disable_when_oem_still_enabled_fails_and_rolls_back",
+                !refDisRes.contains("已停用原厂桌面")
+                && refDisRes.contains("已自动恢复原厂桌面")
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(refDisHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(refDisHost, 0));
+
+        // 4D. OEM pre-allowlist: Unresolvable MainActivity -> canLaunchMarcoForeground returns false (no alias fallback!)
+        // and independent recovery check requires adb_enabled==1 or ACTION_SETTINGS (not WRITE_SECURE_SETTINGS alone)!
+        MainActivity fgFailHost = freshEnv();
+        fgFailHost.pm.homes.clear();
+        ResolveInfo fgOem = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        fgFailHost.pm.homes.add(fgOem);
+        fgFailHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        fgFailHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        fgFailHost.pm.failResolveMainActivity = true;
+        HomeShellSetup fgFailShell = new HomeShellSetup(cmd -> {
+            if ("id -u".equals(cmd)) return "2000";
+            if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+            if (cmd.contains("pm disable-user")) {
+                fgOem.activityInfo.applicationInfo.enabled = false;
+                fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                fgFailHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+            }
+            if (cmd.contains("pm default-state")) {
+                fgOem.activityInfo.applicationInfo.enabled = true;
+                fgFailHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+            }
+            if (cmd.contains("set-home-activity")) {
+                fgFailHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+            }
+            return "";
+        }, 0);
+        fgFailShell.authenticate();
+        String fgFailRes = SystemIntegration.executeOemExperimentDisable(fgFailHost, fgFailShell, 0, "TestVerifiedTV", "1.0.0", testAllowlist, null);
+        check("codex82_4d_unresolvable_main_activity_triggers_rollback_no_alias_fallback",
+                !SystemIntegration.canLaunchMarcoForeground(fgFailHost)
+                && fgFailRes.contains("已自动恢复原厂桌面")
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(fgFailHost.pm.currentHome));
+
+        MainActivity noIndepHost = freshEnv();
+        noIndepHost.secureAuthorized = true; // Marco's own WRITE_SECURE_SETTINGS does NOT count as independent recovery!
+        Settings.Global.ints.put("adb_enabled", 0);
+        noIndepHost.pm.actions.remove(Settings.ACTION_SETTINGS);
+        noIndepHost.pm.homes.clear();
+        noIndepHost.pm.homes.add(homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true));
+        noIndepHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        SystemIntegration.OemDisablePlan noIndepPlan = SystemIntegration.prepareOemExperimentDisable(
+                noIndepHost, 0, "TestVerifiedTV", "1.0.0", testAllowlist);
+        check("codex82_4d_independent_recovery_rejects_write_secure_settings_alone",
+                !SystemIntegration.hasIndependentRecoveryPath(noIndepHost)
+                && !noIndepPlan.allowed()
+                && noIndepPlan.blockedMessage != null && noIndepPlan.blockedMessage.contains("恢复途径"));
+
+        // f0983a3 #5 [OemWireReview]: Under injected allowlist, verify:
+        // (a) cancel after disable opens a FRESH independent recovery session and restores OEM package + HOME;
+        // (b) timeout/deadline after disable opens a FRESH independent recovery session and restores OEM package + HOME;
+        // (c) static HOME resolve without actual foreground observation rolls back and NEVER reports success!
+        MainActivity oemCancelHost = freshEnv();
+        oemCancelHost.pm.homes.clear();
+        ResolveInfo oemCancelPkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        oemCancelHost.pm.homes.add(oemCancelPkg);
+        oemCancelHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        oemCancelHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        final AtomicInteger oemCancelSessions = new AtomicInteger();
+        final AtomicInteger oemCancelRestoreCmds = new AtomicInteger();
+        final AtomicInteger oemCancelCallbacks = new AtomicInteger();
+        final CountDownLatch oemDisabledLatch = new CountDownLatch(1);
+        final CountDownLatch oemRollbackDoneLatch = new CountDownLatch(1);
+        final LocalHomeAuthorizer[] cancelAuthHolder = {null};
+        cancelAuthHolder[0] = new LocalHomeAuthorizer(oemCancelHost, () -> {
+            final int sid = oemCancelSessions.incrementAndGet();
+            final boolean[] closed = {false};
+            return new LocalHomeAuthorizer.OemShellSession() {
+                @Override public HomeShellSetup connect(int userId) throws Exception {
+                    HomeShellSetup s = new HomeShellSetup(cmd -> {
+                        if (closed[0]) throw new java.io.IOException("session closed");
+                        if ("id -u".equals(cmd)) return "2000";
+                        if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                        if (cmd.contains("pm disable-user")) {
+                            oemCancelPkg.activityInfo.applicationInfo.enabled = false;
+                            oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                            oemCancelHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                            oemDisabledLatch.countDown();
+                            // Cancel immediately after disable while primary session gets closed!
+                            cancelAuthHolder[0].cancel();
+                        } else if (cmd.contains("pm default-state")) {
+                            oemCancelRestoreCmds.incrementAndGet();
+                            oemCancelPkg.activityInfo.applicationInfo.enabled = true;
+                            oemCancelHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                        } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                            oemCancelRestoreCmds.incrementAndGet();
+                            oemCancelHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                            if (sid >= 2) oemRollbackDoneLatch.countDown();
+                        }
+                        return "";
+                    }, userId);
+                    s.authenticate();
+                    return s;
+                }
+                @Override public void close() { closed[0] = true; }
+            };
+        }, testAllowlist);
+        cancelAuthHolder[0].disableOemExperiment(res -> oemCancelCallbacks.incrementAndGet());
+        check("f0983a3_oem_cancel_after_disable_rolls_back_via_independent_session",
+                oemDisabledLatch.await(3, TimeUnit.SECONDS)
+                && oemRollbackDoneLatch.await(3, TimeUnit.SECONDS)
+                && oemCancelSessions.get() >= 2
+                && oemCancelRestoreCmds.get() >= 2
+                && oemCancelCallbacks.get() == 0
+                && oemCancelHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(oemCancelHost.pm.currentHome));
+
+        // (b) Deadline/timeout after disable opens a FRESH independent recovery session and restores OEM package + HOME!
+        MainActivity oemDeadlineHost = freshEnv();
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        oemDeadlineHost.pm.homes.clear();
+        ResolveInfo oemDeadlinePkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        oemDeadlineHost.pm.homes.add(oemDeadlinePkg);
+        oemDeadlineHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        oemDeadlineHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final AtomicInteger oemDeadlineSessions = new AtomicInteger();
+        final AtomicInteger oemDeadlineRestoreCmds = new AtomicInteger();
+        final CountDownLatch oemDeadlineCallbackLatch = new CountDownLatch(1);
+        final String[] oemDeadlineOutcome = {null};
+        LocalHomeAuthorizer deadlineAuth = new LocalHomeAuthorizer(oemDeadlineHost, () -> {
+            oemDeadlineSessions.incrementAndGet();
+            final boolean[] closed = {false};
+            return new LocalHomeAuthorizer.OemShellSession() {
+                @Override public HomeShellSetup connect(int userId) throws Exception {
+                    HomeShellSetup s = new HomeShellSetup(cmd -> {
+                        if (closed[0]) throw new java.io.IOException("session closed");
+                        if ("id -u".equals(cmd)) return "2000";
+                        if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                        if (cmd.contains("pm disable-user")) {
+                            oemDeadlinePkg.activityInfo.applicationInfo.enabled = false;
+                            oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                            oemDeadlineHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                            // Trigger the 90s timeout runnable right after disable, closing session #1!
+                            SystemClock.elapsed += 95000L;
+                            Handler.runDue();
+                        } else if (cmd.contains("pm default-state")) {
+                            oemDeadlineRestoreCmds.incrementAndGet();
+                            oemDeadlinePkg.activityInfo.applicationInfo.enabled = true;
+                            oemDeadlineHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                        } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                            oemDeadlineRestoreCmds.incrementAndGet();
+                            oemDeadlineHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                        }
+                        return "";
+                    }, userId);
+                    s.authenticate();
+                    return s;
+                }
+                @Override public void close() { closed[0] = true; }
+            };
+        }, testAllowlist);
+        deadlineAuth.disableOemExperiment(res -> { oemDeadlineOutcome[0] = res; oemDeadlineCallbackLatch.countDown(); });
+        check("f0983a3_oem_deadline_after_disable_rolls_back_via_independent_session",
+                oemDeadlineCallbackLatch.await(5, TimeUnit.SECONDS)
+                && oemDeadlineSessions.get() >= 2
+                && oemDeadlineRestoreCmds.get() >= 2
+                && deadlineAuth.issue() == HomeDeviceGuide.Issue.TIMEOUT
+                && oemDeadlineOutcome[0] != null && !oemDeadlineOutcome[0].contains("已停用原厂桌面")
+                && oemDeadlineHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(oemDeadlineHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(oemDeadlineHost, 0));
+
+        // (c) Disable without actual foreground observation rolls back and NEVER reports success!
+        MainActivity noFgHost = freshEnv();
+        Build.MODEL = "TestVerifiedTV";
+        Build.DISPLAY = "1.0.0";
+        noFgHost.pm.homes.clear();
+        ResolveInfo noFgPkg = homeEntry("com.oem.tvhome", "com.oem.tvhome.Main", true, true, true, true);
+        noFgHost.pm.homes.add(noFgPkg);
+        noFgHost.pm.homes.add(homeEntry("com.pilipala.tvhome", "com.pilipala.tvhome.HomeActivity", true, true, true, false));
+        noFgHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        final CountDownLatch noFgLatch = new CountDownLatch(1);
+        final String[] noFgOutcome = {null};
+        final AtomicInteger noFgRestoreCmds = new AtomicInteger();
+        LocalHomeAuthorizer noFgAuth = new LocalHomeAuthorizer(noFgHost, () -> new LocalHomeAuthorizer.OemShellSession() {
+            @Override public HomeShellSetup connect(int userId) throws Exception {
+                HomeShellSetup s = new HomeShellSetup(cmd -> {
+                    if ("id -u".equals(cmd)) return "2000";
+                    if ("cmd package help".equals(cmd)) return "  set-home-activity TARGET";
+                    if (cmd.contains("pm disable-user")) {
+                        noFgPkg.activityInfo.applicationInfo.enabled = false;
+                        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER);
+                        noFgHost.pm.currentHome = "com.pilipala.tvhome/com.pilipala.tvhome.HomeActivity";
+                    } else if (cmd.contains("pm default-state")) {
+                        noFgRestoreCmds.incrementAndGet();
+                        noFgPkg.activityInfo.applicationInfo.enabled = true;
+                        noFgHost.pm.appEnabledStates.put("com.oem.tvhome", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+                    } else if (cmd.contains("set-home-activity --user 0 'com.oem.tvhome/com.oem.tvhome.Main'")) {
+                        noFgRestoreCmds.incrementAndGet();
+                        noFgHost.pm.currentHome = "com.oem.tvhome/com.oem.tvhome.Main";
+                    }
+                    return "";
+                }, userId);
+                s.authenticate();
+                return s;
+            }
+            @Override public void close() {}
+        }, testAllowlist);
+        noFgAuth.disableOemExperiment(res -> { noFgOutcome[0] = res; noFgLatch.countDown(); });
+        check("f0983a3_oem_disable_without_actual_foreground_rolls_back_never_reports_success",
+                noFgLatch.await(5, TimeUnit.SECONDS)
+                && noFgRestoreCmds.get() >= 2
+                && noFgOutcome[0] != null
+                && !noFgOutcome[0].contains("已停用原厂桌面")
+                && noFgOutcome[0].contains("已自动恢复原厂桌面")
+                && noFgHost.pm.getApplicationEnabledSetting("com.oem.tvhome") == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                && "com.oem.tvhome/com.oem.tvhome.Main".equals(noFgHost.pm.currentHome)
+                && !SystemIntegration.hasValidOemExperimentSnapshot(noFgHost, 0));
+        Build.MODEL = "MiTV";
+        Build.DISPLAY = "PPR1";
+
+        android.os.Process.uid = 1012345; // restore default stub uid
+    }
+
     public static void main(String[] args) throws Exception {
         testTask1Routing();
         testTask2Attribution();
@@ -1929,17 +4219,93 @@ public final class HomeFlowChecks {
         testRound2Regressions();
         testRound3Counterexamples();
         testRound4EdgeCases();
+        testGuardModeAndFilterRefresh();
+        testDesktopModesAndOemExperiment();
         System.out.println("OK " + passed + " end-to-end home setup flow, attribution, persistence and round-2/3/4 regression checks");
         System.exit(0);
     }
 }
 
 class BuildEdition { static boolean RESTRICTED; }
-class HomeKeyService { static volatile boolean connected; }
+class HomeKeyService {
+    static volatile boolean connected;
+    static volatile int runtimeFlags;
+    static volatile boolean runtimeKeyFilterRequested;
+    static volatile boolean runtimeVolumeYieldActive;
+    static volatile boolean runtimeVolumeYieldFailed;
+    static volatile boolean runtimeModeApplied;
+    static volatile long connectionGeneration;
+    static volatile long modeAppliedGeneration;
+    static final AtomicInteger syncCalls = new AtomicInteger();
+    static void resetForTest() {
+        connected = false;
+        runtimeFlags = 0;
+        runtimeKeyFilterRequested = false;
+        runtimeVolumeYieldActive = false;
+        runtimeVolumeYieldFailed = false;
+        runtimeModeApplied = false;
+        connectionGeneration = 0;
+        modeAppliedGeneration = 0;
+        syncCalls.set(0);
+    }
+    static boolean isGuardModeApplied(Context c) {
+        return isGuardModeApplied(c, 0L);
+    }
+    static boolean isGuardModeApplied(Context c, long afterGeneration) {
+        if (!connected || !runtimeModeApplied || modeAppliedGeneration <= afterGeneration) return false;
+        boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
+        boolean expected = HomeSetupPolicy.shouldRequestKeyFilter(
+                compat, HomeSetup.paused(c), SystemIntegration.homeIsOurs(c), SystemIntegration.guardMode(c));
+        return runtimeKeyFilterRequested == (expected && !runtimeVolumeYieldActive);
+    }
+    static void simulateConnect(Context c) {
+        connectionGeneration++;
+        connected = true;
+        syncRuntimeKeyFilter(c);
+        android.content.SharedPreferences p = SystemIntegration.prefs(c);
+        if (p.getBoolean("home_compat", false) && !HomeSetup.paused(c)) {
+            p.edit().putBoolean("compat_service_active", true).putBoolean("compat_seen_present", true).apply();
+        }
+    }
+    static void simulateUnbind(Context c) {
+        connected = false;
+        runtimeFlags = 0;
+        runtimeKeyFilterRequested = false;
+        runtimeVolumeYieldActive = false;
+        runtimeVolumeYieldFailed = false;
+        runtimeModeApplied = false;
+        modeAppliedGeneration = 0;
+        android.content.SharedPreferences p = SystemIntegration.prefs(c);
+        if (p.getBoolean("compat_service_active", false)) {
+            p.edit().putBoolean("compat_service_active", false).apply();
+        }
+    }
+    static void syncRuntimeKeyFilter(Context c) {
+        syncCalls.incrementAndGet();
+        if (!connected) {
+            runtimeFlags = 0;
+            runtimeKeyFilterRequested = false;
+            runtimeVolumeYieldActive = false;
+            runtimeModeApplied = false;
+            modeAppliedGeneration = 0;
+            return;
+        }
+        boolean compat = SystemIntegration.prefs(c).getBoolean("home_compat", false);
+        runtimeFlags = HomeSetupPolicy.applyKeyFilterFlag(
+                runtimeFlags, 32, compat, HomeSetup.paused(c), SystemIntegration.homeIsOurs(c), SystemIntegration.guardMode(c));
+        runtimeKeyFilterRequested = (runtimeFlags & 32) != 0;
+        runtimeModeApplied = true;
+        modeAppliedGeneration = connectionGeneration;
+        SystemIntegration.markHomeServiceRebindConnected(c);
+    }
+}
 class RecoveryService { static volatile boolean running; }
 class AmbientIntegration { static void configure(Context c) { } }
 class Diagnostics { static final List<String> events = Collections.synchronizedList(new ArrayList<>()); static void event(String e) { events.add(e); } }
-class TaskBridgeServer { static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1"; }
+class TaskBridgeServer {
+    static final String DESCRIPTOR = "com.pilipala.tvhome.TaskBridge.v1";
+    static final int VOLUME_PROTOCOL_VERSION = 3;
+}
 class HealthPanel {
     static String date(long s) { return s == 0 ? "尚无记录" : String.valueOf(s); }
     void status() { }
@@ -1980,10 +4346,12 @@ class LocalAdbWire {
     void close() { }
 }
 class TvDialog {
-    final String pageId, title, message;
-    final String[] items;
+    final String pageId, title;
+    String message;
+    String[] items;
     final DialogInterface.OnClickListener itemClick, positive, neutral, negative;
     Runnable leaveAction;
+    Runnable returnAction;
     boolean showing;
     TvDialog(Builder b) {
         pageId = b.pageId != null ? b.pageId : b.title;
@@ -1991,7 +4359,12 @@ class TvDialog {
         positive = b.positive; neutral = b.neutral; negative = b.negative;
     }
     String pageKey() { return pageId; }
+    boolean isShowing() { return showing; }
+    void updateMessage(String m) { message = m; }
+    void updateItems(String[] next) { if (next != null) items = next; }
     void onLeave(Runnable r) { leaveAction = r; }
+    void onReturn(Runnable r) { returnAction = r; }
+    void runReturn() { if (returnAction != null) returnAction.run(); }
     void leave() { if (leaveAction != null) { Runnable r = leaveAction; leaveAction = null; r.run(); } }
     void clickItem(int i) { if (itemClick != null) itemClick.onClick(null, i); }
     void clickPositive() { if (positive != null) positive.onClick(null, DialogInterface.BUTTON_POSITIVE); }
@@ -2029,10 +4402,16 @@ class DialogStack {
     boolean open() { return activeDialog != null; }
     TvDialog active() { return activeDialog; }
     boolean isPage(String id) { TvDialog d = activeDialog; return d != null && id.equals(d.pageKey()); }
-    synchronized void show(TvDialog d) { activeDialog = d; d.showing = true; history.add(d); }
+    synchronized void show(TvDialog d) {
+        if (activeDialog != null) activeDialog.showing = false;
+        activeDialog = d;
+        d.showing = true;
+        history.add(d);
+    }
     synchronized void replace(TvDialog old, TvDialog next) {
         if (activeDialog == old && !history.isEmpty()) {
             history.remove(history.size() - 1);
+            old.showing = false;
             old.leave();
             show(next);
             CountDownLatch l = resultLatch;
@@ -2042,14 +4421,22 @@ class DialogStack {
     synchronized void back() {
         if (history.isEmpty()) return;
         TvDialog leaving = history.remove(history.size() - 1);
+        leaving.showing = false;
         activeDialog = history.isEmpty() ? null : history.get(history.size() - 1);
+        if (activeDialog != null) {
+            activeDialog.runReturn();
+            activeDialog.showing = true;
+        }
         leaving.leave();
     }
     synchronized void close() {
         List<TvDialog> leaving = new ArrayList<>(history);
         history.clear();
         activeDialog = null;
-        for (int i = leaving.size() - 1; i >= 0; i--) leaving.get(i).leave();
+        for (int i = leaving.size() - 1; i >= 0; i--) {
+            leaving.get(i).showing = false;
+            leaving.get(i).leave();
+        }
     }
 }
 class MainActivity extends Activity {
@@ -2093,11 +4480,20 @@ class MainActivity extends Activity {
         windowFocus = focus;
         HomeSetup.resolvePendingPicker(this);
         HomeSetup.finishCompatibilityConsent(this);
+        SystemIntegration.resumePendingHomeServiceRebind(this);
         HomeSetup.reconcile(this);
         boolean consumed = arrivalGate.onResume(this, hasWindowFocus(), panelFocused, isFinishing(), isDestroyed());
         TaskBridgeClient.sync(this);
         if (defaultHome != null) defaultHome.resumed();
         return consumed;
+    }
+    void simulateRealColdStart(boolean focus) {
+        SystemIntegration.clearStandbyWakeReturn(this);
+        HomeSetup.markCompatResetIfInterrupted(this);
+        SystemIntegration.rememberHome(this);
+        SystemIntegration.refreshHomeService(this);
+        SystemIntegration.startRecovery(this);
+        simulateOnResume(focus);
     }
     boolean simulateOnWindowFocusChanged(boolean focus) {
         windowFocus = focus;

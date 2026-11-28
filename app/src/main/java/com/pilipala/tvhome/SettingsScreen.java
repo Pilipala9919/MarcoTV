@@ -123,8 +123,20 @@ final class SettingsScreen extends LinearLayout {
         refresh();
     }
 
+    private final Runnable bridgeStateListener = this::refresh;
+
     void bindDialog(TvDialog owner) {
         this.dialog = owner;
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        TaskBridgeClient.addStateListener(bridgeStateListener);
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        TaskBridgeClient.removeStateListener(bridgeStateListener);
+        super.onDetachedFromWindow();
     }
 
     private LayoutParams sidebarLayoutParams() {
@@ -604,23 +616,49 @@ final class SettingsScreen extends LinearLayout {
                 text = sortLabel();
                 fg = 0xFFB5B4FF; bgColor = 0x245E5CE6; stroke = 0x555E5CE6;
                 break;
-            case SettingsTaxonomy.HOME:
-                if (SystemIntegration.homeIsOurs(host)) {
-                    text = "● 默认桌面：Marco TV";
-                    fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
-                } else if (HomeKeyService.connected) {
-                    text = "● Home 兼容已连接";
-                    fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
-                } else if (HomeSetup.serviceEnabled(host)) {
-                    text = "● Home 服务未绑定";
-                    fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
+            case SettingsTaxonomy.HOME: {
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) {
+                    text = "● 按键过滤未撤销";
+                    fg = 0xFFFFB86C; bgColor = 0x22FFB86C; stroke = 0x66FFB86C;
+                } else if (SystemIntegration.homeIsOurs(host)) {
+                    text = HomeSetup.paused(host) ? "● 系统默认桌面（守护已暂停）" : "● 系统默认桌面";
+                    fg = HomeSetup.paused(host) ? 0xFFFFD166 : 0xFF63E69A;
+                    bgColor = HomeSetup.paused(host) ? 0x22FFD166 : 0x2234C759;
+                    stroke = HomeSetup.paused(host) ? 0x66FFD166 : 0x6634C759;
                 } else if (HomeSetup.paused(host)) {
                     text = "● 已暂停接管";
+                    fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
+                } else if (HomeKeyService.connected) {
+                    HomeSetupPolicy.GuardMode bm = SystemIntegration.guardMode(host);
+                    if (bm == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) {
+                        text = "● 原厂按键";
+                        fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
+                    } else if (bm == HomeSetupPolicy.GuardMode.KEY_FILTER) {
+                        if (!HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive) {
+                            text = "● 按键过滤未生效";
+                            fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
+                        } else if (HomeKeyService.runtimeVolumeYieldFailed) {
+                            text = "● 快速 Home · 让渡受限";
+                            fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
+                        } else {
+                            text = TaskBridgeClient.volumeAssistActive()
+                                    ? "● 快速 Home · 任务桥"
+                                    : (HomeKeyService.runtimeVolumeYieldActive ? "● 快速 Home · 让渡中" : "● 快速 Home · 无桥");
+                            fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
+                        }
+                    } else {
+                        text = "● 窗口回拉（兼容模式）";
+                        fg = 0xFF63E69A; bgColor = 0x2234C759; stroke = 0x6634C759;
+                    }
+                } else if (HomeSetup.serviceEnabled(host)) {
+                    text = "● Home 服务未绑定";
                     fg = 0xFFFFD166; bgColor = 0x22FFD166; stroke = 0x66FFD166;
                 } else {
                     text = BuildEdition.RESTRICTED ? "● 受限兼容版" : "● 原厂桌面";
                 }
                 break;
+            }
             case SettingsTaxonomy.NETWORK:
                 String net = networkShortStatus();
                 if (net.startsWith("已连接") || net.equals("有线网络")) {
@@ -705,16 +743,40 @@ final class SettingsScreen extends LinearLayout {
                 return host.playback.authorized() ? "已允许" : "未允许";
             case "playback_restore":
                 return "点击恢复";
-            case "default_home":
-                if (SystemIntegration.homeIsOurs(host)) return "Marco TV 默认";
-                if (HomeKeyService.connected) return "Home 兼容已就绪";
-                if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
+            case "default_home": {
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) return "按键过滤未撤销";
+                if (SystemIntegration.homeIsOurs(host)) return HomeSetup.paused(host) ? "系统默认桌面 · 守护已暂停" : "系统默认桌面";
                 if (HomeSetup.paused(host)) return "已暂停";
+                if (HomeKeyService.connected) {
+                    HomeSetupPolicy.GuardMode dm = SystemIntegration.guardMode(host);
+                    if (dm == HomeSetupPolicy.GuardMode.KEY_FILTER) {
+                        if (!HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive) return "按键过滤未生效";
+                        if (HomeKeyService.runtimeVolumeYieldFailed) return "快速 Home · 让渡受限";
+                        return TaskBridgeClient.volumeAssistActive()
+                                ? "快速 Home · 任务桥"
+                                : (HomeKeyService.runtimeVolumeYieldActive ? "快速 Home · 让渡中" : "快速 Home · 无桥");
+                    }
+                    if (dm == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";
+                    return "窗口回拉";
+                }
+                if (HomeSetup.serviceEnabled(host)) return "已允许未连接";
                 return BuildEdition.RESTRICTED ? "受限兼容 · 未启用" : "未启用";
+            }
             case "home_gestures": {
-                if (sys.getBoolean("home_native_keys", false)) return "原厂按键";
-                String a = sys.getString("home_long_action", "system");
-                return "marco".equals(a) ? "长按：Marco 任务" : "none".equals(a) ? "长按：无操作" : "长按：系统任务";
+                HomeSetupPolicy.DesktopState ds = SystemIntegration.desktopState(host);
+                if (ds.keyFilterStillActiveUnexpectedly) return "按键过滤未撤销";
+                if (SystemIntegration.homeIsOurs(host)) return HomeSetup.paused(host) ? "系统默认桌面 · 守护已暂停" : "系统默认桌面";
+                HomeSetupPolicy.GuardMode mode = SystemIntegration.guardMode(host);
+                if (mode == HomeSetupPolicy.GuardMode.NATIVE_KEYS_ONLY) return "原厂按键";
+                if (mode == HomeSetupPolicy.GuardMode.WINDOW_PULLBACK) return "窗口回拉";
+                if (HomeKeyService.connected && !HomeKeyService.runtimeKeyFilterRequested && !HomeKeyService.runtimeVolumeYieldActive) {
+                    return "按键过滤未生效";
+                }
+                if (HomeKeyService.runtimeVolumeYieldFailed) return "快速 Home · 让渡受限";
+                return TaskBridgeClient.volumeAssistActive()
+                        ? "快速 Home · 任务桥"
+                        : (HomeKeyService.runtimeVolumeYieldActive ? "快速 Home · 让渡中" : "快速 Home · 无桥");
             }
             case "restore_home":
                 return "切回原厂";
@@ -746,6 +808,8 @@ final class SettingsScreen extends LinearLayout {
                 return "仅执行已开项";
             case "debug_help":
                 return "查看说明";
+            case "contact_author":
+                return ProjectInfo.SOCIAL_ACCOUNT + " · 交流群";
             case "guide":
                 return "5 步上手";
             case "device_info":
@@ -914,6 +978,9 @@ final class SettingsScreen extends LinearLayout {
                 break;
             case "debug_help":
                 SystemIntegration.showDebugHelp(host, host::showDialog);
+                break;
+            case "contact_author":
+                host.navigator.contactAuthor();
                 break;
             case "guide":
                 host.health.guide(0);

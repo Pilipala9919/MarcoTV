@@ -102,12 +102,12 @@ final class SettingsTaxonomy {
         new Category("home", "遥控器与多任务", "默认桌面、Home 与最近任务",
                 "管理默认桌面启用、Home 键兼容与手势、开机唤醒恢复以及最近任务视图。",
                 new Section("默认桌面与 Home 键",
-                        new Item("default_home", "桌面启用与检查", Item.DRILL,
-                                "按本机固件能力一键设置默认桌面或 Home 兼容，并检查 Home 返回与重启效果。"),
+                        new Item("default_home", "桌面启用与模式", Item.DRILL,
+                                "整合「系统默认桌面」「窗口回拉（兼容模式）」「快速 Home」「原厂按键」四项入口，实时显示用户选择、当前实际生效方式与降级原因。"),
                         new Item("home_compat", "Home 键兼容模式", Item.TOGGLE,
                                 "适用于限制替换默认桌面的厂商电视。仅管理 Marco TV 自身服务，保留其他辅助服务。"),
-                        new Item("home_gestures", "Home 长按与原厂按键", Item.DRILL,
-                                "设置 Home 长按动作、原厂按键放行模式以及双击响应间隔。"),
+                        new Item("home_gestures", "遥控器与守护模式", Item.DRILL,
+                                "切换系统默认桌面、窗口回拉（不拦截按键，音量和方向键交由系统处理）、快速 Home（有桥连调 / 无桥先点一下音量松手后再长按）或原厂按键模式。"),
                         new Item("restore_home", "恢复设置前的桌面", Item.DRILL,
                                 "停用 Marco TV 桌面接管并尝试切回设置前的原厂桌面。")),
                 new Section("开机与待机唤醒",
@@ -154,12 +154,14 @@ final class SettingsTaxonomy {
                         new Item("debug_help", "调试与授权说明", Item.DRILL,
                                 "查看网络调试授权方式、不同电视固件差异与卸载后的重新授权说明。")),
                 new Section("帮助与关于",
+                        new Item("contact_author", "联系与反馈作者", Item.DRILL,
+                                "查看作者各社媒账号名「PILIPALA来信」（小红书、B站、抖音、公众号、视频号）、Marco 官网与官网交流群链接，也可直接提交脱敏反馈。"),
                         new Item("guide", "首次使用引导", Item.DRILL,
                                 "重新浏览 5 步快速上手引导，了解桌面导航、默认桌面与播放卡片设置。"),
                         new Item("device_info", "设备信息", Item.DRILL,
                                 "查看电视品牌、型号、Android 与固件版本（不读取或显示设备序列号）。"),
                         new Item("about", "关于 Marco TV", Item.DRILL,
-                                "查看版本、作者署名、免费开源声明以及完整的第三方开源许可协议。")))
+                                "查看版本、作者署名、官方下载说明、免费开源声明以及完整的第三方开源许可协议。")))
     };
 
     static int indexOfCategory(String id) {

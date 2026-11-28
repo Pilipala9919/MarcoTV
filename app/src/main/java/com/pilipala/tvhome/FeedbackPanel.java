@@ -27,15 +27,17 @@ final class FeedbackPanel {
     }
     void page(){
         TvDialog dialog=new TvDialog.Builder(host).setPageId("feedback").setTitle("问题反馈")
-                .setMessage("提交前可以预览，也可扫码用手机确认。\n自动提交："+(FeedbackManager.automatic(host)?"已开启":"已关闭")+"\n"+FeedbackManager.status(host))
-                .setItems(new String[]{"预览本次报告","确认提交这份报告","扫码用手机提交","重试上次未提交的报告","查询最近反馈进度",FeedbackManager.automatic(host)?"关闭自动提交":"开启可选自动提交","清除本机待提交报告"},(d,w)->{
+                .setMessage("提交前可以预览，也可扫码用手机确认。\n自动提交："+(FeedbackManager.automatic(host)?"已开启":"已关闭")+"\n"+FeedbackManager.status(host)
+                        +"\n\n社媒联系："+ProjectInfo.SOCIAL_ACCOUNT+"（"+ProjectInfo.SOCIAL_PLATFORMS+"）\n官网交流群："+ProjectInfo.COMMUNITY_GROUP_URL)
+                .setItems(new String[]{"预览本次报告","确认提交这份报告","扫码用手机提交","联系作者与官网交流群","重试上次未提交的报告","查询最近反馈进度",FeedbackManager.automatic(host)?"关闭自动提交":"开启可选自动提交","清除本机待提交报告"},(d,w)->{
                     if(w==0)host.showDialog(new TvDialog.Builder(host).setPageId("feedback_preview").setTitle("报告预览")
                             .setMessage(report.toString()).setNegativeButton("返回",null).create());
                     else if(w==1)consent(false);
                     else if(w==2)qr();
-                    else if(w==3)retryConsent();
-                    else if(w==4)status();
-                    else if(w==6)host.showDialog(new TvDialog.Builder(host).setTitle("清除待提交报告？")
+                    else if(w==3)host.navigator.contactAuthor();
+                    else if(w==4)retryConsent();
+                    else if(w==5)status();
+                    else if(w==7)host.showDialog(new TvDialog.Builder(host).setTitle("清除待提交报告？")
                             .setMessage("仅清除本机重试文件，已被服务器收到的反馈不会撤回。")
                             .setPositiveButton("清除",(x,y)->{FeedbackManager.clearPending(host);page();}).setNegativeButton("取消",null).create());
                     else if(FeedbackManager.automatic(host)){FeedbackManager.setAutomatic(host,false);page();}

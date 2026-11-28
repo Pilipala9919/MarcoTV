@@ -193,8 +193,17 @@ public final class MainActivity extends Activity {
         if(getIntent().hasCategory(Intent.CATEGORY_HOME)&&recents.enabled())homePressTracker.press(SystemClock.elapsedRealtime(),preferences.getInt("recent_double_ms",
                 400));
         if(getIntent().getBooleanExtra("recent_apps",false))handler.post(recents::show);
-        if(firstInstall&&!getSharedPreferences("onboarding",0).getBoolean("done",false))handler.post(()->{
-            if(foreground)health.guide(0);
+        SharedPreferences onboardingPrefs=getSharedPreferences("onboarding",0);
+        boolean recentLaunch=getIntent().getBooleanExtra("recent_apps",false);
+        boolean wakeLaunch=getIntent().getBooleanExtra("wake_recovery",false);
+        if(ProjectInfo.shouldShowFirstLaunchNotice(onboardingPrefs.getBoolean("official_notice_seen",false),
+                recentLaunch,wakeLaunch,ambientRequested)){
+            final boolean offerGuideNext=firstInstall&&!onboardingPrefs.getBoolean("done",false);
+            handler.post(()->{
+                if(foreground&&!dialogs.open()&&(recents==null||!recents.visible))health.officialNotice(offerGuideNext);
+            });
+        }else if(firstInstall&&!onboardingPrefs.getBoolean("done",false))handler.post(()->{
+            if(foreground&&!dialogs.open()&&(recents==null||!recents.visible))health.guide(0);
         });
     }
 
@@ -243,6 +252,7 @@ public final class MainActivity extends Activity {
         foreground = true;
         HomeSetup.resolvePendingPicker(this);
         HomeSetup.finishCompatibilityConsent(this);
+        SystemIntegration.resumePendingHomeServiceRebind(this);
         HomeSetup.reconcile(this);
         arrivalGate.onResume(this, hasWindowFocus(), isPanelWindowFocused(), isFinishing(), isDestroyed());
         Diagnostics.foreground(true);

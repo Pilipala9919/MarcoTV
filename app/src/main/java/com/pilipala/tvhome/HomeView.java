@@ -53,7 +53,7 @@ final class HomeView extends View {
     ArrayList<Row> rows = new ArrayList<>();
     Bitmap wallpaper;
     int row = 0;
-    private int topSelected = 0;
+    final HomeHeaderMenu headerMenu = new HomeHeaderMenu();
     private float uiAlpha = 1, ambientProgress;
     private final ClockScene clockScene;
     private float wallTopLeftLum = 0.16f, wallTopRightLum = 0.16f, wallShelfLum = 0.16f;
@@ -84,6 +84,7 @@ final class HomeView extends View {
     private final RectF iconBounds = new RectF();
     private final Path playbackClip = new Path();
     private final Path iconPath = new Path();
+    private final Path headerClipPath = new Path();
     private String lastPlaybackTitle, clippedPlaybackTitle = "";
     private String lastPlaybackSource, clippedPlaybackSource = "";
     private final Matrix artworkMatrix = new Matrix();
@@ -128,7 +129,9 @@ final class HomeView extends View {
             new int[]{0x38FFFFFF,0x0CFFFFFF,0x22FFFFFF,0x08FFFFFF,0x34FFFFFF},new float[]{0f,.18f,.50f,.82f,1f},Shader.TileMode.CLAMP);
     private final MotionSpring entrance=new MotionSpring(1,15,.001f);
     private final MotionSpring edge=new MotionSpring(0,20,.001f);
+    private final MotionSpring headerMenuExpand=new MotionSpring(0,22,.001f);
     private final MotionSpring[] headerFocus={
+        new MotionSpring(0,20,.001f),
         new MotionSpring(0,20,.001f),
         new MotionSpring(0,20,.001f),
         new MotionSpring(0,20,.001f),
@@ -139,6 +142,10 @@ final class HomeView extends View {
     private int edgeSelected;
     private final String[] edgeItems={"添加应用","编辑当前卡片","卡片外观","时钟与屏保","桌面设置"};
     void edge(boolean open){
+        if(open&&headerMenu.isExpanded()){
+            headerMenu.collapseToBrand();
+            headerMenuExpand.target(0);
+        }
         edgeOpen=open;
         edge.target(open?1:0);
         animateFocus();
@@ -165,34 +172,49 @@ final class HomeView extends View {
     private static final float HEADER_ANCHOR_X=88f;
     private static final float HEADER_START_X=112f;
     private static final float HEADER_ICON_GAP=14f;
-    private static final float HEADER_ITEM_GAP=72f;
-    private static final float HEADER_PILL_PAD_X=24f;
-    private final float[] headerIconX=new float[4];
-    private final float[] headerTextX=new float[4];
-    private final float[] headerContentLeft=new float[4];
-    private final float[] headerContentRight=new float[4];
-    private float headerTotalRight=1040f;
+    private static final float HEADER_SUB_ICON_GAP=12f;
+    private static final float HEADER_ITEM_GAP=48f;
+    private static final float HEADER_PILL_PAD_X=22f;
+    private final float[] headerIconX=new float[HomeHeaderMenu.LEFT_SLOT_COUNT];
+    private final float[] headerTextX=new float[HomeHeaderMenu.LEFT_SLOT_COUNT];
+    private final float[] headerContentLeft=new float[HomeHeaderMenu.LEFT_SLOT_COUNT];
+    private final float[] headerContentRight=new float[HomeHeaderMenu.LEFT_SLOT_COUNT];
+    private float headerChevronX=272f;
+    private float headerCollapsedRight=304f;
+    private float headerDividerX=318f;
+    private float headerTotalRight=1160f;
     private void measureHeader(){
-        float[] iconLeft={17f,21f,19f,14f};
-        float[] iconRight={17f,21f,19f,14f};
-        String[] labels={"MARCO TV","Marco 互联","Magic Desktop","全部应用"};
-        float cursor=HEADER_START_X;
-        for(int i=0;i<4;i++){
+        // Slot 0: Collapsible MarcoTV brand trigger
+        headerContentLeft[0]=Math.round(HEADER_START_X);
+        headerIconX[0]=Math.round(headerContentLeft[0]+17f);
+        headerTextX[0]=Math.round(headerIconX[0]+17f+HEADER_ICON_GAP);
+        paint.setTypeface(bold);
+        paint.setTextSize(23);
+        float brandWidth=paint.measureText(HomeHeaderMenu.BRAND_LABEL);
+        headerChevronX=Math.round(headerTextX[0]+brandWidth+15f);
+        headerContentRight[0]=Math.round(headerChevronX+8f);
+        headerCollapsedRight=headerContentRight[0]+HEADER_PILL_PAD_X;
+        headerDividerX=Math.round(headerCollapsedRight+14f);
+
+        // Slots 1..4: 桌面设置, Marco互联, MagicDesktop, 应用管理
+        float[] iconHalf={15f,20f,18f,14f};
+        float cursor=headerDividerX+28f;
+        paint.setTypeface(normal);
+        paint.setTextSize(23);
+        for(int i=1;i<HomeHeaderMenu.LEFT_SLOT_COUNT;i++){
             headerContentLeft[i]=Math.round(cursor);
-            headerIconX[i]=Math.round(headerContentLeft[i]+iconLeft[i]);
-            headerTextX[i]=Math.round(headerIconX[i]+iconRight[i]+HEADER_ICON_GAP);
-            paint.setTypeface(normal);
-            paint.setTextSize(23);
-            float textWidth=paint.measureText(labels[i]);
+            headerIconX[i]=Math.round(headerContentLeft[i]+iconHalf[i-1]);
+            headerTextX[i]=Math.round(headerIconX[i]+iconHalf[i-1]+HEADER_SUB_ICON_GAP);
+            float textWidth=paint.measureText(HomeHeaderMenu.EXPANDED_LABELS[i-1]);
             headerContentRight[i]=Math.round(headerTextX[i]+textWidth);
             cursor=headerContentRight[i]+HEADER_ITEM_GAP;
         }
-        headerTotalRight=headerContentRight[3]+HEADER_PILL_PAD_X;
+        headerTotalRight=headerContentRight[HomeHeaderMenu.LEFT_SLOT_COUNT-1]+HEADER_PILL_PAD_X;
     }
     private float headerFit(){
         float available=clockScene.left(host.appearance())-132f-HEADER_ANCHOR_X;
         float needed=Math.max(1f,headerTotalRight-HEADER_ANCHOR_X);
-        return Math.min(1f,Math.max(.76f,available/needed));
+        return Math.min(1f,Math.max(.72f,available/needed));
     }
     private float headerPosition(float x){
         return HEADER_ANCHOR_X+(x-HEADER_ANCHOR_X)*headerFit();
@@ -253,6 +275,10 @@ final class HomeView extends View {
         }
         if(key!=null&&previewSavedRow==-2){
             previewSavedRow=row;
+            if(headerMenu.isExpanded()){
+                headerMenu.collapseToBrand();
+                headerMenuExpand.snap(0);
+            }
             if(row<0){
                 row=0;
                 animateFocus();
@@ -344,7 +370,7 @@ final class HomeView extends View {
         if(mover.active())setContentDescription("移动卡片，"+mover.movingRow.tiles.get(mover.movingRow.selected).label+"，左右移动，确定保存，返回取消");
         else if(edgeOpen)setContentDescription("分类操作栏，"+edgeItems[edgeSelected]);
         else if(row==-2&&host.playback!=null&&host.playback.item!=null) setContentDescription("正在播放，"+host.playback.item.title+"，"+host.playback.item.source);
-        else if(row==-1)setContentDescription(topSelected==0?"桌面设置":topSelected==1?"Marco 互联，用手机整理电视":topSelected==2?"Magic Desktop，预览并调整桌面":topSelected==3?"全部应用":"网络与 Wi-Fi");
+        else if(row==-1)setContentDescription(headerMenu.describeSelected());
         else if (rows.isEmpty()) setContentDescription("Marco TV，暂无可见卡片，按菜单键恢复隐藏的卡片");
         else if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty())
                 setContentDescription(rows.get(row).title + "，" + rows.get(row).tiles.get(rows.get(row).selected).label);
@@ -355,6 +381,8 @@ final class HomeView extends View {
         mover.reset();
         edgeOpen=false;
         edge.snap(0);
+        headerMenu.collapseToBrand();
+        headerMenuExpand.snap(0);
         stopMotion();
         row = 0;
         section.snap(0);
@@ -375,6 +403,10 @@ final class HomeView extends View {
             return;
         }
         idleMode = value;
+        if (value && headerMenu.isExpanded()) {
+            headerMenu.collapseToBrand();
+            headerMenuExpand.snap(0);
+        }
         host.idleChanged(value);
         if (fade != null) fade.cancel();
         fade = ValueAnimator.ofFloat(ambientProgress, value ? 1 : 0);
@@ -390,8 +422,9 @@ final class HomeView extends View {
     }
 
     void animateFocus() {
-        float left=topSelected<4?headerPosition(headerContentLeft[topSelected]-HEADER_PILL_PAD_X):clockScene.left(host.appearance())-102;
-        float right=topSelected<4?headerPosition(headerContentRight[topSelected]+HEADER_PILL_PAD_X):clockScene.left(host.appearance())-38;
+        int sel=headerMenu.selected();
+        float left=sel<HomeHeaderMenu.SLOT_WIFI?headerPosition(headerContentLeft[sel]-HEADER_PILL_PAD_X):clockScene.left(host.appearance())-102;
+        float right=sel<HomeHeaderMenu.SLOT_WIFI?headerPosition(headerContentRight[sel]+HEADER_PILL_PAD_X):clockScene.left(host.appearance())-38;
         if(headerAlpha.value==0){
             headerLeft.snap(left);
             headerRight.snap(right);
@@ -400,8 +433,9 @@ final class HomeView extends View {
             headerRight.target(right);
         }
         headerAlpha.target(row==-1?1:0);
+        headerMenuExpand.target(row==-1&&headerMenu.isExpanded()?1:0);
         section.target(Math.max(0, row));
-        for(int i=0;i<headerFocus.length;i++)headerFocus[i].target(row==-1&&topSelected==i?1:0);
+        for(int i=0;i<headerFocus.length;i++)headerFocus[i].target(row==-1&&sel==i?1:0);
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             for (int j = 0; j < r.tiles.size(); j++) r.tiles.get(j).emphasis.target(i == row && j == r.selected ? 1 : 0);
@@ -431,6 +465,7 @@ final class HomeView extends View {
         boolean moving = section.step(dt);
         moving|=edge.step(dt);
         moving|=entrance.step(dt);
+        moving|=headerMenuExpand.step(dt);
         for(MotionSpring focus:headerFocus)moving|=focus.step(dt);
         moving|=headerLeft.step(dt);
         moving|=headerRight.step(dt);
@@ -559,50 +594,103 @@ final class HomeView extends View {
         contentAlpha *= desktopVis;
         if (contentAlpha > 0.005f) {
             float wifiX = clockScene.left(appearance) - 70;
-            int headerInkRgb = brightHeader ? (DesktopContrast.INK_COLOR & 0x00FFFFFF) : 0xFFFFFF;
             int muted = alphaColor(brightTopRight ? 0xC8141A24 : 0xC0FFFFFF, contentAlpha);
-            if(headerAlpha.value>.001f){
-                paint.setColor(alphaColor(brightHeader ? 0x22141A24 : 0x28FFFFFF, contentAlpha*headerAlpha.value));
-                rect.set(headerLeft.value,74,headerRight.value,152);
-                canvas.drawRoundRect(rect,24,24,paint);
+            float expand = clamp01(headerMenuExpand.value);
+            float fit = headerFit();
+            float barRight = headerCollapsedRight + (headerTotalRight - headerCollapsedRight) * expand;
+            if (expand > .005f) {
+                int bgSave = canvas.save();
+                canvas.translate(HEADER_ANCHOR_X * (1 - fit), 0);
+                canvas.scale(fit, 1);
+                rect.set(HEADER_ANCHOR_X, 72, barRight, 154);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(alphaColor(0xCC141D29, contentAlpha * expand));
+                canvas.drawRoundRect(rect, 26, 26, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(1.5f);
+                paint.setColor(alphaColor(0x36FFFFFF, contentAlpha * expand));
+                canvas.drawRoundRect(rect, 26, 26, paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.restoreToCount(bgSave);
             }
-            int headerSave=canvas.save();
-            float fit=headerFit();
-            canvas.translate(HEADER_ANCHOR_X*(1-fit),0);
-            canvas.scale(fit,1);
+            if (headerAlpha.value > .001f) {
+                boolean inExpandedBar = expand > .2f && headerMenu.selected() < HomeHeaderMenu.SLOT_WIFI;
+                boolean brightFocusedSlot = !inExpandedBar
+                        && ((headerMenu.selected() < HomeHeaderMenu.SLOT_WIFI && brightHeader)
+                        || (headerMenu.selected() == HomeHeaderMenu.SLOT_WIFI && brightTopRight));
+                int pillColor = inExpandedBar ? 0x36FFFFFF : (brightFocusedSlot ? 0x22141A24 : 0x28FFFFFF);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(alphaColor(pillColor, contentAlpha * headerAlpha.value));
+                rect.set(headerLeft.value, 76, headerRight.value, 150);
+                canvas.drawRoundRect(rect, 22, 22, paint);
+                if (inExpandedBar) {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(1.2f);
+                    paint.setColor(alphaColor(0x4CFFFFFF, contentAlpha * headerAlpha.value * expand));
+                    canvas.drawRoundRect(rect, 22, 22, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            }
+            int headerSave = canvas.save();
+            canvas.translate(HEADER_ANCHOR_X * (1 - fit), 0);
+            canvas.scale(fit, 1);
             paint.setTypeface(normal);
             paint.setTextSize(23);
-            float labelBaseline=113f-(paint.ascent()+paint.descent())/2f;
-            for(int i=0;i<4;i++){
-                float focus=clamp01(headerFocus[i].value);
-                int color=alphaColor((Math.round((brightHeader?204:212)+(brightHeader?51:43)*focus)<<24)|headerInkRgb,contentAlpha);
-                float ix=headerIconX[i],tx=headerTextX[i];
-                if(i==0){
-                    settingsIcon(canvas,ix,113,color,focus);
-                    text(canvas,"MARCO TV",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
-                }
-                else if(i==1){
-                    connectIcon(canvas,ix,112,color,focus);
-                    text(canvas,"Marco 互联",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
-                }
-                else if(i==2){
-                    magicIcon(canvas,ix,112,color,focus);
-                    text(canvas,"Magic Desktop",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
-                }
-                else{
-                    allAppsIcon(canvas,ix,113,color,focus);
-                    text(canvas,"全部应用",tx,labelBaseline,23,normal,color,Paint.Align.LEFT);
-                }
+            float labelBaseline = 113f - (paint.ascent() + paint.descent()) / 2f;
+            float darkBrandWeight = brightHeader ? (1f - expand) : 0f;
+            int brandRgb = blendColor(0xFFFFFFFF, DesktopContrast.INK_COLOR, darkBrandWeight) & 0x00FFFFFF;
+            float brandFocus = clamp01(headerFocus[0].value);
+            int brandColor = alphaColor((Math.round(218 + 37 * brandFocus) << 24) | brandRgb, contentAlpha);
+            brandIcon(canvas, headerIconX[0], 113, brandColor, brandFocus);
+            text(canvas, HomeHeaderMenu.BRAND_LABEL, headerTextX[0], labelBaseline, 23, bold, brandColor, Paint.Align.LEFT);
+            int chevronColor = alphaColor((Math.round(145 + 95 * Math.max(brandFocus, expand)) << 24) | brandRgb, contentAlpha);
+            chevronIcon(canvas, headerChevronX, 113, chevronColor, expand);
+            if (host.phone != null && host.phone.active() && expand < 0.4f) {
+                paint.setColor(alphaColor(0xFF9FE0C4, contentAlpha * (1f - expand / 0.4f)));
+                canvas.drawCircle(headerIconX[0] + 16f, 95f, 4.2f, paint);
             }
-            if(host.phone!=null&&host.phone.active()){
-                float connectFocus=clamp01(headerFocus[1].value);
-                paint.setColor(alphaColor(0xFF9FE0C4,contentAlpha));
-                canvas.drawCircle(headerIconX[1]+20+1.8f*connectFocus,95+1.0f*connectFocus,4.5f,paint);
+            if (expand > .01f) {
+                float itemAlpha = contentAlpha * clamp01((expand - 0.10f) / 0.90f);
+                int clipSave = canvas.save();
+                headerClipPath.reset();
+                rect.set(HEADER_ANCHOR_X, 72, barRight, 154);
+                headerClipPath.addRoundRect(rect, 26, 26, Path.Direction.CW);
+                canvas.clipPath(headerClipPath);
+                canvas.translate(-22f * (1f - expand), 0);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(1.5f);
+                paint.setColor(alphaColor(0x2EFFFFFF, itemAlpha));
+                canvas.drawLine(headerDividerX, 95, headerDividerX, 131, paint);
+                paint.setStyle(Paint.Style.FILL);
+                for (int i = 1; i < HomeHeaderMenu.LEFT_SLOT_COUNT; i++) {
+                    float focus = clamp01(headerFocus[i].value);
+                    int color = alphaColor((Math.round(206 + 49 * focus) << 24) | 0xFFFFFF, itemAlpha);
+                    float ix = headerIconX[i], tx = headerTextX[i];
+                    if (i == HomeHeaderMenu.SLOT_SETTINGS) {
+                        gearIcon(canvas, ix, 113, color, focus);
+                    } else if (i == HomeHeaderMenu.SLOT_CONNECT) {
+                        connectIcon(canvas, ix, 112, color, focus);
+                    } else if (i == HomeHeaderMenu.SLOT_MAGIC) {
+                        magicIcon(canvas, ix, 112, color, focus);
+                    } else {
+                        allAppsIcon(canvas, ix, 113, color, focus);
+                    }
+                    text(canvas, HomeHeaderMenu.EXPANDED_LABELS[i - 1], tx, labelBaseline, 23, normal, color, Paint.Align.LEFT);
+                }
+                if (host.phone != null && host.phone.active()) {
+                    float connectFocus = clamp01(headerFocus[HomeHeaderMenu.SLOT_CONNECT].value);
+                    paint.setColor(alphaColor(0xFF9FE0C4, itemAlpha));
+                    canvas.drawCircle(headerIconX[HomeHeaderMenu.SLOT_CONNECT] + 20 + 1.8f * connectFocus, 95 + 1.0f * connectFocus, 4.5f, paint);
+                }
+                canvas.restoreToCount(clipSave);
             }
             canvas.restoreToCount(headerSave);
             int topRightActive = alphaColor(brightTopRight ? DesktopContrast.INK_COLOR : Color.WHITE, contentAlpha);
-            wifiIcon(canvas,Math.round(wifiX),113,row==-1&&topSelected==4?topRightActive:muted);
-            if(mover.active())shadowText(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,desktopBrightShelf?DesktopContrast.INK_COLOR:Color.WHITE,Paint.Align.CENTER,1f);
+            wifiIcon(canvas, Math.round(wifiX), 113, row == -1 && headerMenu.selected() == HomeHeaderMenu.SLOT_WIFI ? topRightActive : muted);
+            if (mover.active()) shadowText(canvas, "左右移动  ·  确定放下  ·  返回取消", 960, 960, 26, bold, desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE, Paint.Align.CENTER, 1f);
             if(host.playback!=null&&host.playback.item!=null)drawPlayback(canvas,contentAlpha);
             if (rows.isEmpty()) shadowText(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE,
                     contentAlpha), Paint.Align.LEFT, contentAlpha);
@@ -726,7 +814,7 @@ final class HomeView extends View {
         text(canvas, text, x, y, size, font, color, align);
     }
 
-    private void settingsIcon(Canvas canvas,float x,float y,int color,float focus){
+    private void brandIcon(Canvas canvas,float x,float y,int color,float focus){
         float f=clamp01(focus);
         float alpha=Color.alpha(color)/255f;
         float spread=2.3f*f;
@@ -768,6 +856,57 @@ final class HomeView extends View {
             paint.setColor(alphaColor(0x44141A24,alpha));
             canvas.drawRoundRect(rect,4.6f,4.6f,paint);
         }
+        canvas.restore();
+    }
+    private void chevronIcon(Canvas canvas,float x,float y,int color,float expand){
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
+        canvas.rotate(180f*clamp01(expand));
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeWidth(2.4f);
+        paint.setColor(color);
+        iconPath.reset();
+        iconPath.moveTo(-3.2f,-5.6f);
+        iconPath.lineTo(2.6f,0f);
+        iconPath.lineTo(-3.2f,5.6f);
+        canvas.drawPath(iconPath,paint);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.restore();
+    }
+    private void gearIcon(Canvas canvas,float x,float y,int color,float focus){
+        float f=clamp01(focus);
+        float alpha=Color.alpha(color)/255f;
+        canvas.save();
+        canvas.translate(Math.round(x),Math.round(y));
+        canvas.rotate(24f*f);
+        paint.setShader(null);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        // Subtle inner glow when focused
+        if(f>0.01f){
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(alphaColor(0x30C4A8FF,alpha*f));
+            canvas.drawCircle(0,0,10.5f,paint);
+        }
+        // 8 crisp radial teeth
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3.0f);
+        paint.setColor(color);
+        for(int i=0;i<8;i++){
+            double ang=i*Math.PI/4.0;
+            float cos=(float)Math.cos(ang),sin=(float)Math.sin(ang);
+            canvas.drawLine(cos*9.6f,sin*9.6f,cos*12.8f,sin*12.8f,paint);
+        }
+        // Outer gear ring + inner hub
+        paint.setStrokeWidth(2.6f);
+        canvas.drawCircle(0,0,8.2f,paint);
+        paint.setStrokeWidth(2.2f);
+        paint.setColor(blendColor(color,alphaColor(0xFFC4A8FF,alpha),f*0.65f));
+        canvas.drawCircle(0,0,3.4f,paint);
+        paint.setStyle(Paint.Style.FILL);
         canvas.restore();
     }
     private void magicIcon(Canvas canvas,float x,float y,int color,float focus){
@@ -1325,6 +1464,29 @@ final class HomeView extends View {
         return code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER
                 ||code==KeyEvent.KEYCODE_NUMPAD_ENTER||code==KeyEvent.KEYCODE_BUTTON_A;
     }
+    private void executeHeaderAction(HomeHeaderMenu.Action action) {
+        animateFocus();
+        describeFocus();
+        switch (action) {
+            case OPEN_SETTINGS:
+                host.settings();
+                break;
+            case OPEN_CONNECT:
+                host.phone.show();
+                break;
+            case OPEN_MAGIC_DESKTOP:
+                host.navigator.personalization("cards");
+                break;
+            case OPEN_APP_MANAGER:
+                host.navigator.appManager();
+                break;
+            case OPEN_WIFI:
+                host.network.show();
+                break;
+            default:
+                break;
+        }
+    }
     @Override public boolean onKeyDown(int code, KeyEvent event) {
         if(host.recents.visible)return host.recents.key(code,event);
         boolean navigation = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
@@ -1366,20 +1528,48 @@ final class HomeView extends View {
             return true;
         }
         if (code == KeyEvent.KEYCODE_MENU) {
-            if (event.getRepeatCount() == 0) host.settings();
+            if (event.getRepeatCount() == 0) {
+                headerMenu.onLeaveTopRow();
+                animateFocus();
+                host.settings();
+            }
             return true;
         }
         if (code == KeyEvent.KEYCODE_BACK) {
+            if (row == -1 && headerMenu.onBack()) {
+                animateFocus();
+                describeFocus();
+                return true;
+            }
             if (row != 0) {
+                headerMenu.onLeaveTopRow();
                 row = 0;
                 ensureVisible();
                 animateFocus();
+                describeFocus();
             } else setIdle(true);
+            return true;
+        }
+        if (row == -1) {
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                headerMenu.onLeaveTopRow();
+                if (!rows.isEmpty() || host.playback.item != null) {
+                    row = host.playback.item == null ? 0 : -2;
+                }
+            }
+            else if (code == KeyEvent.KEYCODE_DPAD_LEFT) headerMenu.onLeft();
+            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) headerMenu.onRight();
+            ensureVisible();
+            animateFocus();
+            describeFocus();
+            invalidate();
             return true;
         }
         if (rows.isEmpty()) {
             if (code == KeyEvent.KEYCODE_DPAD_UP) {
                 row = -1;
+                animateFocus();
+                describeFocus();
                 invalidate();
             }
             return true;
@@ -1393,29 +1583,21 @@ final class HomeView extends View {
             invalidate();
             return true;
         }
-        if (row == -1) {
-            if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = host.playback.item==null?0:-2;
-            else if (code == KeyEvent.KEYCODE_DPAD_LEFT) topSelected = Math.max(0,topSelected-1);
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) topSelected = Math.min(4,topSelected+1);
-            ensureVisible();
-            animateFocus();
-        } else {
-            Row r = rows.get(row);
-            if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
-                if(r.selected==0&&event.getRepeatCount()==0){
-                    edgeSelected=0;
-                    edge(true);
-                    setContentDescription("分类操作栏，"+edgeItems[0]);
-                    return true;
-                }
-                r.selected=Math.max(0,r.selected-1);
+        Row r = rows.get(row);
+        if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
+            if(r.selected==0&&event.getRepeatCount()==0){
+                edgeSelected=0;
+                edge(true);
+                setContentDescription("分类操作栏，"+edgeItems[0]);
+                return true;
             }
-            else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) r.selected = Math.max(0,Math.min(r.tiles.size() - 1, r.selected + 1));
-            else if (code == KeyEvent.KEYCODE_DPAD_UP) row=row==0&&host.playback.item!=null?-2:row-1;
-            else if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = Math.min(rows.size() - 1, row + 1);
-            ensureVisible();
-            animateFocus();
+            r.selected=Math.max(0,r.selected-1);
         }
+        else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) r.selected = Math.max(0,Math.min(r.tiles.size() - 1, r.selected + 1));
+        else if (code == KeyEvent.KEYCODE_DPAD_UP) row=row==0&&host.playback.item!=null?-2:row-1;
+        else if (code == KeyEvent.KEYCODE_DPAD_DOWN) row = Math.min(rows.size() - 1, row + 1);
+        ensureVisible();
+        animateFocus();
         describeFocus();
         if (row >= 0 && row < rows.size() && !rows.get(row).tiles.isEmpty()) {
             String label = rows.get(row).tiles.get(rows.get(row).selected).label;
@@ -1445,11 +1627,7 @@ final class HomeView extends View {
             }
             if (row == -2) host.playback.controls();
             else if (row == -1) {
-                if (topSelected == 0) host.settings();
-                else if(topSelected==1)host.phone.show();
-                else if(topSelected==2)host.navigator.personalization("cards");
-                else if(topSelected==3)host.drawer.show();
-                else host.network.show();
+                executeHeaderAction(headerMenu.onConfirm());
             }
             else if (!rows.isEmpty()) {
                 Row r = rows.get(row);
@@ -1485,30 +1663,47 @@ final class HomeView extends View {
             else edge(false);
             return true;
         }
+        if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) {
+            row=-1;
+            executeHeaderAction(headerMenu.activateSlot(HomeHeaderMenu.SLOT_WIFI));
+            return true;
+        }
         if(y<175&&x<clockScene.left(host.appearance())-112){
             float local=HEADER_ANCHOR_X+(x-HEADER_ANCHOR_X)/headerFit();
-            int entry=-1;
-            for(int i=0;i<4;i++){
-                float leftBound=i==0?0:(headerContentRight[i-1]+headerContentLeft[i])*.5f;
-                float rightBound=i==3?headerTotalRight+24f:(headerContentRight[i]+headerContentLeft[i+1])*.5f;
-                if(local>=leftBound&&local<rightBound){
-                    entry=i;
-                    break;
+            if(!headerMenu.isExpanded()){
+                if(local>=HEADER_ANCHOR_X-16f&&local<=headerCollapsedRight+18f){
+                    row=-1;
+                    executeHeaderAction(headerMenu.activateSlot(HomeHeaderMenu.SLOT_BRAND));
+                    return true;
                 }
-            }
-            if(entry>=0){
-                topSelected=entry;
-                row=-1;
+            }else{
+                int entry=-1;
+                if(local>=HEADER_ANCHOR_X-16f&&local<headerDividerX){
+                    entry=HomeHeaderMenu.SLOT_BRAND;
+                }else{
+                    for(int i=1;i<HomeHeaderMenu.LEFT_SLOT_COUNT;i++){
+                        float leftBound=i==1?headerDividerX:(headerContentRight[i-1]+headerContentLeft[i])*.5f;
+                        float rightBound=i==HomeHeaderMenu.LEFT_SLOT_COUNT-1?headerTotalRight+24f:(headerContentRight[i]+headerContentLeft[i+1])*.5f;
+                        if(local>=leftBound&&local<rightBound){
+                            entry=i;
+                            break;
+                        }
+                    }
+                }
+                if(entry>=0){
+                    row=-1;
+                    executeHeaderAction(headerMenu.activateSlot(entry));
+                    return true;
+                }
+                headerMenu.collapseToBrand();
                 animateFocus();
-                if(entry==0)host.settings();
-                else if(entry==1)host.phone.show();
-                else if(entry==2)host.navigator.personalization("cards");
-                else host.drawer.show();
+                describeFocus();
                 return true;
             }
-        }
-        if (y < 205 && Math.abs(x-(clockScene.left(host.appearance())-70)) < 65) {
-            host.network.show();
+        }else if(headerMenu.isExpanded()){
+            headerMenu.collapseToBrand();
+            animateFocus();
+            describeFocus();
             return true;
         }
         if(y>=192&&y<=310&&x>=112&&x<=742&&host.playback.item!=null){

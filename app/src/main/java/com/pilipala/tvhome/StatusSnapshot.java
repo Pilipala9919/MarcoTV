@@ -20,12 +20,39 @@ final class StatusSnapshot {
                 ?"已失效（"+SystemIntegration.trackedHomeInvalidName(c)+"），无可靠替代，已停止窗口回拉"
                 :tracked.isEmpty()?"未记录":tracked;
         String confirmed=HomeSetup.bootConfirmationStatus(c);
-        return "原生默认桌面："+(BuildEdition.RESTRICTED?"受限兼容版不含 HOME 声明":SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面（"+(currentHome.isEmpty()?"未指定":currentHome)+"）")
+        HomeSetupPolicy.DesktopState state=SystemIntegration.desktopState(c);
+        String oemExp=SystemIntegration.hasDisabledOemExperiment(c)
+                ?"已停用原厂桌面（"+SystemIntegration.disabledOemExperimentPackage(c)+"），可随时恢复"
+                :"未启用";
+        String keyFilterStatus;
+        if(!HomeKeyService.connected){
+            keyFilterStatus="未绑定";
+        }else if(state.keyFilterStillActiveUnexpectedly){
+            keyFilterStatus="系统拒绝撤销过滤（过滤位仍开启）";
+        }else if(HomeKeyService.runtimeVolumeYieldActive){
+            keyFilterStatus="无桥临时让渡中";
+        }else if(HomeKeyService.runtimeVolumeYieldFailed){
+            keyFilterStatus="系统拒绝撤销过滤（让渡不可用）";
+        }else if(HomeKeyService.runtimeKeyFilterRequested){
+            keyFilterStatus="已请求";
+        }else if(SystemIntegration.guardMode(c)==HomeSetupPolicy.GuardMode.KEY_FILTER&&!SystemIntegration.homeIsOurs(c)&&!HomeSetup.paused(c)&&p.getBoolean("home_compat",false)){
+            keyFilterStatus="系统拒绝开启过滤（未生效）";
+        }else{
+            keyFilterStatus="未请求";
+        }
+        return "用户选择："+state.userChoiceLabel
+                +"\n当前实际生效："+state.effectiveModeLabel
+                +"\n降级原因："+state.fallbackReason
+                +"\n原生默认桌面："+(BuildEdition.RESTRICTED?"受限兼容版不含 HOME 声明":SystemIntegration.homeIsOurs(c)?"Marco TV":"厂商或其他桌面（"+(currentHome.isEmpty()?"未指定":currentHome)+"）")
                 +"\n系统设置授权："+(SystemIntegration.authorized(c)?"已授权":"未授权")
                 +"\nHome 兼容："+(p.getBoolean("home_compat",false)?"已开启":"未开启")+" / 服务："+HomeSetup.serviceStatusLabel(c)
                 +"\n兼容回拉目标："+trackedLine
                 +"\nHome 返回观察："+HomeSetup.homeReturnStatus(c)
-                +"\nHome 原厂按键："+(p.getBoolean("home_native_keys",false)?"放行":"Marco 处理")+" / 长按："+p.getString("home_long_action","system")
+                +"\nHome 守护模式："+SystemIntegration.guardModeLabel(SystemIntegration.guardMode(c))
+                +" / 状态："+SystemIntegration.rebindStatusLabel(c)
+                +" / 按键过滤："+keyFilterStatus
+                +"（flags="+HomeKeyService.runtimeFlags+"） / 长按："+p.getString("home_long_action","system")
+                +"\n停用原厂桌面实验："+oemExp
                 +"\n开机打开："+(p.getBoolean("boot_home",false)?"已开启":"未开启")+" / 状态："+HomeSetup.bootStatus(c)
                 +(confirmed.isEmpty()?"":"\n开机人工确认："+confirmed)
                 +"\nADB 自动恢复："+SystemIntegration.adbRestoreLabel(c)+" / 调试开关"+(adb?"已打开":"已关闭")
@@ -46,8 +73,16 @@ final class StatusSnapshot {
         String state="本机 5555 端口："+(reachable?"可连接（不等于局域网 ADB 已通过）":"未监听或使用其他端口");
         try{
             JSONObject task=TaskBridgeClient.request("status");
+            boolean supportsV2=TaskBridgeClient.supportsVolumeAssistProtocol(task);
+            boolean volCfg=task.optBoolean("volumeAssist",false);
+            boolean volAct=supportsV2&&task.optBoolean("volumeAssistActive",false);
+            boolean volAudio=supportsV2&&task.optBoolean("volumeAudioReady",false);
+            int devCount=task.optInt("volumeInputDeviceCount",0);
+            String volReason=supportsV2?task.optString("volumeAssistReason",volAct?"ready":"unavailable"):"bridge_update_required";
             state+="\n任务服务：已连接\n任务服务版本："+task.optString("version")
                     +"\n任务服务唤醒恢复："+(task.optBoolean("wake")?"已启用":"未启用")
+                    +"\n任务桥音量长按辅助："+(!supportsV2?"旧版任务桥（最近任务正常，需重启任务桥后启用新版音量辅助）":volAct?"已生效（音量输入设备 "+devCount+" 个，音频能力就绪，已补偿 "+task.optLong("volumeAdjustCount",0)+" 次）":volCfg?"已请求但未就绪（原因："+volReason+"，音量输入设备 "+devCount+" 个，音频="+(volAudio?"就绪":"不可用")+"）":"未启用（原因："+volReason+"）")
+                    +"\n音量补偿最近停止原因："+task.optString("volumeLastStopReason","idle")
                     +"\n清除单个任务："+(task.optBoolean("canRemove")?("task".equals(task.optString("removeMode"))?"接口可用，需实际测试":"仅独立任务可清除"):"系统未开放")
                     +"\n最近唤醒结果："+task.optString("lastWake","尚无记录");
         }catch(Exception e){

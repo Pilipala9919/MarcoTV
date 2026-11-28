@@ -17,12 +17,13 @@ stubs={
  public void removeCallbacks(Runnable r){if(timeout==r)timeout=null;}
  public static void fireTimeout(){Runnable r=timeout;if(r!=null)r.run();}}''',
  'android/os/SystemClock.java': 'package android.os; public class SystemClock {public static long elapsedRealtime(){return System.nanoTime()/1000000;}}',
- 'android/os/Process.java': 'package android.os; public class Process {public static int myUid(){return 1012345;}}'
+ 'android/os/Process.java': 'package android.os; public class Process {public static int myUid(){return 1012345;}}',
+ 'android/os/Build.java': 'package android.os; public class Build {public static String MODEL="MiTV-ASTP0",DISPLAY="22.8.30.1385";}'
 }
 files=[]
 for name,content in stubs.items():
  path=folder/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding='utf8');files.append(path)
-files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeShellSetup.java','HomeDeviceGuide.java','LocalHomeAuthorizer.java']]
+files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeSetupPolicy.java','HomeShellSetup.java','OemLauncherExperimentPolicy.java','HomeDeviceGuide.java','LocalHomeAuthorizer.java']]
 files += [ROOT/'scripts/HomeAutoChecks.java']
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-d',str(folder),*[str(p) for p in files]],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),f'-Dfixture.dir={folder}', '-cp',str(folder),'com.pilipala.tvhome.HomeAutoChecks'],check=True,capture_output=True,text=True,timeout=30)
@@ -67,7 +68,7 @@ android={
 files=[]
 for name,content in android.items():
  path=snap/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding='utf8');files.append(path)
-files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeShellSetup.java','HomeSetupSnapshot.java']]
+files += [ROOT/'app/src/main/java/com/pilipala/tvhome'/name for name in ['HomeShellSetup.java','OemLauncherExperimentPolicy.java','HomeSetupSnapshot.java']]
 files += [ROOT/'scripts/HomeSnapshotChecks.java']
 subprocess.run([str(executable(JDK/'bin','javac')),'-encoding','UTF-8','-d',str(snap),*[str(p) for p in files]],check=True)
 result=subprocess.run([str(executable(JDK/'bin','java')),'-cp',str(snap),'com.pilipala.tvhome.HomeSnapshotChecks'],check=True,capture_output=True,text=True,timeout=30)
