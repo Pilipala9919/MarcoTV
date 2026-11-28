@@ -7,7 +7,7 @@ import java.io.*;
 
 /** Author, release identity and bundled licensing for offline access. */
 final class ProjectInfo {
-    static final String VERSION="0.22.0";
+    static final String VERSION="0.22.1";
     static final String AUTHOR="Pilipala";
     static final String SOCIAL_ACCOUNT="PILIPALA来信";
     static final String SOCIAL_PLATFORMS="小红书、B站、抖音、公众号、视频号";

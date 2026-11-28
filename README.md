@@ -9,7 +9,7 @@
 
 **把电视桌面做到 Apple TV 的质感，还免费。**
 
-作者：**Pilipala** · 当前版本：**0.22.0** · 协议：[GPL-3.0-only](LICENSE)
+作者：**Pilipala** · 当前版本：**0.22.1** · 协议：[GPL-3.0-only](LICENSE)
 
 Marco TV 是免费开源的 Android 电视桌面：横向卡片、连续焦点动画、4K 60fps 动态壁纸，顺滑得不像第三方桌面。Magic Desktop 29 项调整配 3D 实时预览，支持亮壁纸对比度全界面联动、桌面天气、时间配色自定义与单卡长宽封面定制；手机扫码传图、无线投屏、最近任务、本地备份一应俱全。Android 6.0 就能用，老电视还有 Lite 版。
 
@@ -28,20 +28,27 @@ Marco TV 是免费开源的 Android 电视桌面：横向卡片、连续焦点�
 | ![Magic Desktop](docs/images/readme-magic-desktop.jpg)<br>Magic Desktop | ![我的壁纸](docs/images/readme-wallpapers.jpg)<br>我的壁纸 | ![息屏时钟](docs/images/readme-clock.jpg)<br>息屏时钟 |
 | ![全部应用](docs/images/readme-apps.jpg)<br>全部应用 | ![双栏设置](docs/images/readme-settings.jpg)<br>双栏设置 | ![Marco 互联](docs/images/readme-connect.jpg)<br>Marco 互联 |
 
-0.22.0 带来亮壁纸全界面自适应对比度、首页时间配色自定义（智能自适应 / 8 款预设 / HSL 自定义 / 对比阴影）、日期下方桌面天气模块（优先探测本机系统/厂商天气并可选 Open-Meteo 在线城市补齐与降水概率自定义），以及更新渠道 `/wallpapers/*` 隔离回归防护；同时同步推出 **Marco TV Lite 0.4.0**（在保持纯 API 14 / 零联网权限底线下下放亮壁纸自适应、时间配色、本机天气探测、多壁纸库、首张左按快捷栏、非桌面 Activity 入口与 API 21+ 反射输入源行）。实机验证与覆盖范围见[验证记录](docs/验证范围.md)与[桌面启用验收](docs/一键桌面启用与验收.md)，新版设置路径见[使用说明](docs/使用说明.md)。
+0.22.1 在 `0.22.0`（亮壁纸全界面自适应对比度、首页时间配色自定义与日期下方桌面天气模块）基础上，全量整合左上角可折叠顶栏菜单（`HomeHeaderMenu`）、设置页全屏 `PanelWindowTheme` 修复（消除四周漏出下层桌面）、默认窗口回拉守护与小米蓝牙遥控器长按音量兼容（含 TaskBridge v3 音量辅助与 5 秒让路），以及海信 JUOS 回拉去重/安全超时与动态壁纸降级恢复；同时搭配 **Marco TV Lite 0.4.0**（保持纯 API 14 / 零联网权限底线）。实机验证与覆盖范围见[验证记录](docs/验证范围.md)与[桌面启用验收](docs/一键桌面启用与验收.md)，新版设置路径见[使用说明](docs/使用说明.md)。
 
 ## 下载与说明
 
-- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/v0.22.0)**：面向安装报错含 `not signature by tcl` 或拦截第三方桌面 `HOME` 的设备，提供 `MarcoTV-0.22.0-Restricted.apk`，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
+- **[受限系统兼容测试包](https://github.com/Pilipala9919/MarcoTV/releases/tag/v0.22.1)**：面向安装报错含 `not signature by tcl` 或拦截第三方桌面 `HOME` 的设备，提供 `MarcoTV-0.22.1-Restricted.apk`，移除 HOME 声明，使用 Home 兼容路线。尚待 TCL 安装、按键与重启实测，不能当作已适配；[先读测试说明](docs/受限系统兼容版测试说明.md)。
 
 - **[没有 U 盘？打开安装向导](https://marcotv.wlj9919.top/install/)**：Windows 电脑 / 安卓手机助手、电视浏览器、厂商接收入口，按条件选择路线。
-- [安装助手使用说明](installer/README.md)：**1.0.1** 内置经摘要校验的正式安装包（安装后可在桌面「系统与关于 → 软件更新」在线升级至 **0.22.0**），支持 `/8`–`/30` 私有网段查找与普通网络 ADB；无线配对码暂不支持。
+- [安装助手使用说明](installer/README.md)：**1.0.1** 内置经摘要校验的正式安装包（安装后可在桌面「系统与关于 → 软件更新」在线升级至 **0.22.1**），支持 `/8`–`/30` 私有网段查找与普通网络 ADB；无线配对码暂不支持。
 
 - [下载安装包（Releases）](https://github.com/Pilipala9919/MarcoTV/releases/latest)
 - [详细安装说明](docs/安装说明.md)：识别电视 → 开发者模式 → 未知来源 → ADB → 安装和授权 → 默认桌面 → 验收与撤销。
 - [详细使用说明](docs/使用说明.md)：遥控器、分类操作栏、卡片、壁纸、时钟、屏保、无线投屏、实时预览、设置排序。
 - [各品牌电视设置入口](docs/各品牌电视设置入口.md)：按系统与固件区分入口，标明资料与实测范围。
 - [常见问题](docs/常见问题.md) · [隐私说明](docs/隐私说明.md) · [构建说明](docs/构建说明.md)
+
+## 0.22.1 更新要点
+
+- **首页左上角顶栏默认收起与亮壁纸自适应联动**：恢复左上角 `MARCO TV` 折叠顶栏菜单（默认收起仅保留品牌徽标，确认展开设置 / Marco 互联 / Magic Desktop / 应用管理），并与 `0.22.0` 的 `DesktopContrast` 亮壁纸自适应对比度平滑衔接。
+- **设置页全屏窗口修复（消除四周漏出下层桌面，Issue #5）**：新增 `PanelWindowTheme`（全屏、透明系统边框、`windowIsFloating=false`），并在 `PanelWindow` 启用全屏配置、清除祖先/Decor 内边距与不透明背景铺底，消除设置与弹窗边缘漏出底层桌面的情况。
+- **默认桌面守护模式与小米蓝牙遥控器音量长按兼容**：统一以「原桌面窗口回拉」为默认守护模式（不默认拦截全局按键），结合 TaskBridge v3 音量辅助与 5 秒自动让路，解决小米等设备蓝牙遥控器长按音量失效问题；新增首次启动官方免费声明与设置页联系作者入口。
+- **海信 JUOS / OEM 桌面回拉、超时防护与动态壁纸降级增强**：新增 `HomeWindowPullPolicy`（0 ms 前沿回拉、跨来源去重、`HOME_TRACE` 与 2500 ms 安全超时恢复）、`LiveWallpaperPolicy` / `LiveWallpaperView` SurfaceView 降级及卡死监测与反馈弹窗平滑替换。
 
 ## 0.22.0 更新要点
 
@@ -154,7 +161,7 @@ Marco TV 是免费开源的 Android 电视桌面：横向卡片、连续焦点�
 
 ## 快速开始
 
-1. 在 Releases 免费下载 `MarcoTV-0.22.0.apk`（或最新版本）。
+1. 在 Releases 免费下载 `MarcoTV-0.22.1.apk`（或最新版本）。
 2. 按安装说明确认系统，通过安装向导选择助手、电视浏览器、文件接收、U 盘或 ADB 安装。
 3. 从原桌面的应用列表打开 **Marco TV**，先验证遥控器和应用启动。
 4. 打开首页 **Magic Desktop**，调整壁纸、时钟和卡片；系统功能仍在左上设置齿轮中。

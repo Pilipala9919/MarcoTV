@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "edition": "standard",
-  "versionCode": 47,
-  "versionName": "0.22.0",
+  "versionCode": 48,
+  "versionName": "0.22.1",
   "minSdk": 23,
-  "size": 1608579,
-  "sha256": "b4cbafa40bb9cdda2b1e9dc844843a4a6433a254a5b03813a6c7b3f64baa9347",
-  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.22.0/MarcoTV-0.22.0.apk",
+  "size": 1674115,
+  "sha256": "e51d8ea1786cbdc672ff74f8c20116251e194cf9bc95173917d1e16e8b9eb0ea",
+  "url": "https://github.com/Pilipala9919/MarcoTV/releases/download/v0.22.1/MarcoTV-0.22.1.apk",
   "prerelease": false,
-  "notes": "Marco TV 0.22.0 · Pilipala\n\n- 首页时间字体颜色自定义 & 全局亮壁纸联动自适应：Magic Desktop 新增「时间字体颜色」（智能自适应、经典纯白、深邃墨黑、暖象牙白、薰衣草紫、冰川青蓝、流光琥珀、翡翠薄荷、珊瑚樱粉与 HSL 自定义色相/明度）及「文字对比阴影」；后台采样壁纸左上、右上、卡片行亮度并联动壁纸压暗比自动切换深浅配色，同步适配左上顶栏、Wi-Fi 图标、日期/天气、行标题、磨砂角标与卡片名称对比，进入压暗屏保时自动提亮深色墨字防止隐身，并同步支持 Marco 互联网页端快捷预设与预览。\n- 日期下方可定制桌面天气模块：无需位置权限，优先通过 LocalWeatherProbe 探测本机系统/厂商天气接口（ContentProvider、Settings 与粘性广播，支持在设置内查看探测明细报告），同时支持通过 Open-Meteo HTTPS 免密钥城市预报与搜索补齐实时温度、温差范围与降雨概率；支持开关、数据源选择、12 个常用城市预设与搜索、矢量彩色/单色天气图标、实时温度、温度范围、降雨概率策略、城市名称、屏保天气展示与大小缩放。\n- 更新渠道隔离回归防护：核实更新索引与壁纸目录路由完全隔离，并在离线更新策略测试新增 `/wallpapers/*` 拦截断言。\n- 同步推出 Marco TV Lite 0.4.0：保持纯 API 14 / Dalvik dex 035 / 零联网与零后台服务边界，下放亮壁纸全界面自适应对比、时间配色与对比阴影、免联网本机系统天气探测显示、card_surface 卡片高光、圆角磨砂角标、首张卡片左按快捷导航栏、本地多壁纸图库、手动非桌面 Activity 入口与 Android 5.0+ 反射电视输入源独立行（详见 lite-v0.4.0 发布页）。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证（含桌面对比自适应与天气解析回归、更新策略 57 项检查、设置迁移 22 项检查及 Marco 互联 HTTP 检查）、网页安装向导 72 项路由校验与全部 7 个真机插桩测试 APK `--compile-only` 守卫已通过；实机端默认桌面基准仍沿用小米 MiTV-ASTP0（Android 9，22.8.30.1385），本版新增桌面 UI 配色、天气模块与 Lite 0.4.0 适配尚待电视真机实测反馈。\n\n受限系统兼容 APK（MarcoTV-0.22.0-Restricted.apk）移除 HOME 声明，供部分拦截第三方桌面的固件测试，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.4.0。安装助手保持 1.0.1（安装后可在桌面「设置 → 系统与关于 → 软件更新」在线升级至 0.22.0）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快申请退款。\n"
+  "notes": "Marco TV 0.22.1 · Pilipala\n\n- 恢复首页左上角可折叠顶栏菜单并与 0.22.0 亮壁纸自适应联动：默认仅展示左上角 `MarcoTV >` 紧凑徽标，按确认展开「设置 / Marco 互联 / Magic Desktop / 应用管理」，并继承 `DesktopContrast` 亮壁纸深浅自适应对比、时间配色自定义与桌面天气。\n- 修复设置页与弹窗四周漏出下层桌面内容问题（Issue #5）：引入 `PanelWindowTheme`（全屏、透明系统窗框与 `windowIsFloating=false`）及 `PanelWindow` 全屏装饰垫底与祖先内边距清零。\n- 统一默认桌面守护模式与小米蓝牙遥控器音量长按兼容：默认采用原桌面窗口回拉（不默认拦截全局按键），集成 TaskBridge v3 音量辅助、5 秒让路兼容、首次启动官方免费声明与设置页联系作者入口。\n- 整合海信 JUOS / OEM 桌面回拉增强与动态壁纸降级恢复：引入 `HomeWindowPullPolicy` 0 ms 前沿拉回与跨源去重、2500 ms 长按安全超时恢复、`LiveWallpaperPolicy` 与 SurfaceView 降级监护，以及反馈弹窗平滑切换。\n\nAndroid 6.0+ 完整版。全部 19 套离线验证、网页向导 72 项路由校验与 7 个真机测试 APK 编译守卫已通过；并在小米 `MiTV-ASTP0`（Android 9，22.8.30.1385）完成官方正式签名覆盖安装、14 项抽屉与折叠顶栏真机检查、93 项界面全屏外观真机检查与实机截图核验（确认左上角默认收起、设置页全屏无露边）；其他品牌与受限版固件仍待实测。\n\n受限系统兼容 APK（MarcoTV-0.22.1-Restricted.apk）移除 HOME 声明，不加入普通版自动更新。Android 4.0–5.x 老电视请使用独立分支 Marco TV Lite 0.4.0。安装助手保持 1.0.1（安装后可在桌面在线升级至 0.22.1）。\n\n诊断记录保存在本机，自动反馈默认关闭。本软件免费开源。如果你付费购买了本软件，请尽快向购买平台申请退款。\n"
 }

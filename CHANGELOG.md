@@ -1,5 +1,16 @@
 # 更新记录
 
+## 0.22.1 · 2026-11-28
+
+- **首页左上角顶栏默认收起与亮壁纸自适应联动**：
+  - 恢复左上角 `MARCO TV` 折叠顶栏菜单（`HomeHeaderMenu`：默认仅显示品牌徽标胶囊，按确认展开「设置 / Marco 互联 / Magic Desktop / 应用管理」，操作后自动收起），并与 `0.22.0` 的 `DesktopContrast` 亮壁纸自适应对比度平滑衔接。
+- **设置页全屏窗口修复（消除四周漏出下层桌面，Issue #5）**：
+  - 新增 `PanelWindowTheme`（全屏、透明窗口背景消除系统默认边框/阴影、`windowIsFloating=false`）并在 `PanelWindow` 中启用 `configureFullscreenWindow()`、`clearAncestorInsets()` 与不透明背景铺底 `applyDecorBackdrop()`，彻底解决设置页与弹窗四周露边问题。
+- **默认桌面守护模式与小米蓝牙遥控器音量长按兼容**：
+  - 默认守护模式统一为「原桌面窗口回拉」（不再默认开启全局无障碍按键过滤），结合 `TaskBridgeClient` / `TaskBridgeServer` v3 音量辅助与 5 秒自动让路机制，解决小米等机型蓝牙遥控器长按音量失灵问题；新增首次启动官方免费声明与设置页联系作者入口。
+- **海信 JUOS / OEM 桌面回拉、超时防护与动态壁纸降级增强**：
+  - 新增 `HomeWindowPullPolicy`（0 ms 前沿拉回、跨来源去重、`HOME_TRACE` 与 2500 ms 长按安全超时恢复），同步整合 `LiveWallpaperPolicy` 与 `LiveWallpaperView` SurfaceView 降级回退及卡死监测，以及 `FeedbackPanel` 的 `dialogs.replace` 平滑切换。
+
 ## 0.22.0 · 2026-11-28
 
 - **首页时间颜色自定义 & 全局亮壁纸联动自适应**：

@@ -262,7 +262,8 @@ final class AppearanceDeviceChecks {
                     Tile sample=new Tile();sample.label="Fixture";sample.banner=true;sample.artwork=Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888);sample.artwork.eraseColor(Color.WHITE);Bitmap target=Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888);
                     Method draw=HomeView.class.getDeclaredMethod("drawTile",Canvas.class,Tile.class,float.class,float.class,float.class);draw.setAccessible(true);draw.invoke(host.home,new Canvas(target),sample,400f,300f,1f);
                     float[] matrix=new float[9];((Matrix)field(host.home,"artworkMatrix")).getValues(matrix);check.accept("tall_banner_preserves_image_aspect_ratio",Math.abs(matrix[0]-matrix[4])<.001f);
-                    check.accept("tall_card_renders_added_height",Color.alpha(target.getPixel(400,190))>0&&Color.alpha(target.getPixel(400,175))==0);target.recycle();sample.artwork.recycle();
+                    int insideCard=target.getPixel(400,190),aboveCard=target.getPixel(400,175);
+                    check.accept("tall_card_renders_added_height",Color.alpha(insideCard)==255&&Color.red(insideCard)>200&&Color.alpha(aboveCard)<128&&Color.red(aboveCard)<40&&Color.alpha(target.getPixel(400,90))==0);target.recycle();sample.artwork.recycle();
                     host.exitMenus();check.accept("card_height_save_commits_value",prefs.getInt("card_height",0)==130);
                     check.accept("card_height_backup_has_bounded_range",BackupStore.capture(host,false).getJSONObject("home").getJSONObject("card_height").getInt("value")==130&&java.util.Arrays.equals(BackupStore.range("card_height"),new int[]{70,130}));
                     prefs.edit().putInt("card_height",999).commit();check.accept("card_height_clamps_invalid_values",Math.abs(host.home.cardHeight()-234)<.01f);
@@ -270,38 +271,46 @@ final class AppearanceDeviceChecks {
             }catch(Exception e){throw new RuntimeException(e);}});
             final HomeKeyService[] service={null};final android.content.Intent[] launch={null};
             final SharedPreferences gesturePrefs=host.getSharedPreferences("test013_home_gestures",0);
-            ui(inst,()->{try{
-                gesturePrefs.edit().clear().putBoolean("home_compat",true).putBoolean("recent_enabled",true).putString("home_long_action","marco").commit();
-                service[0]=new HomeKeyService();
-                android.content.ContextWrapper context=new android.content.ContextWrapper(host){
-                    @Override public SharedPreferences getSharedPreferences(String name,int mode){return gesturePrefs;}
-                    @Override public android.content.Context createDeviceProtectedStorageContext(){return this;}
-                    @Override public void startActivity(android.content.Intent intent){launch[0]=intent;}
-                };
-                Method attach=android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext",android.content.Context.class);attach.setAccessible(true);attach.invoke(service[0],context);
-                check.accept("default_window_mode_passes_home_and_volume",
-                        !service[0].onKeyEvent(new android.view.KeyEvent(0,3))
-                        &&!service[0].onKeyEvent(new android.view.KeyEvent(1,3))
-                        &&!service[0].onKeyEvent(new android.view.KeyEvent(0,24))
-                        &&launch[0]==null);
-                gesturePrefs.edit().putString("home_guard_mode","key_filter").commit();
-                check.accept("home_down_waits_for_release",service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&launch[0]==null);
-                service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_release_returns_desktop",launch[0]!=null&&!launch[0].getBooleanExtra("recent_apps",true));
-                service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(1,3));
-                check.accept("home_double_release_opens_recents",launch[0].getBooleanExtra("recent_apps",false));launch[0]=null;
-                service[0].onKeyEvent(new android.view.KeyEvent(0,3));
-            }catch(Exception e){throw new RuntimeException(e);}});
-            Thread.sleep(720);
-            ui(inst,()->{
-                check.accept("home_hold_opens_configured_action",launch[0]!=null&&launch[0].getBooleanExtra("recent_apps",false));launch[0]=null;
-                service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_hold_release_does_not_launch_again",launch[0]==null);
-                gesturePrefs.edit().putString("home_guard_mode","native_only").putBoolean("home_native_keys",true).commit();
-                check.accept("native_mode_passes_home_down_and_up",!service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&!service[0].onKeyEvent(new android.view.KeyEvent(1,3)));
-                gesturePrefs.edit().putString("home_guard_mode","key_filter").putBoolean("home_native_keys",false).commit();
-                check.accept("non_home_navigation_passes_through",!service[0].onKeyEvent(new android.view.KeyEvent(0,21)));
-                service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(0,26));
-            });Thread.sleep(720);
-            ui(inst,()->{check.accept("power_cancels_pending_home_hold",launch[0]==null);gesturePrefs.edit().clear().commit();});
+            final boolean savedRuntimeFilter=HomeKeyService.runtimeKeyFilterRequested;
+            try{
+                ui(inst,()->{try{
+                    gesturePrefs.edit().clear().putBoolean("home_compat",true).putBoolean("recent_enabled",true).putString("home_long_action","marco").commit();
+                    HomeKeyService.runtimeKeyFilterRequested=false;
+                    service[0]=new HomeKeyService();
+                    android.content.ContextWrapper context=new android.content.ContextWrapper(host){
+                        @Override public SharedPreferences getSharedPreferences(String name,int mode){return gesturePrefs;}
+                        @Override public android.content.Context createDeviceProtectedStorageContext(){return this;}
+                        @Override public void startActivity(android.content.Intent intent){launch[0]=intent;}
+                    };
+                    Method attach=android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext",android.content.Context.class);attach.setAccessible(true);attach.invoke(service[0],context);
+                    check.accept("default_window_mode_passes_home_and_volume",
+                            !service[0].onKeyEvent(new android.view.KeyEvent(0,3))
+                            &&!service[0].onKeyEvent(new android.view.KeyEvent(1,3))
+                            &&!service[0].onKeyEvent(new android.view.KeyEvent(0,24))
+                            &&launch[0]==null);
+                    gesturePrefs.edit().putString("home_guard_mode","key_filter").commit();
+                    HomeKeyService.runtimeKeyFilterRequested=true;
+                    check.accept("home_down_waits_for_release",service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&launch[0]==null);
+                    service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_release_returns_desktop",launch[0]!=null&&!launch[0].getBooleanExtra("recent_apps",true));
+                    service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(1,3));
+                    check.accept("home_double_release_opens_recents",launch[0].getBooleanExtra("recent_apps",false));launch[0]=null;
+                    service[0].onKeyEvent(new android.view.KeyEvent(0,3));
+                }catch(Exception e){throw new RuntimeException(e);}});
+                Thread.sleep(720);
+                ui(inst,()->{
+                    check.accept("home_hold_opens_configured_action",launch[0]!=null&&launch[0].getBooleanExtra("recent_apps",false));launch[0]=null;
+                    service[0].onKeyEvent(new android.view.KeyEvent(1,3));check.accept("home_hold_release_does_not_launch_again",launch[0]==null);
+                    gesturePrefs.edit().putString("home_guard_mode","native_only").putBoolean("home_native_keys",true).commit();
+                    check.accept("native_mode_passes_home_down_and_up",!service[0].onKeyEvent(new android.view.KeyEvent(0,3))&&!service[0].onKeyEvent(new android.view.KeyEvent(1,3)));
+                    gesturePrefs.edit().putString("home_guard_mode","key_filter").putBoolean("home_native_keys",false).commit();
+                    check.accept("non_home_navigation_passes_through",!service[0].onKeyEvent(new android.view.KeyEvent(0,21)));
+                    service[0].onKeyEvent(new android.view.KeyEvent(0,3));service[0].onKeyEvent(new android.view.KeyEvent(0,26));
+                });Thread.sleep(720);
+                ui(inst,()->check.accept("power_cancels_pending_home_hold",launch[0]==null));
+            }finally{
+                HomeKeyService.runtimeKeyFilterRequested=savedRuntimeFilter;
+                gesturePrefs.edit().clear().commit();
+            }
             final Tile[] selected={null};
             Method press=HomeView.class.getDeclaredMethod("pressSelected",boolean.class);press.setAccessible(true);
             ui(inst,()->{try{host.home.resetToApps();selected[0]=host.home.rows.get(0).tiles.get(host.home.rows.get(0).selected);press.invoke(host.home,true);}catch(Exception e){throw new RuntimeException(e);}});

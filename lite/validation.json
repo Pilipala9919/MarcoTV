@@ -39,7 +39,7 @@
   "edition": "Lite",
   "status": "experimental",
   "date": "2026-11-28",
-  "full_edition_latest": "0.22.0",
+  "full_edition_latest": "0.22.1",
   "local_checks": {
     "settings_checks": 18,
     "runtime_default_home_checks": 6,
