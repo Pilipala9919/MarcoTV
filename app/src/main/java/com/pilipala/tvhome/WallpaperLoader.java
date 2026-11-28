@@ -25,10 +25,14 @@ final class WallpaperLoader {
             Bitmap ready = WallpaperSource.load(host,uri,builtin);
             PreviewBackdrop backdrop=new PreviewBackdrop();
             backdrop.prepare(ready,width,height);
+            final float topLeftLum = DesktopContrast.sampleTopLeftLuminance(ready);
+            final float topRightLum = DesktopContrast.sampleTopRightLuminance(ready);
+            final float shelfLum = DesktopContrast.sampleShelfLuminance(ready);
             host.handler.post(() -> {
                 if (!host.isDestroyed() && generation == wallpaperGeneration) {
                     Bitmap previous = host.home.wallpaper;
                     host.home.wallpaper = ready;
+                    host.home.setWallpaperLuminance(topLeftLum, topRightLum, shelfLum);
                     host.home.overviewRenderer.backdrop(backdrop);
                     if (previous != null && previous != ready && previous != host.home.wallpaper) previous.recycle();
                     if (host.stage != null) {

@@ -30,6 +30,7 @@ public final class MainActivity extends Activity {
     BackupPanel backups;
     HealthPanel health;
     UpdatePanel updates;
+    WeatherRepository weather;
     PhoneManager phone;
     CastManager cast;
     PreviewPreferences previewPreferences;
@@ -162,6 +163,7 @@ public final class MainActivity extends Activity {
         backups=new BackupPanel(this);
         health=new HealthPanel(this);
         updates=new UpdatePanel(this);
+        weather=new WeatherRepository(this);
         recents=new RecentApps(this);
         playback = new NowPlaying(this);
         registerReceiver(playbackAccess, new IntentFilter(PlaybackListenerService.CHANGED));
@@ -274,6 +276,10 @@ public final class MainActivity extends Activity {
         if(playback!=null)playback.refresh();
         if(home!=null&&!home.rows.isEmpty())sortCurrentApps();
         if(updates!=null)updates.resume();
+        if(weather!=null){
+            if(home!=null)home.setWeather(weather.current());
+            weather.refresh(false);
+        }
         if(defaultHome!=null)defaultHome.resumed();
         FeedbackPanel.maybeOffer(this);
     }
@@ -339,6 +345,7 @@ public final class MainActivity extends Activity {
             unregisterReceiver(packageChanges);
             unregisterReceiver(timeChanges);
         }
+        if(weather!=null)weather.destroy();
         super.onDestroy();
     }
 

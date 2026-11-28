@@ -25,6 +25,13 @@ final class SettingsCatalog {
         specs.put("card_surface",new int[]{0,100,55});
         specs.put("motion_duration",new int[]{120,500,260});
         specs.put("clock_style",new int[]{0,3,0});
+        specs.put("clock_color_mode",new int[]{0,9,0});
+        specs.put("clock_hue",new int[]{0,360,210});
+        specs.put("clock_lightness",new int[]{15,95,82});
+        specs.put("clock_shadow",new int[]{0,100,35});
+        specs.put("weather_source",new int[]{0,2,0});
+        specs.put("weather_precip_mode",new int[]{0,2,1});
+        specs.put("weather_size",new int[]{75,135,100});
         specs.put("clock_tilt",new int[]{0,14,10});
         specs.put("clock_size",new int[]{36,160,96});
         specs.put("idle_seconds",new int[]{0,600,30});
@@ -45,7 +52,7 @@ final class SettingsCatalog {
         specs.put("recent_double_ms",new int[]{200,700,400});
         INT_SPECS=Collections.unmodifiableMap(specs);
         Set<String> home=new LinkedHashSet<>(specs.keySet());
-        home.addAll(Arrays.asList("ambient_enabled","ambient_pure_wallpaper","now_playing","recent_enabled","recent_wake","tv_sort","wallpaper_label","wallpaper_id","order_tv","order_inputs","order_favorites","order_other"));
+        home.addAll(Arrays.asList("ambient_enabled","ambient_pure_wallpaper","ambient_weather","weather_enabled","weather_show_icon","weather_show_current","weather_show_range","weather_show_city","weather_icon_colorful","now_playing","recent_enabled","recent_wake","tv_sort","wallpaper_label","wallpaper_id","order_tv","order_inputs","order_favorites","order_other"));
         HOME_KEYS=Collections.unmodifiableSet(home);
     }
     static int[] range(String key){
@@ -70,7 +77,10 @@ final class SettingsCatalog {
         if(group.equals("cards"))return (key.contains(":")||key.equals("pin_order"))?"s":"set";
         if(group.equals("cast"))return key.equals("cast_confirm")?"b":"i";
         if(key.startsWith("opened:"))return "l";
-        if(key.equals("ambient_enabled")||key.equals("ambient_pure_wallpaper")||key.equals("now_playing")||key.equals("recent_enabled")||key.equals("recent_wake"))return "b";
+        if(key.equals("ambient_enabled")||key.equals("ambient_pure_wallpaper")||key.equals("ambient_weather")
+                ||key.equals("weather_enabled")||key.equals("weather_show_icon")||key.equals("weather_show_current")
+                ||key.equals("weather_show_range")||key.equals("weather_show_city")||key.equals("weather_icon_colorful")
+                ||key.equals("now_playing")||key.equals("recent_enabled")||key.equals("recent_wake"))return "b";
         if(key.startsWith("order_")||key.equals("tv_sort")||key.equals("wallpaper_label")||key.equals("wallpaper_id"))return "s";
         return "i";
     }

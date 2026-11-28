@@ -668,6 +668,17 @@ final class SettingsScreen extends LinearLayout {
                 return "实时 3D 预览";
             case "wallpaper":
                 return wallpaperLabel();
+            case "weather": {
+                if (!host.preferences.getBoolean("weather_enabled", true)) return "已关闭";
+                if (host.weather != null) {
+                    WeatherSnapshot snap = host.weather.current();
+                    if (snap != null && snap.tempC != null) {
+                        return (snap.city.isEmpty() ? WeatherSnapshot.conditionLabel(snap.condition) : snap.city) + " " + snap.tempC + "°";
+                    }
+                    return host.weather.cityLabel();
+                }
+                return "已开启";
+            }
             case "ambient_sleep":
                 return SettingsNavigator.sleepLabel(host.preferences.getInt("ambient_sleep_minutes", IdleController.DEFAULT_SLEEP_MINUTES));
             case "ambient_preview":
@@ -754,6 +765,9 @@ final class SettingsScreen extends LinearLayout {
                 break;
             case "wallpaper":
                 host.navigator.wallpaperSettings();
+                break;
+            case "weather":
+                new WeatherPanel(host).show();
                 break;
             case "ambient_enabled": {
                 boolean next = !host.preferences.getBoolean("ambient_enabled", true);

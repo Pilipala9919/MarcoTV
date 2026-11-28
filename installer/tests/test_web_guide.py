@@ -25,7 +25,7 @@ for(const sys of ['android','unknown','other'])for(const dev of ['windows','andr
 }
 for(const sys of ['unknown','other'])assert(!c.homeRoute(sys).download);
 const home=c.homeRoute('android');assert(home.docs&&!home.download&&home.steps.length===4);
-assert(home.limit.includes('0.21.3')&&home.limit.includes('不自动授权'));
+assert(home.limit.includes('0.22.0')&&home.limit.includes('不自动授权'));
 const homeText=home.steps.join('\n')+'\n'+home.limit;
 assert(homeText.includes('辅助功能')&&homeText.includes('Android Platform Tools')&&homeText.includes('adb pair'));
 assert(!homeText.includes('查看助手说明'));

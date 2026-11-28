@@ -83,6 +83,16 @@ public final class SettingsMigrationChecks {
                 &&"b".equals(SettingsCatalog.expectedType("home","recent_enabled"))
                 &&SettingsCatalog.allowed("home","recent_wake")
                 &&"b".equals(SettingsCatalog.expectedType("home","recent_wake"))
+                &&SettingsCatalog.allowed("home","weather_enabled")
+                &&"b".equals(SettingsCatalog.expectedType("home","weather_enabled"))
+                &&SettingsCatalog.allowed("home","ambient_weather")
+                &&"b".equals(SettingsCatalog.expectedType("home","ambient_weather"))
+                &&SettingsCatalog.allowed("home","clock_color_mode")
+                &&"i".equals(SettingsCatalog.expectedType("home","clock_color_mode"))
+                &&Arrays.equals(SettingsCatalog.range("clock_color_mode"),new int[]{0,9})
+                &&SettingsCatalog.allowed("home","weather_size")
+                &&"i".equals(SettingsCatalog.expectedType("home","weather_size"))
+                &&Arrays.equals(SettingsCatalog.range("weather_size"),new int[]{75,135})
                 &&SettingsCatalog.allowed("cast","cast_mode")
                 &&"i".equals(SettingsCatalog.expectedType("cast","cast_mode"))
                 &&Arrays.equals(SettingsCatalog.range("cast_mode"),new int[]{0,2})
@@ -128,7 +138,7 @@ public final class SettingsMigrationChecks {
         }
         check("taxonomy_categories_sections_and_items_are_unique_and_complete",taxonomyValid&&SettingsTaxonomy.totalItems()==itemKeys.size()&&inlineToggles>=6);
         boolean coreCovered=true;
-        for(String required:new String[]{"magic_desktop","wallpaper","ambient_enabled","ambient_pure_wallpaper","ambient_sleep","ambient_preview",
+        for(String required:new String[]{"magic_desktop","wallpaper","weather","ambient_enabled","ambient_pure_wallpaper","ambient_sleep","ambient_preview",
                 "add_app","all_apps","app_manager","tv_sort","pinned_cards","favorite_cards","hidden_cards","now_playing","playback_source",
                 "default_home","home_compat","home_gestures","restore_home","boot_home","recent_wake","recent_enabled","recent_open","recent_style",
                 "wifi","cast","phone","sound","updates","health_status","backup","diagnostics","adb_restore","guide","device_info","about"}){

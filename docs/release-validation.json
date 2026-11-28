@@ -1,11 +1,11 @@
 {
-  "version": "0.21.3",
-  "version_code": 46,
-  "date": "2026-11-24",
+  "version": "0.22.0",
+  "version_code": 47,
+  "date": "2026-11-28",
   "author": "Pilipala",
   "release_channel": "stable",
-  "apk_sha256": "2a92aacdcc633de894f51716972ad5fe5b2c15465088195c5ff3fb9174783a6e",
-  "restricted_apk_sha256": "2e87b5fbde62c23da97014663a6be213ac848dabd516163a77a0786562c50eb8",
+  "apk_sha256": "b4cbafa40bb9cdda2b1e9dc844843a4a6433a254a5b03813a6c7b3f64baa9347",
+  "restricted_apk_sha256": "2af5f495a9c70b445b4014c70bdfe4fc9cb21fed5d74af9435e70b903bed8f2b",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "all_automated_checks_passed": true,
   "hardware_baseline": {
@@ -58,14 +58,14 @@
     "device_instrumentation_compile_only_apks": 7
   },
   "not_verified": [
-    "final 0.21.3 APK overwrite install on MiTV-ASTP0 (hardware baseline is candidate b7ef6b0 dd33307f... prior to the two follow-up fixes)",
+    "final 0.22.0 APK overwrite install, bright-wallpaper contrast UI, and local/Open-Meteo weather widget on MiTV-ASTP0 (hardware baseline remains candidate b7ef6b0 dd33307f...)",
     "active continuous video playback, live physical HDMI signal, overnight standby, and multi-round cold-boot endurance on MiTV-ASTP0",
     "Android 6.0-7.1 (API 23-25) physical TV TaskBridge runtime and boot_id correlation (e.g. Xiaomi MiTV4 Android 6.0.1)",
     "Android 10-14 physical TV native ROLE_HOME selection and TaskBridge Binder handshake",
     "other brands (TCL, Hisense, Skyworth, Sony, Huawei) and other SoC 4K 10-bit HEVC live wallpaper hardware decoders",
     "stable frame rate across devices",
     "restricted edition target firmware",
-    "Lite 0.3.1 physical Android 4.x / 5.1 TV hardware (including Xiaomi Box 3c)"
+    "Lite 0.4.0 physical Android 4.x / 5.1 TV hardware (including Xiaomi Box 3c)"
   ],
   "screenshots": "Historical privacy-sanitized screenshots retain their original capture versions; no new private screenshots published."
 }

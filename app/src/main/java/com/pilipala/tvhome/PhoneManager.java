@@ -21,10 +21,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Explicit local management session. All state changes are serialized on the UI thread. */
 final class PhoneManager implements PhoneHttp.Handler {
-    static final String[] KEYS={"card_row_position","card_width","card_height","card_depth","card_radius","focus_scale","card_surface","label_opacity","clock_size","ambient_clock_size","ambient_clock_brightness",
+    static final String[] KEYS={"card_row_position","card_width","card_height","card_depth","card_radius","focus_scale","card_surface","label_opacity","clock_size","clock_color_mode","clock_hue","clock_lightness","clock_shadow","weather_size","ambient_clock_size","ambient_clock_brightness",
             "ambient_dim","wallpaper_dim","motion_duration"};
-    static final String[] LABELS={"卡片行上下位置","卡片宽度","卡片高度","卡片厚度","卡片圆角","选中放大幅度","卡片高光","名称显示强度","桌面时间大小","屏保时间大小","屏保时间亮度","屏保背景压暗","壁纸压暗","动效时长"};
-    static final int[] DEFAULTS={75,100,100,0,32,16,55,0,96,176,100,72,10,260};
+    static final String[] LABELS={"卡片行上下位置","卡片宽度","卡片高度","卡片厚度","卡片圆角","选中放大幅度","卡片高光","名称显示强度","桌面时间大小","时间颜色模式","时间自定义色相","时间自定义明度","时间对比阴影","天气模块大小","屏保时间大小","屏保时间亮度","屏保背景压暗","壁纸压暗","动效时长"};
+    static final int[] DEFAULTS={75,100,100,0,32,16,55,0,96,0,210,82,35,100,176,100,72,10,260};
     private final MainActivity host;
     private PhoneHttp server;
     private volatile String authority="",pairCode="",nonce="",clientAddress="",cookie="",csrf="",initialTab="desktop",initialCardId="",initialCardLabel="";
@@ -447,10 +447,34 @@ final class PhoneManager implements PhoneHttp.Handler {
                 .put("revision",revision).put("csrf",csrf).put("initialTab",initialTab).put("initialCard",initialCardId)
                 .put("cardDefaults",cardDefaults)
                 .put("rows",rows).put("hidden",hidden).put("settings",settings).put("preview",previewing())
+                .put("clockModes",new JSONArray(Arrays.asList(DesktopContrast.COLOR_MODE_NAMES)))
+                .put("weather",weatherJson())
                 .put("wallpapers",myWallpapers).put("activeWallpaper",activeWp)
                 .put("sort",host.preferences.getString("tv_sort","recent"))
                 .put("cast",host.cast==null?new JSONObject():host.cast.statusJson())
                 .put("freeMB",host.getFilesDir().getUsableSpace()/1048576).put("foreground",host.foreground);
+    }
+    private JSONObject weatherJson()throws Exception{
+        JSONObject w=new JSONObject();
+        w.put("enabled",host.preferences.getBoolean("weather_enabled",true));
+        w.put("source",Math.max(0,Math.min(2,host.preferences.getInt("weather_source",0))));
+        w.put("showIcon",host.preferences.getBoolean("weather_show_icon",true));
+        w.put("colorful",host.preferences.getBoolean("weather_icon_colorful",true));
+        w.put("showCurrent",host.preferences.getBoolean("weather_show_current",true));
+        w.put("showRange",host.preferences.getBoolean("weather_show_range",true));
+        w.put("precipMode",Math.max(0,Math.min(2,host.preferences.getInt("weather_precip_mode",1))));
+        w.put("showCity",host.preferences.getBoolean("weather_show_city",false));
+        w.put("ambientWeather",host.preferences.getBoolean("ambient_weather",true));
+        w.put("cityLabel",host.weather!=null?host.weather.cityLabel():"未指定城市");
+        w.put("summary",host.weather!=null?host.weather.summaryLine():"尚未初始化天气");
+        w.put("sources",new JSONArray(Arrays.asList(WeatherSnapshot.SOURCE_MODES)));
+        w.put("precipModes",new JSONArray(Arrays.asList(WeatherSnapshot.PRECIP_MODES)));
+        JSONArray presets=new JSONArray();
+        for(WeatherRepository.CityPreset p:WeatherRepository.PRESETS){
+            presets.put(new JSONObject().put("key",p.key).put("name",p.name));
+        }
+        w.put("presets",presets);
+        return w;
     }
     private JSONObject tile(Tile t)throws Exception{
         CardStore.Dimensions d=host.cards.dimensions(t.id);
@@ -643,6 +667,32 @@ final class PhoneManager implements PhoneHttp.Handler {
                 if(!host.wallpaperLibrary.delete(id))return fail(404,"壁纸不存在");
                 if(wasActive)host.loadWallpaper();
                 notifyWallpaperChanged();
+            }else if(op.equals("weather")){
+                String field=b.optString("field","");
+                if(field.equals("enabled"))host.preferences.edit().putBoolean("weather_enabled",b.getBoolean("value")).apply();
+                else if(field.equals("show_icon"))host.preferences.edit().putBoolean("weather_show_icon",b.getBoolean("value")).apply();
+                else if(field.equals("colorful"))host.preferences.edit().putBoolean("weather_icon_colorful",b.getBoolean("value")).apply();
+                else if(field.equals("show_current"))host.preferences.edit().putBoolean("weather_show_current",b.getBoolean("value")).apply();
+                else if(field.equals("show_range"))host.preferences.edit().putBoolean("weather_show_range",b.getBoolean("value")).apply();
+                else if(field.equals("show_city"))host.preferences.edit().putBoolean("weather_show_city",b.getBoolean("value")).apply();
+                else if(field.equals("ambient"))host.preferences.edit().putBoolean("ambient_weather",b.getBoolean("value")).apply();
+                else if(field.equals("source")){
+                    int v=Math.max(0,Math.min(2,b.getInt("value")));
+                    host.preferences.edit().putInt("weather_source",v).apply();
+                    if(host.weather!=null)host.weather.refresh(true);
+                }else if(field.equals("precip_mode")){
+                    int v=Math.max(0,Math.min(2,b.getInt("value")));
+                    host.preferences.edit().putInt("weather_precip_mode",v).apply();
+                }else if(field.equals("preset")){
+                    String key=b.optString("value","");
+                    WeatherRepository.CityPreset foundPreset=null;
+                    for(WeatherRepository.CityPreset p:WeatherRepository.PRESETS)if(p.key.equals(key)){foundPreset=p;break;}
+                    if(foundPreset==null)return fail(400,"无效城市预设");
+                    if(host.weather!=null)host.weather.selectCity(foundPreset);
+                }else if(field.equals("refresh")){
+                    if(host.weather!=null)host.weather.refresh(true);
+                }else return fail(400,"不支持的天气设置");
+                if(host.weather!=null)host.home.setWeather(host.weather.current());
             }
             else return fail(400,"不支持的操作");
             revision++;

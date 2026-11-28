@@ -33,10 +33,14 @@ public final class MarcoDreamService extends DreamService {
         setContentView(view);
         loader.execute(()->{
             Bitmap bitmap=WallpaperSource.load(this);
+            final float topRightLum=DesktopContrast.sampleTopRightLuminance(bitmap);
+            final WeatherSnapshot cachedWeather=WeatherRepository.loadCached(this);
             handler.post(()->{
                 if(view!=null){
                     Bitmap old=view.wallpaper;
                     view.wallpaper=bitmap;
+                    view.clock.setTopRightLuminance(topRightLum);
+                    view.clock.setWeather(cachedWeather,false);
                     if(old!=null&&old!=bitmap&&!old.isRecycled())old.recycle();
                     view.invalidate();
                 }else if(bitmap!=null&&!bitmap.isRecycled()){

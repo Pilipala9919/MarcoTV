@@ -13,7 +13,9 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -25,9 +27,14 @@ final class PersonalizationPanel extends LinearLayout {
     private final MainActivity host;
     private final Map<String, ParameterCard> controls = new LinkedHashMap<>();
     private final Map<String, Integer> defaults = new LinkedHashMap<>();
+    private final Map<String, Boolean> boolDefaults = new LinkedHashMap<>();
+    private final List<Runnable> toggleRefreshes = new ArrayList<>();
     private final Map<String, View> groups = new LinkedHashMap<>();
     private TvDialog page;
     private ChoiceMenu clockStyle;
+    private ChoiceMenu clockColorMode;
+    private ChoiceMenu weatherSource;
+    private ChoiceMenu weatherPrecipMode;
     private ImageView pureToggleIcon;
     private TextView pureToggleValue;
     private String scene = "personalization";
@@ -64,6 +71,21 @@ final class PersonalizationPanel extends LinearLayout {
 
         slider("圆体倾斜幅度", "clock_tilt", 0, 14, 10, "°", "倾斜幅度仅用于「柔圆错倾」字体");
         slider("桌面时间大小", "clock_size", 36, 160, 96, "", null);
+        clockColorMode = new ChoiceMenu(host, "时间字体颜色", DesktopContrast.COLOR_MODE_NAMES,
+                DesktopContrast.clampMode(host.preferences.getInt("clock_color_mode", 0)), value -> {
+            host.preferences.edit().putInt("clock_color_mode", value).apply();
+            updateClockControls();
+            host.home.refreshAppearance();
+            host.home.invalidate();
+        }, () -> selectScene("clock_color_mode"));
+        clockColorMode.setOnBeforeOpen(() -> collapseAllExcept(null));
+        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2);
+        colorParams.bottomMargin = dp(6);
+        addView(clockColorMode, colorParams);
+
+        slider("自定义色相", "clock_hue", 0, 360, 210, "°", "仅在「自定义颜色」模式下生效");
+        slider("自定义明度", "clock_lightness", 15, 95, 82, "%", "仅在「自定义颜色」模式下生效");
+        slider("文字对比阴影", "clock_shadow", 0, 100, 35, "%", "浅色字加深底影 · 深色墨字加亮描边");
         slider("进入屏保等待", "idle_seconds", 0, 600, 30, " 秒", null);
         pureWallpaperToggle();
         slider("屏保时间大小", "ambient_clock_size", 100, 280, 176, "", null);
@@ -71,6 +93,43 @@ final class PersonalizationPanel extends LinearLayout {
         slider("屏保背景压暗", "ambient_dim", 0, 100, 72, "%", null);
         slider("屏保渐变时长", "ambient_transition", 1, 30, 3, " 秒", null);
         action("屏保开关与系统接管…", () -> host.navigator.ambientSettings(), "personalization");
+
+        section("weather", "桌面天气");
+        booleanToggle("首页显示天气", "weather_enabled", true, "已开启 · 在日期下方显示天气", "已关闭 · 隐藏首页天气", () -> {
+            if (host.weather != null) {
+                host.home.setWeather(host.weather.current());
+                if (host.preferences.getBoolean("weather_enabled", true)) host.weather.refresh(true);
+            }
+        });
+        weatherSource = new ChoiceMenu(host, "天气数据来源", WeatherSnapshot.SOURCE_MODES,
+                Math.max(0, Math.min(2, host.preferences.getInt("weather_source", 0))), value -> {
+            host.preferences.edit().putInt("weather_source", value).apply();
+            if (host.weather != null) host.weather.refresh(true);
+            host.home.invalidate();
+        }, () -> selectScene("weather_source"));
+        weatherSource.setOnBeforeOpen(() -> collapseAllExcept(null));
+        LinearLayout.LayoutParams srcParams = new LinearLayout.LayoutParams(-1, -2);
+        srcParams.bottomMargin = dp(6);
+        addView(weatherSource, srcParams);
+
+        action("选择天气城市 / 本机探测报告…", () -> new WeatherPanel(host).show(), "weather_city");
+        booleanToggle("显示天气图标", "weather_show_icon", true, "已开启 · 显示矢量天气图标", "已关闭 · 仅显示文字", null);
+        booleanToggle("彩色天气图标", "weather_icon_colorful", true, "已开启 · 太阳暖金/云雨层次配色", "已关闭 · 纯单色跟随时间颜色", null);
+        booleanToggle("显示实时温度", "weather_show_current", true, "已开启 · 例如 24°", "已关闭", null);
+        booleanToggle("显示温度范围", "weather_show_range", true, "已开启 · 例如 18°~27°", "已关闭", null);
+        weatherPrecipMode = new ChoiceMenu(host, "降雨概率显示", WeatherSnapshot.PRECIP_MODES,
+                Math.max(0, Math.min(2, host.preferences.getInt("weather_precip_mode", 1))), value -> {
+            host.preferences.edit().putInt("weather_precip_mode", value).apply();
+            host.home.invalidate();
+        }, () -> selectScene("weather_precip_mode"));
+        weatherPrecipMode.setOnBeforeOpen(() -> collapseAllExcept(null));
+        LinearLayout.LayoutParams precipParams = new LinearLayout.LayoutParams(-1, -2);
+        precipParams.bottomMargin = dp(6);
+        addView(weatherPrecipMode, precipParams);
+
+        booleanToggle("显示城市名称", "weather_show_city", false, "已开启 · 在天气前显示城市", "已关闭 · 保持精简", null);
+        booleanToggle("屏保显示天气", "ambient_weather", true, "已开启 · 屏保时跟随时间显示", "已关闭 · 屏保仅显示时间日期", null);
+        slider("天气模块大小", "weather_size", 75, 135, 100, "%", null);
 
         section("wallpaper", "壁纸");
         slider("桌面壁纸压暗", "wallpaper_dim", 0, 100, 10, "%", null);
@@ -95,10 +154,21 @@ final class PersonalizationPanel extends LinearLayout {
             if (visibility != VISIBLE && tilt.isExpanded()) tilt.collapse(false);
             tilt.setVisibility(visibility);
         }
+        int customVis = DesktopContrast.clampMode(host.preferences.getInt("clock_color_mode", 0)) == DesktopContrast.MODE_CUSTOM ? VISIBLE : GONE;
+        for (String key : new String[]{"clock_hue", "clock_lightness"}) {
+            ParameterCard card = controls.get(key);
+            if (card != null) {
+                if (customVis != VISIBLE && card.isExpanded()) card.collapse(false);
+                card.setVisibility(customVis);
+            }
+        }
     }
 
     private void collapseAllExcept(ParameterCard keep) {
         if (clockStyle != null && clockStyle.isExpanded()) clockStyle.closeMenu(false);
+        if (clockColorMode != null && clockColorMode.isExpanded()) clockColorMode.closeMenu(false);
+        if (weatherSource != null && weatherSource.isExpanded()) weatherSource.closeMenu(false);
+        if (weatherPrecipMode != null && weatherPrecipMode.isExpanded()) weatherPrecipMode.closeMenu(false);
         for (ParameterCard card : controls.values()) {
             if (card != keep && card.isExpanded()) card.collapse(false);
         }
@@ -107,6 +177,18 @@ final class PersonalizationPanel extends LinearLayout {
     private boolean handleBack() {
         if (clockStyle != null && clockStyle.isExpanded()) {
             clockStyle.closeMenu(true);
+            return true;
+        }
+        if (clockColorMode != null && clockColorMode.isExpanded()) {
+            clockColorMode.closeMenu(true);
+            return true;
+        }
+        if (weatherSource != null && weatherSource.isExpanded()) {
+            weatherSource.closeMenu(true);
+            return true;
+        }
+        if (weatherPrecipMode != null && weatherPrecipMode.isExpanded()) {
+            weatherPrecipMode.closeMenu(true);
             return true;
         }
         for (ParameterCard card : controls.values()) {
@@ -225,6 +307,80 @@ final class PersonalizationPanel extends LinearLayout {
         addView(row, lp);
     }
 
+    private void booleanToggle(String titleText, String key, boolean defaultVal, String onSummary, String offSummary, Runnable afterToggle) {
+        boolDefaults.put(key, defaultVal);
+        LinearLayout row = new LinearLayout(host);
+        row.setOrientation(HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(46));
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        row.setFocusable(true);
+        row.setFocusableInTouchMode(true);
+        row.setClickable(true);
+        GradientDrawable bg = TvDialog.background(0xFF232C37, dp(12));
+        bg.setStroke(dp(1), 0x14FFFFFF);
+        row.setBackground(bg);
+
+        LinearLayout texts = new LinearLayout(host);
+        texts.setOrientation(VERTICAL);
+        TextView title = new TextView(host);
+        title.setText(titleText);
+        title.setTextColor(0xFFF0F4F8);
+        title.setTextSize(13.5f);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setIncludeFontPadding(false);
+        texts.addView(title);
+
+        final TextView valueText = new TextView(host);
+        valueText.setTextSize(10.5f);
+        valueText.setTextColor(0xFF9AB2C0);
+        valueText.setIncludeFontPadding(false);
+        valueText.setPadding(0, dp(3), 0, 0);
+        texts.addView(valueText);
+        row.addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+
+        final ImageView icon = new ImageView(host);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LayoutParams tLp = new LayoutParams(dp(40), dp(24));
+        tLp.leftMargin = dp(8);
+        row.addView(icon, tLp);
+
+        final Runnable refresh = () -> {
+            boolean on = host.preferences.getBoolean(key, defaultVal);
+            valueText.setText(on ? onSummary : offSummary);
+            ToggleDrawable td = new ToggleDrawable(on);
+            td.setBounds(0, 0, dp(40), dp(24));
+            icon.setImageDrawable(td);
+        };
+        toggleRefreshes.add(refresh);
+
+        UiMotion focus = new UiMotion(row, 0, 30, value -> {
+            bg.setColor((Integer) COLORS.evaluate(value, 0xFF232C37, 0xFF334A5E));
+            bg.setStroke(dp(1), (Integer) COLORS.evaluate(value, 0x14FFFFFF, 0x55FFFFFF));
+        });
+        row.setOnFocusChangeListener((v, focused) -> {
+            focus.to(focused ? 1 : 0);
+            if (focused) selectScene(key);
+        });
+        row.setOnClickListener(v -> {
+            collapseAllExcept(null);
+            boolean next = !host.preferences.getBoolean(key, defaultVal);
+            host.preferences.edit().putBoolean(key, next).apply();
+            refresh.run();
+            if (afterToggle != null) afterToggle.run();
+            host.home.invalidate();
+        });
+        row.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) { v.requestFocus(); return true; }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) { v.performClick(); return true; }
+            return true;
+        });
+        refresh.run();
+        LayoutParams lp = new LayoutParams(-1, -2);
+        lp.bottomMargin = dp(6);
+        addView(row, lp);
+    }
+
     private void refreshPureToggle() {
         boolean on = host.preferences.getBoolean("ambient_pure_wallpaper", false);
         if (pureToggleValue != null) {
@@ -289,7 +445,13 @@ final class PersonalizationPanel extends LinearLayout {
     private void applyDefaults() {
         SharedPreferences.Editor editor = host.preferences.edit();
         editor.putInt("clock_style", 0);
+        editor.putInt("clock_color_mode", 0);
+        editor.putInt("weather_source", 0);
+        editor.putInt("weather_precip_mode", 1);
         editor.putBoolean("ambient_pure_wallpaper", false);
+        for (Map.Entry<String, Boolean> entry : boolDefaults.entrySet()) {
+            editor.putBoolean(entry.getKey(), entry.getValue());
+        }
         for (Map.Entry<String, Integer> entry : defaults.entrySet()) {
             int def = "recent_duration".equals(entry.getKey()) ? 260 : entry.getValue();
             editor.putInt(entry.getKey(), def);
@@ -297,12 +459,22 @@ final class PersonalizationPanel extends LinearLayout {
         editor.apply();
         clockStyle.setValue(0);
         clockStyle.closeMenu(false);
+        clockColorMode.setValue(0);
+        clockColorMode.closeMenu(false);
+        weatherSource.setValue(0);
+        weatherSource.closeMenu(false);
+        weatherPrecipMode.setValue(1);
+        weatherPrecipMode.closeMenu(false);
         refreshPureToggle();
+        for (Runnable r : toggleRefreshes) r.run();
         for (Map.Entry<String, ParameterCard> entry : controls.entrySet()) {
             int def = "recent_duration".equals(entry.getKey()) ? 260 : defaults.get(entry.getKey());
             entry.getValue().setValue(def, false);
         }
         updateClockControls();
+        if (host.weather != null) {
+            host.home.setWeather(host.weather.current());
+        }
         host.home.refreshAppearance();
         host.home.invalidate();
         host.screensaver.resume();
@@ -323,6 +495,7 @@ final class PersonalizationPanel extends LinearLayout {
                 .create();
         page.onReturn(() -> {
             refreshPureToggle();
+            for (Runnable r : toggleRefreshes) r.run();
             updateClockControls();
         });
         page.onLeave(() -> {

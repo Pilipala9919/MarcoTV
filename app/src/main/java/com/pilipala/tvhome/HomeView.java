@@ -56,6 +56,20 @@ final class HomeView extends View {
     private int topSelected = 0;
     private float uiAlpha = 1, ambientProgress;
     private final ClockScene clockScene;
+    private float wallTopLeftLum = 0.16f, wallTopRightLum = 0.16f, wallShelfLum = 0.16f;
+    private boolean desktopBrightShelf;
+    private WeatherSnapshot currentWeather;
+    void setWallpaperLuminance(float topLeft, float topRight, float shelf) {
+        wallTopLeftLum = topLeft;
+        wallTopRightLum = topRight;
+        wallShelfLum = shelf;
+        clockScene.setTopRightLuminance(topRight);
+        invalidate();
+    }
+    void setWeather(WeatherSnapshot weather) {
+        currentWeather = weather;
+        invalidate();
+    }
     boolean idleMode;
     private boolean wakingKey, longPressed;
     private final CardMover mover;
@@ -530,16 +544,25 @@ final class HomeView extends View {
             paint.setColor(Color.argb(dimAlpha, 0, 0, 0));
             canvas.drawRect(0, 0, 1920, 1080, paint);
         }
+        android.content.SharedPreferences appearance = host.appearance();
+        int dimPct = appearance.getInt("wallpaper_dim", 10);
+        boolean brightHeader = DesktopContrast.isBright(DesktopContrast.effectiveLuminance(wallTopLeftLum, dimPct));
+        boolean brightTopRight = DesktopContrast.isBright(DesktopContrast.effectiveLuminance(wallTopRightLum, dimPct));
+        desktopBrightShelf = DesktopContrast.isBright(DesktopContrast.effectiveLuminance(wallShelfLum, dimPct));
         // Only the real idle screen drifts; previews and phone previews stay put.
         if (desktopVis > 0.05f) {
-            clockScene.draw(canvas,host.appearance(),ambient,previewKey==null&&(host.phone==null||!host.phone.ambientPreview()));
+            boolean weatherPreview = previewKey != null && (previewKey.startsWith("weather") || "ambient_weather".equals(previewKey));
+            clockScene.setTopRightLuminance(wallTopRightLum);
+            clockScene.setWeather(currentWeather, weatherPreview);
+            clockScene.draw(canvas, appearance, ambient, previewKey == null && (host.phone == null || !host.phone.ambientPreview()));
         }
         contentAlpha *= desktopVis;
         if (contentAlpha > 0.005f) {
-            float wifiX = clockScene.left(host.appearance()) - 70;
-            int muted = alphaColor(0xC0FFFFFF, contentAlpha);
+            float wifiX = clockScene.left(appearance) - 70;
+            int headerInkRgb = brightHeader ? (DesktopContrast.INK_COLOR & 0x00FFFFFF) : 0xFFFFFF;
+            int muted = alphaColor(brightTopRight ? 0xC8141A24 : 0xC0FFFFFF, contentAlpha);
             if(headerAlpha.value>.001f){
-                paint.setColor(alphaColor(0x28FFFFFF,contentAlpha*headerAlpha.value));
+                paint.setColor(alphaColor(brightHeader ? 0x22141A24 : 0x28FFFFFF, contentAlpha*headerAlpha.value));
                 rect.set(headerLeft.value,74,headerRight.value,152);
                 canvas.drawRoundRect(rect,24,24,paint);
             }
@@ -552,7 +575,7 @@ final class HomeView extends View {
             float labelBaseline=113f-(paint.ascent()+paint.descent())/2f;
             for(int i=0;i<4;i++){
                 float focus=clamp01(headerFocus[i].value);
-                int color=alphaColor((Math.round(212+43*focus)<<24)|0xFFFFFF,contentAlpha);
+                int color=alphaColor((Math.round((brightHeader?204:212)+(brightHeader?51:43)*focus)<<24)|headerInkRgb,contentAlpha);
                 float ix=headerIconX[i],tx=headerTextX[i];
                 if(i==0){
                     settingsIcon(canvas,ix,113,color,focus);
@@ -577,11 +600,12 @@ final class HomeView extends View {
                 canvas.drawCircle(headerIconX[1]+20+1.8f*connectFocus,95+1.0f*connectFocus,4.5f,paint);
             }
             canvas.restoreToCount(headerSave);
-            wifiIcon(canvas,Math.round(wifiX),113,row==-1&&topSelected==4?alphaColor(Color.WHITE,contentAlpha):muted);
-            if(mover.active())text(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,Color.WHITE,Paint.Align.CENTER);
+            int topRightActive = alphaColor(brightTopRight ? DesktopContrast.INK_COLOR : Color.WHITE, contentAlpha);
+            wifiIcon(canvas,Math.round(wifiX),113,row==-1&&topSelected==4?topRightActive:muted);
+            if(mover.active())shadowText(canvas,"左右移动  ·  确定放下  ·  返回取消",960,960,26,bold,desktopBrightShelf?DesktopContrast.INK_COLOR:Color.WHITE,Paint.Align.CENTER,1f);
             if(host.playback!=null&&host.playback.item!=null)drawPlayback(canvas,contentAlpha);
-            if (rows.isEmpty()) text(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(Color.WHITE,
-                    contentAlpha), Paint.Align.LEFT);
+            if (rows.isEmpty()) shadowText(canvas, host.allTiles.isEmpty() ? "正在读取应用…" : "没有可见卡片，按菜单键恢复", 112, 480, 34, normal, alphaColor(desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE,
+                    contentAlpha), Paint.Align.LEFT, contentAlpha);
             else {
                 // Keep the moving shelves inside the content area, clear of the fixed clock.
                 int shelfClip = canvas.save();
@@ -608,7 +632,7 @@ final class HomeView extends View {
                     Row r = rows.get(next);
                     float nextAlpha = contentAlpha * .34f * nextHintFade;
                     drawShelfIcon(canvas, r.orderKey, 130, 1000, nextAlpha);
-                    text(canvas, r.title, 166, 1011, 34, bold, alphaColor(Color.WHITE, nextAlpha), Paint.Align.LEFT);
+                    shadowText(canvas, r.title, 166, 1011, 34, bold, alphaColor(desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE, nextAlpha), Paint.Align.LEFT, nextAlpha);
                 }
             }
             if(edge.value>.002f&&previewKey==null)drawEdge(canvas,contentAlpha);
@@ -696,7 +720,8 @@ final class HomeView extends View {
 
     private void shadowText(Canvas canvas, String text, float x, float y, float size, Typeface font, int color, Paint.Align align, float shadowOpacity) {
         if (shadowOpacity > 0.01f) {
-            text(canvas, text, x, y + 2f, size, font, alphaColor(0x88000000, shadowOpacity), align);
+            int shadow = DesktopContrast.isDarkInk(color) ? alphaColor(0xB8FFFFFF, shadowOpacity) : alphaColor(0x88000000, shadowOpacity);
+            text(canvas, text, x, y + (DesktopContrast.isDarkInk(color) ? 1.5f : 2f), size, font, shadow, align);
         }
         text(canvas, text, x, y, size, font, color, align);
     }
@@ -737,6 +762,12 @@ final class HomeView extends View {
         paint.setColor(alphaColor(blendColor(0xF0FCF7FE,0xFFFFFFFF,f),alpha));
         rect.set(-16.2f-spread*0.6f,-12.0f-spread*0.85f,11.4f-spread*0.6f,1.2f-spread*0.85f);
         canvas.drawRoundRect(rect,4.6f,4.6f,paint);
+        if(DesktopContrast.isDarkInk(color)){
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.2f);
+            paint.setColor(alphaColor(0x44141A24,alpha));
+            canvas.drawRoundRect(rect,4.6f,4.6f,paint);
+        }
         canvas.restore();
     }
     private void magicIcon(Canvas canvas,float x,float y,int color,float focus){
@@ -751,7 +782,7 @@ final class HomeView extends View {
         // Back card (clean open stroke so it never muddies behind the front card)
         magicPaint.setStyle(Paint.Style.STROKE);
         magicPaint.setStrokeWidth(2.6f);
-        magicPaint.setColor(alphaColor(0xBBFFFFFF,alpha));
+        magicPaint.setColor(alphaColor(DesktopContrast.isDarkInk(color)?0x9C141A24:0xBBFFFFFF,alpha));
         float bx1=-18-spread,by1=-13-spread,bx2=10-spread,by2=7-spread;
         iconPath.reset();
         iconPath.moveTo(-10+spread,by2);
@@ -805,10 +836,11 @@ final class HomeView extends View {
         paint.setShader(null);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
+        boolean darkHeader = DesktopContrast.isDarkInk(color);
         // Open-path TV display leaving clean space for the overlapping phone (no blurry clipRect)
         canvas.save();
         canvas.translate(tvX,tvY);
-        paint.setColor(blendColor(color,alphaColor(0xDDFFFFFF,alpha),f*0.5f));
+        paint.setColor(blendColor(color,alphaColor(darkHeader?0xDD141A24:0xDDFFFFFF,alpha),f*0.5f));
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2.6f);
         iconPath.reset();
@@ -832,13 +864,13 @@ final class HomeView extends View {
             float cx=2.5f,cy=0.5f;
             if(w1>0.01f){
                 float r1=3.2f+2.4f*w1;
-                paint.setColor(alphaColor(0xFFD2BCFF,alpha*w1*0.92f));
+                paint.setColor(alphaColor(darkHeader?0xFF6B46C1:0xFFD2BCFF,alpha*w1*0.92f));
                 rect.set(cx-r1,cy-r1,cx+r1,cy+r1);
                 canvas.drawArc(rect,195,60,false,paint);
             }
             if(w2>0.01f){
                 float r2=6.8f+3.4f*w2;
-                paint.setColor(alphaColor(0xFFD2BCFF,alpha*w2*0.78f));
+                paint.setColor(alphaColor(darkHeader?0xFF6B46C1:0xFFD2BCFF,alpha*w2*0.78f));
                 rect.set(cx-r2,cy-r2,cx+r2,cy+r2);
                 canvas.drawArc(rect,195,60,false,paint);
             }
@@ -869,7 +901,7 @@ final class HomeView extends View {
         float f=clamp01(focus);
         float alpha=Color.alpha(color)/255f;
         float spacing=10f+1.8f*f;
-        int accent=blendColor(color,alphaColor(0xFFC4A8FF,alpha),f);
+        int accent=blendColor(color,alphaColor(DesktopContrast.isDarkInk(color)?0xFF6B46C1:0xFFC4A8FF,alpha),f);
         canvas.save();
         canvas.translate(Math.round(x),Math.round(y));
         paint.setShader(null);
@@ -912,18 +944,19 @@ final class HomeView extends View {
         // Sleek frosted glass squircle badge aligned flush at x=112
         rect.set(-18,-18,18,18);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(alphaColor(0x28FFFFFF,opacity));
+        paint.setColor(alphaColor(desktopBrightShelf?0x22141A24:0x28FFFFFF,opacity));
         canvas.drawRoundRect(rect,10,10,paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1.5f);
-        paint.setColor(alphaColor(0x4EFFFFFF,opacity));
+        paint.setColor(alphaColor(desktopBrightShelf?0x42141A24:0x4EFFFFFF,opacity));
         rect.inset(.75f,.75f);
         canvas.drawRoundRect(rect,9.5f,9.5f,paint);
         paint.setStyle(Paint.Style.FILL);
+        int glyphInk=desktopBrightShelf?DesktopContrast.INK_COLOR:Color.WHITE;
         if("order_tv".equals(orderKey)){
-            // Modern 2x2 rounded app deck: 3 crisp white tiles + 1 bright accent tile
-            int white=alphaColor(Color.WHITE,opacity);
-            int accent=alphaColor(0xFF7AD8FF,opacity);
+            // Modern 2x2 rounded app deck: 3 crisp ink/white tiles + 1 bright accent tile
+            int white=alphaColor(glyphInk,opacity);
+            int accent=alphaColor(desktopBrightShelf?0xFF1688D8:0xFF7AD8FF,opacity);
             paint.setColor(white);
             rect.set(-9,-9,-1.5f,-1.5f);
             canvas.drawRoundRect(rect,2.4f,2.4f,paint);
@@ -936,7 +969,7 @@ final class HomeView extends View {
             canvas.drawRoundRect(rect,2.4f,2.4f,paint);
         }else if("order_favorites".equals(orderKey)){
             // Crisp 5-point star
-            paint.setColor(alphaColor(0xFFFFE082,opacity));
+            paint.setColor(alphaColor(desktopBrightShelf?0xFFD98800:0xFFFFE082,opacity));
             iconPath.reset();
             for(int i=0;i<10;i++){
                 double ang=-Math.PI/2+i*Math.PI/5.0;
@@ -949,7 +982,7 @@ final class HomeView extends View {
             canvas.drawPath(iconPath,paint);
         }else if("order_inputs".equals(orderKey)){
             // Clean signal-in screen icon
-            paint.setColor(alphaColor(Color.WHITE,opacity));
+            paint.setColor(alphaColor(glyphInk,opacity));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(2.4f);
             paint.setStrokeCap(Paint.Cap.ROUND);
@@ -968,7 +1001,7 @@ final class HomeView extends View {
             paint.setStyle(Paint.Style.FILL);
         }else{
             // Clean 3x3 mini grid for other apps
-            paint.setColor(alphaColor(Color.WHITE,opacity));
+            paint.setColor(alphaColor(glyphInk,opacity));
             float[] p={-8.5f,-2,4.5f};
             for(float py:p)for(float px:p){
                 rect.set(px,py,px+4,py+4);
@@ -1086,8 +1119,9 @@ final class HomeView extends View {
         opacity*=.65f+.35f*arrival;
         float rowMaxH=rowMaxHeight(r);
         drawShelfIcon(canvas, r.orderKey, 130, y - rowMaxH/2-86, opacity);
-        shadowText(canvas, r.title, 166, y - rowMaxH/2-75, 34, bold, alphaColor(Color.WHITE, opacity), Paint.Align.LEFT, opacity);
-        if(r.tiles.isEmpty())shadowText(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(0xD6FFFFFF,opacity),Paint.Align.LEFT,opacity);
+        int shelfInk = desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE;
+        shadowText(canvas, r.title, 166, y - rowMaxH/2-75, 34, bold, alphaColor(shelfInk, opacity), Paint.Align.LEFT, opacity);
+        if(r.tiles.isEmpty())shadowText(canvas,"暂无应用，按左键展开菜单添加",112,y,28,normal,alphaColor(desktopBrightShelf?0xCC141A24:0xD6FFFFFF,opacity),Paint.Align.LEFT,opacity);
         int raised = -1;
         for (int i = 0; i < r.tiles.size(); i++) if (raised < 0 || r.tiles.get(i).emphasis.value > r.tiles.get(raised).emphasis.value) raised = i;
         float cursor = SHELF_START_X;
@@ -1213,7 +1247,7 @@ final class HomeView extends View {
             }
             float textAlpha = opacity * (labelOpacity + (1 - labelOpacity) * emphasis);
             shadowText(canvas, tile.displayLabel, Math.max(112, x - baseWidth / 2f), shelfY + baseHeight / 2 + thickness * 0.85f + 68 - 4 * emphasis, 36, bold,
-                    alphaColor(Color.WHITE, textAlpha), Paint.Align.LEFT, textAlpha);
+                    alphaColor(desktopBrightShelf ? DesktopContrast.INK_COLOR : Color.WHITE, textAlpha), Paint.Align.LEFT, textAlpha);
         }
     }
 

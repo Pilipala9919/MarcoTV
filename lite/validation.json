@@ -1,18 +1,22 @@
 {
-  "version": "0.3.1",
-  "version_code": 6,
+  "version": "0.4.0",
+  "version_code": 7,
   "package": "com.pilipala.tvhome.lite",
   "compile_api": 14,
   "min_api": 14,
   "shared_sources": [
     "ClockScene.java",
+    "DesktopContrast.java",
+    "LocalWeatherProbe.java",
     "MotionSpring.java",
-    "PreviewPreferences.java"
+    "PreviewPreferences.java",
+    "WeatherIcons.java",
+    "WeatherSnapshot.java"
   ],
-  "bytes": 362122,
-  "sha256": "0b2f959e4b10ad276961b1ed3a465466087615698940a53feadfa48fdfb0aed5",
-  "restricted_bytes": 362122,
-  "restricted_sha256": "01c766d4e292571957101eabd6fe4ef0912de242f98fb8cc0f79417d823738bb",
+  "bytes": 382602,
+  "sha256": "5b4bd2c5837b1708adc55e37a55c1b290608f2b097230a758107149dff04b110",
+  "restricted_bytes": 382602,
+  "restricted_sha256": "308791721e811f22836b3fd511d1271f2b86467251cffd3c569edbcfc700b88a",
   "signer_sha256": "484874b8ec541bfb73f10bb584e8f814cb81ba08ec0926cebe4aa94f407c74c9",
   "physical_android4_tv_verified": false,
   "physical_android5_box_verified": false,
@@ -34,10 +38,10 @@
   "author": "Pilipala",
   "edition": "Lite",
   "status": "experimental",
-  "date": "2026-11-24",
-  "full_edition_latest": "0.21.3",
+  "date": "2026-11-28",
+  "full_edition_latest": "0.22.0",
   "local_checks": {
-    "settings_checks": 16,
+    "settings_checks": 18,
     "runtime_default_home_checks": 6,
     "apk_checks": {
       "separate_package": true,
@@ -57,7 +61,7 @@
       "restricted_apk_no_home_declaration": true
     }
   },
-  "local_check_count": 37,
+  "local_check_count": 39,
   "api14_instrumentation_compile_only_passed": true,
   "api14_instrumentation_check_count": 55,
   "api14_runtime_baseline_version": "0.1.2",
@@ -69,8 +73,8 @@
   "not_verified": [
     "physical Android 4.x television",
     "Xiaomi Box 3c (Android 5.1) U-disk PackageInstaller runtime",
-    "Android 9 physical TV rerun for 0.3.1 (UI baseline was 0.3.0; 0.3.1 default-home 'Just once' fix verified via host LiteActivity runtime checks)",
-    "Android 4.0.2 emulator runtime rerun for 0.3.1 checks (55 checks compiled against API 14 stubs only; baseline runtime was 0.1.2)",
+    "Android 9 physical TV rerun for 0.4.0 (UI baseline was 0.3.0; adaptive contrast, local weather probe, multi-wallpaper, manual entry picker, and reflective TV inputs not yet exercised on physical TV)",
+    "Android 4.0.2 emulator runtime rerun for 0.4.0 checks (checks compiled against API 14 stubs only; baseline runtime was 0.1.2)",
     "OEM Home button interception and default HOME selection",
     "physical remote key mapping and long press on Android 4.x/5.x",
     "power off/wake and OEM screensaver",

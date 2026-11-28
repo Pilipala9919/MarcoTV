@@ -6,7 +6,7 @@ from build import ROOT,JDK,TOOLS,env,executable,run
 from build_lite import SDK14,SHARED
 f=ROOT/'build/lite-local-tests';f.mkdir(parents=True,exist_ok=True)
 run(executable(JDK/'bin','javac'),'-encoding','UTF-8','-d',f,ROOT/'lite/src/main/java/com/pilipala/tvhome/LiteSettings.java',ROOT/'lite/tests/LiteSettingsChecks.java')
-out=subprocess.check_output([str(executable(JDK/'bin','java')),'-cp',str(f),'com.pilipala.tvhome.LiteSettingsChecks'],env=env).decode();assert 'OK 16 Lite settings checks' in out;print(out)
+out=subprocess.check_output([str(executable(JDK/'bin','java')),'-cp',str(f),'com.pilipala.tvhome.LiteSettingsChecks'],env=env).decode();assert 'OK 18 Lite settings checks' in out;print(out)
 
 # Exercise the real LiteActivity.isDefaultHome() / defaultHomeState() against in-memory API 14 stubs.
 lh=ROOT/'build/lite-home-tests';lh.mkdir(parents=True,exist_ok=True)
@@ -16,7 +16,7 @@ lite_stubs={
  'android/content/Intent.java':'''package android.content;
  import java.util.*;
  public class Intent {
-  public static final String ACTION_MAIN="android.intent.action.MAIN";
+  public static final String ACTION_MAIN="android.intent.action.MAIN",ACTION_VIEW="android.intent.action.VIEW";
   public static final String ACTION_PACKAGE_ADDED="added",ACTION_PACKAGE_REMOVED="removed",ACTION_PACKAGE_CHANGED="changed",ACTION_PACKAGE_REPLACED="replaced";
   public static final String ACTION_TIME_CHANGED="time",ACTION_TIMEZONE_CHANGED="tz",ACTION_GET_CONTENT="get",ACTION_DELETE="del";
   public static final String CATEGORY_HOME="android.intent.category.HOME",CATEGORY_DEFAULT="android.intent.category.DEFAULT",CATEGORY_LAUNCHER="launcher",CATEGORY_OPENABLE="openable";
@@ -34,14 +34,16 @@ lite_stubs={
   public Intent addFlags(int f){return this;}
   public Intent setType(String t){return this;}
   public android.net.Uri getData(){return null;}
+  public android.os.Bundle getExtras(){return null;}
   public static Intent createChooser(Intent i,CharSequence t){return i;}
  }''',
- 'android/content/pm/ActivityInfo.java':'package android.content.pm; public class ActivityInfo { public String packageName,name; public boolean enabled=true,exported=true; public ApplicationInfo applicationInfo; }',
+ 'android/content/pm/ActivityInfo.java':'package android.content.pm; public class ActivityInfo { public String packageName,name,permission; public int flags; public boolean enabled=true,exported=true; public ApplicationInfo applicationInfo; public CharSequence loadLabel(PackageManager pm){return name!=null?name:""; } }',
  'android/content/pm/ResolveInfo.java':'package android.content.pm; public class ResolveInfo { public ActivityInfo activityInfo; public CharSequence loadLabel(PackageManager pm){return "";} }',
  'android/content/pm/PackageManager.java':'''package android.content.pm;
- import android.content.Intent; import java.util.*;
+ import android.content.Intent; import android.content.ComponentName; import java.util.*;
  public class PackageManager {
   public static final int MATCH_DEFAULT_ONLY=0x10000;
+  public static final int GET_ACTIVITIES=1;
   public boolean declaresHome=true;
   public String resolvedPkg="",resolvedCls="";
   public boolean sawDefaultCategory;
@@ -62,6 +64,10 @@ lite_stubs={
    return r;
   }
   public PackageInfo getPackageInfo(String p,int f){return null;}
+  public List<PackageInfo> getInstalledPackages(int f){return new ArrayList<PackageInfo>();}
+  public ActivityInfo getActivityInfo(ComponentName c,int f){return null;}
+  public List<ProviderInfo> queryContentProviders(String p,int u,int f){return new ArrayList<ProviderInfo>();}
+  public CharSequence getApplicationLabel(ApplicationInfo a){return a!=null?a.packageName:"";}
   public android.graphics.drawable.Drawable getApplicationIcon(String p){return null;}
  }''',
  'android/content/Context.java':'''package android.content;
@@ -182,5 +188,5 @@ with zipfile.ZipFile(restricted_apk) as zr:
  checks['lite_restricted_dex_035']=zr.read('classes.dex').startswith(b'dex\n035\x00')
  checks['lite_restricted_apk_crc']=zr.testzip() is None
 for name,ok in checks.items():print(('PASS ' if ok else 'FAIL ')+name)
-assert all(checks.values());(f/'result.json').write_text(json.dumps({'layout_checks':16,'apk_checks':checks},indent=2))
-print(f'OK {16+len(checks)} Lite local checks')
+assert all(checks.values());(f/'result.json').write_text(json.dumps({'layout_checks':18,'apk_checks':checks},indent=2))
+print(f'OK {18+len(checks)} Lite local checks')

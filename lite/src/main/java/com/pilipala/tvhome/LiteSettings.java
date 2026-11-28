@@ -4,7 +4,7 @@ package com.pilipala.tvhome;
 
 /** Small, API-independent schema shared by editor, backup validation and tests. */
 final class LiteSettings {
-    static final String VERSION="0.3.1";
+    static final String VERSION="0.4.0";
     static final int HOME_STATE_DEFAULT=0;
     static final int HOME_STATE_ONCE=1;
     static final int HOME_STATE_UNSET=2;
@@ -28,20 +28,26 @@ final class LiteSettings {
             "card_row_position","card_height","card_radius","clock_style","clock_tilt","clock_size",
             "wallpaper_dim","idle_seconds","ambient_clock_size","ambient_dim","motion",
             "card_width","card_depth","ambient_pure_wallpaper",
-            "card_scale","label_opacity","ambient_clock_brightness"
+            "card_scale","label_opacity","ambient_clock_brightness",
+            "card_surface","clock_color_mode","clock_hue","clock_lightness","clock_shadow",
+            "weather_enabled","weather_show_icon","weather_show_current","weather_show_range",
+            "weather_precip_mode","weather_icon_colorful","weather_size"
     };
     static final String[] NAMES={
             "卡片行上下位置","卡片高度","卡片圆角","时钟字体","圆体倾斜幅度","桌面时间大小",
             "壁纸压暗","屏保等待（秒，0 关闭）","屏保时间大小","屏保背景压暗","卡片动效",
             "卡片宽度","卡片立体厚度","闲置纯净壁纸",
-            "选中放大幅度","未选中名称亮度","屏保时钟亮度"
+            "选中放大幅度","未选中名称亮度","屏保时钟亮度",
+            "卡片高光质感","时间字体颜色","自定义色相","自定义明度","文字对比阴影",
+            "桌面天气显示","显示天气图标","显示实时温度","显示温度范围",
+            "显示降水概率","彩色天气图标","天气模块大小"
     };
-    static final int[] MIN={0,70,0,0,0,36,0,0,100,0,0,70,0,0,0,0,30};
-    static final int[] MAX={100,130,64,3,14,160,90,600,280,100,1,140,100,1,30,100,100};
-    static final int[] DEFAULT={75,100,32,0,10,96,10,60,176,72,1,100,0,0,12,75,100};
+    static final int[] MIN={0,70,0,0,0,36,0,0,100,0,0,70,0,0,0,0,30,0,0,0,15,0,0,0,0,0,0,0,75};
+    static final int[] MAX={100,130,64,3,14,160,90,600,280,100,1,140,100,1,30,100,100,100,9,360,95,100,1,1,1,1,2,1,135};
+    static final int[] DEFAULT={75,100,32,0,10,96,10,60,176,72,1,100,0,0,12,75,100,55,0,210,82,35,1,1,1,1,1,1,100};
 
     static boolean isBool(int i){
-        return i==13;
+        return i==13||i==22||i==23||i==24||i==25||i==27;
     }
     static int clamp(int i,int v){
         return Math.max(MIN[i],Math.min(MAX[i],v));

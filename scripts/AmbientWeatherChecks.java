@@ -132,5 +132,43 @@ public final class AmbientWeatherChecks {
         check("missing_data_unknown", WeatherRefreshPolicy.freshness(now, 0) == WeatherRefreshPolicy.Freshness.UNKNOWN);
         check("future_data_unknown", WeatherRefreshPolicy.freshness(now, now + 300001) == WeatherRefreshPolicy.Freshness.UNKNOWN);
         check("small_clock_skew_tolerated", WeatherRefreshPolicy.freshness(now, now + 1000) == WeatherRefreshPolicy.Freshness.FRESH);
+
+        // Adaptive desktop contrast & clock ink resolution
+        float brightEff = DesktopContrast.effectiveLuminance(0.92f, 10);
+        float dimEff = DesktopContrast.effectiveLuminance(0.92f, 65);
+        check("bright_wallpaper_switches_auto_clock_to_dark_ink",
+                DesktopContrast.isBright(brightEff)
+                && !DesktopContrast.isBright(dimEff)
+                && DesktopContrast.resolveClockColor(DesktopContrast.MODE_AUTO, 0, 80, true) == DesktopContrast.INK_COLOR
+                && DesktopContrast.resolveClockColor(DesktopContrast.MODE_AUTO, 0, 80, false) == DesktopContrast.WHITE_COLOR);
+        int lifted = DesktopContrast.resolveAmbientClockColor(DesktopContrast.INK_COLOR, 1.0f, 72, false);
+        check("dimmed_screensaver_lifts_dark_ink_back_to_white",
+                lifted == DesktopContrast.WHITE_COLOR
+                && DesktopContrast.resolveAmbientClockColor(DesktopContrast.INK_COLOR, 1.0f, 72, true) == DesktopContrast.INK_COLOR);
+        int customCyan = DesktopContrast.resolveClockColor(DesktopContrast.MODE_CUSTOM, 180, 60, false);
+        check("custom_hsl_and_contrast_shadow_colors_valid",
+                ((customCyan >>> 24) & 255) == 255
+                && !DesktopContrast.isDarkInk(customCyan)
+                && DesktopContrast.contrastShadowColor(DesktopContrast.INK_COLOR, 40, 1f) != 0
+                && DesktopContrast.contrastShadowColor(DesktopContrast.WHITE_COLOR, 0, 1f) == 0);
+
+        // WeatherSnapshot OEM / WMO parsing & customizable display parts
+        check("weather_wmo_and_oem_mapping",
+                WeatherSnapshot.mapWmoCode(0) == WeatherSnapshot.COND_CLEAR
+                && WeatherSnapshot.mapWmoCode(63) == WeatherSnapshot.COND_RAIN
+                && WeatherSnapshot.mapWmoCode(95) == WeatherSnapshot.COND_THUNDER
+                && WeatherSnapshot.mapOemCondition("阵雨", -1) == WeatherSnapshot.COND_RAIN
+                && WeatherSnapshot.mapOemCondition("多云转晴", -1) == WeatherSnapshot.COND_PARTLY_CLOUDY);
+        int[] parsedRange = WeatherSnapshot.parseRange("16℃ ~ 25℃");
+        check("weather_parsing_temp_range_and_percent",
+                Integer.valueOf(22).equals(WeatherSnapshot.parseTemp("22°C"))
+                && parsedRange != null && parsedRange[0] == 16 && parsedRange[1] == 25
+                && Integer.valueOf(45).equals(WeatherSnapshot.parsePercent("降水 45%")));
+        WeatherSnapshot sample = WeatherSnapshot.samplePreview();
+        String[] fullParts = sample.buildDisplayParts(true, true, true, WeatherSnapshot.PRECIP_WHEN_POSITIVE);
+        String[] rangeOnly = sample.buildDisplayParts(false, false, true, WeatherSnapshot.PRECIP_OFF);
+        check("weather_display_parts_respect_user_toggles",
+                fullParts[0].contains("21°") && fullParts[0].contains("15°~24°") && fullParts[0].contains("杭州") && fullParts[1].equals("30%")
+                && rangeOnly[0].contains("15°~24°") && !rangeOnly[0].contains("21°") && !rangeOnly[0].contains("杭州") && rangeOnly[1].equals(""));
     }
 }

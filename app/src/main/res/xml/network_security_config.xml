@@ -13,5 +13,6 @@
         <domain includeSubdomains="true">pilipala9919.github.io</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">open-meteo.com</domain>
     </domain-config>
 </network-security-config>

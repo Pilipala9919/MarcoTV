@@ -17,6 +17,8 @@ final class ClockScene {
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.SUBPIXEL_TEXT_FLAG|Paint.LINEAR_TEXT_FLAG);
     private final Paint imagePaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final RectF clockRect=new RectF();
+    private final RectF weatherOval=new RectF();
+    private final Path weatherPath=new Path();
     private final Typeface medium=Typeface.create("sans-serif-medium",Typeface.NORMAL);
     private SimpleDateFormat time=new SimpleDateFormat("HH:mm",Locale.ROOT);
     private final SimpleDateFormat date=new SimpleDateFormat("M月d日  EEEE",Locale.CHINA);
@@ -25,6 +27,11 @@ final class ClockScene {
     private String cachedTime="",cachedDate="";
     private long cachedDay=Long.MIN_VALUE;
     private int cachedStyle=-1,cachedTilt=-1,bitmapGlyphHeight;
+    private int cachedFilterColor,cachedShadowColor;
+    private PorterDuffColorFilter colorFilter,shadowFilter;
+    private float topRightLuminance=0.16f;
+    private WeatherSnapshot weather;
+    private boolean forceWeatherPreview;
     private Layout layout;
     private int layoutStyle=-1,layoutTilt=-1;
     private final Map<Integer,Layout> layoutCache=new LinkedHashMap<Integer,Layout>(16,0.75f,true){
@@ -77,6 +84,51 @@ final class ClockScene {
     float left(SharedPreferences prefs){
         return 1798-layout(prefs).width*size(prefs,0)/280;
     }
+    void setTopRightLuminance(float luminance){
+        topRightLuminance=Math.max(0f,Math.min(1f,luminance));
+    }
+    void setWeather(WeatherSnapshot snapshot,boolean previewMode){
+        weather=snapshot;
+        forceWeatherPreview=previewMode;
+    }
+    static boolean prefBool(SharedPreferences prefs,String key,boolean fallback){
+        try{
+            return prefs.getBoolean(key,fallback);
+        }catch(ClassCastException ignored){
+            return prefs.getInt(key,fallback?1:0)!=0;
+        }
+    }
+    boolean isBrightClockArea(SharedPreferences prefs){
+        int wallDim=prefs.getInt("wallpaper_dim",10);
+        int colorMode=prefs.getInt("clock_color_mode",DesktopContrast.MODE_AUTO);
+        boolean brightBg=DesktopContrast.isBright(DesktopContrast.effectiveLuminance(topRightLuminance,wallDim));
+        if(colorMode==DesktopContrast.MODE_AUTO)return brightBg;
+        int chosen=DesktopContrast.resolveClockColor(colorMode,prefs.getInt("clock_hue",210),prefs.getInt("clock_lightness",82),brightBg);
+        return DesktopContrast.isDarkInk(chosen);
+    }
+    private int resolvedInk(SharedPreferences prefs,float ambient,boolean pure){
+        int wallDim=prefs.getInt("wallpaper_dim",10);
+        int colorMode=prefs.getInt("clock_color_mode",DesktopContrast.MODE_AUTO);
+        boolean brightBg=DesktopContrast.isBright(DesktopContrast.effectiveLuminance(topRightLuminance,wallDim));
+        int desktopColor=DesktopContrast.resolveClockColor(colorMode,prefs.getInt("clock_hue",210),prefs.getInt("clock_lightness",82),brightBg);
+        return DesktopContrast.resolveAmbientClockColor(desktopColor,ambient,prefs.getInt("ambient_dim",72),pure);
+    }
+    private PorterDuffColorFilter inkFilter(int rgbColor){
+        int opaque=rgbColor|0xFF000000;
+        if(colorFilter==null||cachedFilterColor!=opaque){
+            cachedFilterColor=opaque;
+            colorFilter=new PorterDuffColorFilter(opaque,PorterDuff.Mode.SRC_IN);
+        }
+        return colorFilter;
+    }
+    private PorterDuffColorFilter shadowColorFilter(int rgbColor){
+        int opaque=rgbColor|0xFF000000;
+        if(shadowFilter==null||cachedShadowColor!=opaque){
+            cachedShadowColor=opaque;
+            shadowFilter=new PorterDuffColorFilter(opaque,PorterDuff.Mode.SRC_IN);
+        }
+        return shadowFilter;
+    }
     void draw(Canvas c,SharedPreferences prefs,float ambient){
         draw(c,prefs,ambient,false);
     }
@@ -103,7 +155,7 @@ final class ClockScene {
         drawClock(c,prefs,ambient);
     }
     private void drawClock(Canvas c,SharedPreferences prefs,float ambient){
-        boolean pure=prefs.getBoolean("ambient_pure_wallpaper",false);
+        boolean pure=prefBool(prefs,"ambient_pure_wallpaper",false);
         float clockVis=pure?Math.max(0f,1f-ambient*2.5f):1f;
         if(clockVis<=0.005f)return;
         TimeZone currentZone=TimeZone.getDefault();
@@ -136,19 +188,118 @@ final class ClockScene {
         }
         float ratio=size(prefs,pure?0f:ambient)/280;
         int glow=prefs.getInt("ambient_clock_brightness",100);
-        imagePaint.setAlpha(Math.round((160+(Math.round(255*glow/100f)-160)*ambient)*clockVis));
+        int ink=resolvedInk(prefs,ambient,pure);
+        boolean darkInk=DesktopContrast.isDarkInk(ink);
+        int colorMode=prefs.getInt("clock_color_mode",DesktopContrast.MODE_AUTO);
+        int desktopAlpha=darkInk?236:(colorMode>DesktopContrast.MODE_WHITE?218:172);
+        int mainAlpha=Math.round((desktopAlpha+(Math.round(255*glow/100f)-desktopAlpha)*ambient)*clockVis);
+        int shadowPct=DesktopContrast.clampShadow(prefs.getInt("clock_shadow",35));
         clockRect.set(1798-(glyphs.width+3)*ratio,72-3*ratio,1798+3*ratio,72+(glyphs.height+3)*ratio);
+        if(shadowPct>0){
+            int shadowArg=DesktopContrast.contrastShadowColor(ink,shadowPct,(1f-0.55f*ambient)*clockVis);
+            int sa=Color.alpha(shadowArg);
+            if(sa>1){
+                float dy=2.2f*ratio;
+                clockRect.offset(0f,dy);
+                imagePaint.setColorFilter(shadowColorFilter(shadowArg));
+                imagePaint.setAlpha(sa);
+                c.drawBitmap(clockBitmap,null,clockRect,imagePaint);
+                clockRect.offset(0f,-dy);
+            }
+        }
+        imagePaint.setColorFilter(inkFilter(ink));
+        imagePaint.setAlpha(mainAlpha);
         c.drawBitmap(clockBitmap,null,clockRect,imagePaint);
+        imagePaint.setColorFilter(null);
+        float dateY=72+bitmapGlyphHeight*ratio+36;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
         p.setTypeface(medium);
         p.setTextSize(24);
-        p.setColor(Color.argb(Math.round((155+65*ambient)*clockVis),225,233,239));
         p.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(cachedDate,1798,72+bitmapGlyphHeight*ratio+36,p);
+        float dateAlpha01=(darkInk?(0.86f+0.10f*ambient):(0.66f+0.24f*ambient))*clockVis;
+        if(shadowPct>0){
+            int sc=DesktopContrast.contrastShadowColor(ink,shadowPct,0.85f*clockVis);
+            if(Color.alpha(sc)>1){
+                p.setColor(sc);
+                c.drawText(cachedDate,1798,dateY+1.6f,p);
+            }
+        }
+        p.setColor(DesktopContrast.withAlpha(ink,dateAlpha01));
+        c.drawText(cachedDate,1798,dateY,p);
+        drawWeather(c,prefs,ambient,pure,clockVis,ink,shadowPct,dateY,now);
         if(!pure&&ambient>.01f){
             p.setTextSize(15);
             p.setColor(Color.argb(Math.round(75*ambient),185,210,221));
             p.setTextAlign(Paint.Align.LEFT);
             c.drawText("MARCO TV  /  Pilipala",112,985,p);
+        }
+    }
+    private void drawWeather(Canvas c,SharedPreferences prefs,float ambient,boolean pure,
+                             float clockVis,int ink,int shadowPct,float dateY,long now){
+        if(!prefBool(prefs,"weather_enabled",false)||pure)return;
+        boolean showAmbient=prefBool(prefs,"ambient_weather",true);
+        float weatherVis=(ambient<=0.01f?1f:(showAmbient?1f:Math.max(0f,1f-ambient*2.5f)))*clockVis;
+        if(weatherVis<=0.01f)return;
+        WeatherSnapshot snap=weather;
+        if(snap!=null&&snap.fetchedAtMs>0&&now-snap.fetchedAtMs>6L*3600L*1000L&&!forceWeatherPreview){
+            snap=null;
+        }
+        if(snap==null&&forceWeatherPreview){
+            snap=WeatherSnapshot.samplePreview();
+        }
+        if(snap==null)return;
+        boolean showIcon=prefBool(prefs,"weather_show_icon",true);
+        boolean showCurrent=prefBool(prefs,"weather_show_current",true);
+        boolean showRange=prefBool(prefs,"weather_show_range",true);
+        int precipMode=Math.max(0,Math.min(2,prefs.getInt("weather_precip_mode",WeatherSnapshot.PRECIP_WHEN_POSITIVE)));
+        boolean showCity=prefBool(prefs,"weather_show_city",false);
+        boolean colorful=prefBool(prefs,"weather_icon_colorful",true);
+        float wScale=Math.max(75,Math.min(135,prefs.getInt("weather_size",100)))/100f;
+        String[] parts=snap.buildDisplayParts(showCity,showCurrent,showRange,precipMode);
+        String mainText=parts[0],precipText=parts[1];
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setTypeface(medium);
+        p.setTextSize(21f*wScale);
+        p.setTextAlign(Paint.Align.RIGHT);
+        float baselineY=dateY+33f*wScale;
+        float iconCenterY=baselineY-7.4f*wScale;
+        float alpha01=(DesktopContrast.isDarkInk(ink)?0.88f:0.84f)*weatherVis;
+        float cursorX=1798f;
+        if(!precipText.isEmpty()){
+            if(shadowPct>0){
+                int sc=DesktopContrast.contrastShadowColor(ink,shadowPct,0.8f*weatherVis);
+                if(Color.alpha(sc)>1){
+                    p.setColor(sc);
+                    c.drawText(precipText,cursorX,baselineY+1.4f,p);
+                }
+            }
+            p.setColor(DesktopContrast.withAlpha(ink,alpha01));
+            c.drawText(precipText,cursorX,baselineY,p);
+            cursorX-=p.measureText(precipText)+4f*wScale;
+            float dropSize=13f*wScale;
+            WeatherIcons.drawDroplet(c,p,weatherPath,cursorX-dropSize*0.42f,iconCenterY,dropSize,ink,colorful,alpha01);
+            cursorX-=dropSize*0.85f+(mainText.isEmpty()?0f:14f*wScale);
+        }
+        if(!mainText.isEmpty()){
+            p.setTextAlign(Paint.Align.RIGHT);
+            if(shadowPct>0){
+                int sc=DesktopContrast.contrastShadowColor(ink,shadowPct,0.8f*weatherVis);
+                if(Color.alpha(sc)>1){
+                    p.setColor(sc);
+                    c.drawText(mainText,cursorX,baselineY+1.4f,p);
+                }
+            }
+            p.setColor(DesktopContrast.withAlpha(ink,alpha01));
+            c.drawText(mainText,cursorX,baselineY,p);
+            cursorX-=p.measureText(mainText);
+        }
+        if(showIcon){
+            float gap=(!mainText.isEmpty()||!precipText.isEmpty())?10f*wScale:0f;
+            float iconSize=22f*wScale;
+            WeatherIcons.drawCondition(c,p,weatherPath,weatherOval,snap.condition,snap.isDay,
+                    cursorX-gap-iconSize*0.5f,iconCenterY,iconSize,ink,colorful,alpha01);
         }
     }
     /** Bounds reserve every digit at each slot, so 11:11 and 20:48 occupy the

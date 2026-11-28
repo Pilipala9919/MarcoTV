@@ -7,7 +7,7 @@ from build import OFFICIAL_SIGNER_SHA256,ROOT,JDK,TOOLS,ANDROID,env,executable,r
 
 SOURCE=ROOT/'lite/src/main'
 SDK14=Path(os.environ.get('MARCOTV_API14_JAR',str(ROOT/'.tools/lite-legacy/platform/android-4.0.2/android.jar')))
-SHARED=['ClockScene.java','MotionSpring.java','PreviewPreferences.java']
+SHARED=['ClockScene.java','DesktopContrast.java','LocalWeatherProbe.java','MotionSpring.java','PreviewPreferences.java','WeatherIcons.java','WeatherSnapshot.java']
 
 def build(restricted=False,release=False):
  if not SDK14.is_file():raise RuntimeError('Install official API 14 platform and set MARCOTV_API14_JAR. See lite/README.md.')

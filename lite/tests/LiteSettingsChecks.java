@@ -72,6 +72,17 @@ public final class LiteSettingsChecks {
         check("lite_restricted_never_claims_default_home",
                 restricted==LiteSettings.HOME_STATE_RESTRICTED&&!LiteSettings.isDefaultHomeState(restricted)
                 &&LiteSettings.homeStateLabel(restricted).contains("普通应用"));
+        check("new_lite_color_surface_and_weather_bounds",
+                LiteSettings.KEYS.length==29
+                &&LiteSettings.MIN.length==29&&LiteSettings.MAX.length==29&&LiteSettings.DEFAULT.length==29
+                &&LiteSettings.NAMES.length==29
+                &&LiteSettings.clamp(17,999)==100
+                &&LiteSettings.clamp(18,9)==9
+                &&LiteSettings.clamp(28,50)==75);
+        check("new_lite_boolean_keys_match_schema",
+                LiteSettings.isBool(13)&&LiteSettings.isBool(22)&&LiteSettings.isBool(23)
+                &&LiteSettings.isBool(24)&&LiteSettings.isBool(25)&&LiteSettings.isBool(27)
+                &&!LiteSettings.isBool(17)&&!LiteSettings.isBool(18)&&!LiteSettings.isBool(26)&&!LiteSettings.isBool(28));
         System.out.println("OK "+passed+" Lite settings checks");
     }
 }

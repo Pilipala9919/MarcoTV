@@ -28,8 +28,13 @@ public final class LiteActivity extends Activity {
     LiteView home;
     ArrayList<App> apps=new ArrayList<App>();
     ArrayList<App> favorites=new ArrayList<App>();
+    ArrayList<App> tvInputs=new ArrayList<App>();
     ArrayList<App> allApps=new ArrayList<App>();
     ArrayList<App> filteredApps=new ArrayList<App>();
+    ArrayList<String[]> manualActivities=new ArrayList<String[]>();
+    boolean manualScanning,weatherLoaded;
+    volatile WeatherSnapshot localWeather;
+    volatile LocalWeatherProbe.Result lastWeatherProbe;
     final Handler handler=new Handler();
     boolean alive;
     volatile boolean destroyed;
@@ -81,6 +86,7 @@ public final class LiteActivity extends Activity {
         timeFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         registerReceiver(timeChanges,timeFilter);
         if(state!=null)home.restoreState(state);
+        if(!weatherLoaded)probeWeatherAsync(false);
     }
     @Override protected void onResume(){
         super.onResume();
@@ -250,9 +256,12 @@ public final class LiteActivity extends Activity {
         apps=visible;
         favorites=favs;
         allApps=all;
-        if(favorites.isEmpty()&&home.activeRow!=0){
-            home.activeRow=0;
-            home.rowSpring.snap(0);
+        if(home.activeRow==1&&favorites.isEmpty()){
+            home.activeRow=tvInputs.isEmpty()?0:2;
+            home.rowSpring.snap(home.activeRow);
+        }else if(home.activeRow==2&&tvInputs.isEmpty()){
+            home.activeRow=favorites.isEmpty()?0:1;
+            home.rowSpring.snap(home.activeRow);
         }
         rebuildFilteredApps();
         home.selectId(selected);
@@ -294,6 +303,7 @@ public final class LiteActivity extends Activity {
         new Thread(new Runnable(){
             public void run(){
                 final ArrayList<App> found=new ArrayList<App>();
+                final ArrayList<App> foundInputs=new ArrayList<App>();
                 HashSet<String> packages=new HashSet<String>();
                 PackageManager pm=getPackageManager();
                 boolean success=true;
@@ -327,6 +337,80 @@ public final class LiteActivity extends Activity {
                         app.intent=new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(a.packageName,a.name))
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                         found.add(app);
+                    }
+                    Map<String,?> allPrefs=prefs.getAll();
+                    if(allPrefs!=null){
+                        for(Map.Entry<String,?> me:allPrefs.entrySet()){
+                            String pk=me.getKey();
+                            if(pk==null||!pk.startsWith("manual:")||!(me.getValue() instanceof String))continue;
+                            String pkg=pk.substring(7);
+                            String comp=(String)me.getValue();
+                            if(pkg.length()==0||comp.length()==0||pkg.equals(getPackageName())||packages.contains(pkg))continue;
+                            ComponentName cn=ComponentName.unflattenFromString(comp);
+                            if(cn==null)continue;
+                            try{
+                                ActivityInfo a=pm.getActivityInfo(cn,0);
+                                if(a==null||!a.enabled||!a.exported||a.applicationInfo==null||!a.applicationInfo.enabled)continue;
+                                packages.add(pkg);
+                                App app=new App();
+                                app.id=pkg;
+                                CharSequence rl=a.loadLabel(pm);
+                                app.origLabel=(rl!=null&&rl.length()>0)?rl.toString():pkg;
+                                app.label=app.origLabel;
+                                int flags=a.applicationInfo.flags;
+                                app.systemApp=(flags&ApplicationInfo.FLAG_SYSTEM)!=0;
+                                app.updatedSystemApp=(flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0;
+                                try{
+                                    PackageInfo pi=pm.getPackageInfo(pkg,0);
+                                    app.version=pi!=null&&pi.versionName!=null?pi.versionName:"";
+                                }catch(Exception ignored){
+                                    app.version="";
+                                }
+                                app.pinned=prefs.getBoolean("pinned:"+app.id,false);
+                                app.pinOrder=prefs.getLong("pin_order:"+app.id,0);
+                                app.hidden=prefs.getBoolean("hidden:"+app.id,false);
+                                app.favorite=prefs.getBoolean("fav:"+app.id,false);
+                                app.opened=prefs.getLong("opened:"+app.id,0);
+                                app.intent=new Intent(Intent.ACTION_MAIN).setComponent(cn)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                                found.add(app);
+                            }catch(Throwable ignored){}
+                        }
+                    }
+                    if(Build.VERSION.SDK_INT>=21){
+                        try{
+                            Object mgr=getSystemService("tv_input");
+                            if(mgr!=null){
+                                java.lang.reflect.Method getList=mgr.getClass().getMethod("getTvInputList");
+                                Object rawList=getList.invoke(mgr);
+                                if(rawList instanceof List){
+                                    Class<?> infoCls=Class.forName("android.media.tv.TvInputInfo");
+                                    java.lang.reflect.Method getId=infoCls.getMethod("getId");
+                                    java.lang.reflect.Method loadLabel=infoCls.getMethod("loadLabel",Context.class);
+                                    java.lang.reflect.Method isHidden=infoCls.getMethod("isHidden",Context.class);
+                                    java.lang.reflect.Method isPassthrough=infoCls.getMethod("isPassthroughInput");
+                                    Class<?> contractCls=Class.forName("android.media.tv.TvContract");
+                                    java.lang.reflect.Method buildUri=contractCls.getMethod("buildChannelUriForPassthroughInput",String.class);
+                                    for(Object item:(List<?>)rawList){
+                                        if(item==null)continue;
+                                        if(!Boolean.TRUE.equals(isPassthrough.invoke(item)))continue;
+                                        if(Boolean.TRUE.equals(isHidden.invoke(item,LiteActivity.this)))continue;
+                                        String inputId=(String)getId.invoke(item);
+                                        if(inputId==null||inputId.length()==0)continue;
+                                        Object uriObj=buildUri.invoke(null,inputId);
+                                        if(!(uriObj instanceof Uri))continue;
+                                        CharSequence lbl=(CharSequence)loadLabel.invoke(item,LiteActivity.this);
+                                        App inp=new App();
+                                        inp.id="input:"+inputId;
+                                        inp.origLabel=lbl!=null?lbl.toString():"输入源";
+                                        inp.label=inp.origLabel;
+                                        inp.systemApp=true;
+                                        inp.intent=new Intent(Intent.ACTION_VIEW,(Uri)uriObj).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                        foundInputs.add(inp);
+                                    }
+                                }
+                            }
+                        }catch(Throwable ignored){}
                     }
                     final int mode=sortMode();
                     Collections.sort(found,new Comparator<App>(){
@@ -364,6 +448,7 @@ public final class LiteActivity extends Activity {
                         if(ok){
                             ArrayList<App> old=catalog;
                             catalog=found;
+                            tvInputs=foundInputs;
                             loaded=true;
                             rebuildVisible();
                             recycle(old);
@@ -487,17 +572,141 @@ public final class LiteActivity extends Activity {
             in2.close();
         }
     }
+    ArrayList<String[]> customWallpapers(){
+        ArrayList<String[]> list=new ArrayList<String[]>();
+        String raw=prefs.getString("custom_wallpapers","");
+        boolean hasLegacy=false;
+        if(raw!=null&&raw.length()>0){
+            String[] entries=raw.split(";");
+            for(String e:entries){
+                int bar=e.indexOf('|');
+                if(bar<=0)continue;
+                String name=e.substring(0,bar).trim();
+                String title=e.substring(bar+1).trim();
+                if(name.length()==0||name.indexOf('/')>=0||name.indexOf('\\')>=0||name.indexOf("..")>=0)continue;
+                if(title.length()==0)title="本地图片";
+                File f="custom-wallpaper.jpg".equals(name)?new File(getFilesDir(),name):new File(new File(getFilesDir(),"wallpapers"),name);
+                if(f.isFile()){
+                    if("custom-wallpaper.jpg".equals(name))hasLegacy=true;
+                    list.add(new String[]{name,title});
+                }
+            }
+        }
+        File legacy=new File(getFilesDir(),"custom-wallpaper.jpg");
+        if(!hasLegacy&&legacy.isFile())list.add(new String[]{"custom-wallpaper.jpg","本地图片"});
+        return list;
+    }
+    void saveCustomWallpaperList(List<String[]> items){
+        StringBuilder sb=new StringBuilder();
+        for(int i=0;i<items.size();i++){
+            if(i>0)sb.append(';');
+            sb.append(items.get(i)[0]).append('|').append(items.get(i)[1].replace('|',' ').replace(';',' '));
+        }
+        prefs.edit().putString("custom_wallpapers",sb.toString()).apply();
+    }
+    void deleteCustomWallpaper(String fileName){
+        if(fileName==null||fileName.length()==0)return;
+        File f="custom-wallpaper.jpg".equals(fileName)?new File(getFilesDir(),fileName):new File(new File(getFilesDir(),"wallpapers"),fileName);
+        if(f.exists())f.delete();
+        ArrayList<String[]> list=customWallpapers();
+        ArrayList<String[]> next=new ArrayList<String[]>();
+        for(String[] entry:list)if(!fileName.equals(entry[0]))next.add(entry);
+        saveCustomWallpaperList(next);
+        String active=prefs.getString("active_custom_wall","");
+        if(fileName.equals(active)||next.isEmpty()){
+            if(next.isEmpty()){
+                prefs.edit().remove("active_custom_wall").putInt("wallpaper",0).apply();
+            }else{
+                prefs.edit().putString("active_custom_wall",next.get(0)[0]).putInt("wallpaper",2).apply();
+            }
+        }
+        home.loadWallpaper();
+        toast("已移除壁纸");
+    }
+    void probeWeatherAsync(final boolean notifyUser){
+        weatherLoaded=true;
+        if(notifyUser)toast("正在探测本机系统天气...");
+        new Thread(new Runnable(){
+            public void run(){
+                final LocalWeatherProbe.Result res=LocalWeatherProbe.probe(LiteActivity.this);
+                handler.post(new Runnable(){
+                    public void run(){
+                        if(destroyed||isFinishing())return;
+                        lastWeatherProbe=res;
+                        localWeather=res.snapshot;
+                        home.invalidate();
+                        if(notifyUser){
+                            toast(res.snapshot!=null?"已读取本机天气数据":"未读到开放的本机天气接口");
+                        }
+                    }
+                });
+            }
+        },"MarcoLite-weather").start();
+    }
+    void scanManualActivities(){
+        if(manualScanning)return;
+        manualScanning=true;
+        home.invalidate();
+        new Thread(new Runnable(){
+            public void run(){
+                final ArrayList<String[]> found=new ArrayList<String[]>();
+                try{
+                    PackageManager pm=getPackageManager();
+                    HashSet<String> launcherPkgs=new HashSet<String>();
+                    for(String cat:new String[]{"android.intent.category.LEANBACK_LAUNCHER",Intent.CATEGORY_LAUNCHER}){
+                        List<ResolveInfo> rs=pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(cat),0);
+                        if(rs!=null)for(ResolveInfo r:rs)if(r.activityInfo!=null)launcherPkgs.add(r.activityInfo.packageName);
+                    }
+                    List<PackageInfo> pkgs=pm.getInstalledPackages(PackageManager.GET_ACTIVITIES);
+                    if(pkgs!=null){
+                        for(PackageInfo pi:pkgs){
+                            if(pi==null||pi.packageName==null||pi.packageName.equals(getPackageName())||launcherPkgs.contains(pi.packageName))continue;
+                            if(pi.activities==null||pi.applicationInfo==null||!pi.applicationInfo.enabled)continue;
+                            ActivityInfo chosen=null;
+                            for(ActivityInfo ai:pi.activities){
+                                if(ai!=null&&ai.enabled&&ai.exported&&(ai.permission==null||ai.permission.length()==0)){
+                                    chosen=ai;
+                                    break;
+                                }
+                            }
+                            if(chosen==null)continue;
+                            CharSequence pl=pm.getApplicationLabel(pi.applicationInfo);
+                            String label=(pl!=null&&pl.length()>0)?pl.toString():pi.packageName;
+                            found.add(new String[]{pi.packageName,new ComponentName(pi.packageName,chosen.name).flattenToString(),label});
+                        }
+                    }
+                    Collections.sort(found,new Comparator<String[]>(){
+                        public int compare(String[] a,String[] b){
+                            return a[2].compareToIgnoreCase(b[2]);
+                        }
+                    });
+                }catch(Throwable ignored){}
+                handler.post(new Runnable(){
+                    public void run(){
+                        manualScanning=false;
+                        if(destroyed||isFinishing())return;
+                        manualActivities=found;
+                        home.choice=Math.max(0,Math.min(Math.max(0,home.count()-1),home.choice));
+                        home.invalidate();
+                    }
+                });
+            }
+        },"MarcoLite-entries").start();
+    }
     void importWallpaper(final Uri uri){
         toast("正在导入本地壁纸…");
         new Thread(new Runnable(){
             public void run(){
-                boolean ok=false;
+                String savedFile=null;
                 Bitmap decoded=null;
                 try{
                     decoded=decodeBoundedImage(uri,1280,720);
                     if(decoded!=null){
-                        File target=new File(getFilesDir(),"custom-wallpaper.jpg");
-                        File temp=new File(getFilesDir(),"custom-wallpaper.tmp");
+                        File dir=new File(getFilesDir(),"wallpapers");
+                        dir.mkdirs();
+                        String fileName="wall-"+System.currentTimeMillis()+".jpg";
+                        File target=new File(dir,fileName);
+                        File temp=new File(dir,fileName+".tmp");
                         FileOutputStream out=new FileOutputStream(temp);
                         try{
                             decoded.compress(Bitmap.CompressFormat.JPEG,86,out);
@@ -505,20 +714,29 @@ public final class LiteActivity extends Activity {
                         }finally{
                             out.close();
                         }
-                        if(temp.renameTo(target))ok=true;
+                        if(temp.renameTo(target))savedFile=fileName;
                     }
                 }catch(Exception ignored){
                 }finally{
                     if(decoded!=null&&!decoded.isRecycled())decoded.recycle();
                 }
-                final boolean imported=ok;
+                final String finalFile=savedFile;
                 handler.post(new Runnable(){
                     public void run(){
                         if(destroyed||isFinishing())return;
-                        if(imported){
-                            prefs.edit().putInt("wallpaper",2).apply();
+                        if(finalFile!=null){
+                            ArrayList<String[]> list=customWallpapers();
+                            String label="本地壁纸 "+(list.size()+1);
+                            list.add(0,new String[]{finalFile,label});
+                            while(list.size()>12){
+                                String[] removed=list.remove(list.size()-1);
+                                File rf="custom-wallpaper.jpg".equals(removed[0])?new File(getFilesDir(),removed[0]):new File(new File(getFilesDir(),"wallpapers"),removed[0]);
+                                if(rf.exists())rf.delete();
+                            }
+                            saveCustomWallpaperList(list);
+                            prefs.edit().putInt("wallpaper",2).putString("active_custom_wall",finalFile).apply();
                             home.loadWallpaper();
-                            toast("本地壁纸已应用");
+                            toast("本地壁纸已保存到壁纸库");
                         }else{
                             toast("图片读取失败，请确认格式为 JPG/PNG");
                         }
@@ -937,12 +1155,15 @@ public final class LiteActivity extends Activity {
         float fillY=-1,fillHeight=-1;
         float[] cardWidths=new float[0],cardCenters=new float[0];
         int selected,top=0,page=0,choice=0;
-        boolean topFocus=false,ambient=false,running=false,longPress=false,wakeKey=false,keepScreenOn=false;
+        boolean topFocus=false,ambient=false,running=false,longPress=false,wakeKey=false,keepScreenOn=false,edgeOpen=false;
+        int edgeChoice=0;
+        float wallTopLeftLum=0.16f,wallTopRightLum=0.16f,wallShelfLum=0.16f;
         long touched,lastFrame;
         float ambientAmount=0;
         final MotionSpring saver=new MotionSpring(0,10,.001f);
         final String[] menu={"Magic Desktop","切换壁纸","应用排序","恢复所有隐藏应用","系统设置 / 网络","保存本机外观备份","恢复本机外观备份",
-                "设备与兼容状态","关于与开源许可","刷新应用列表","全部应用与管理","导入本地壁纸","设为默认桌面","媒体音量","屏保休眠定时","立即进入屏保"};
+                "设备与兼容状态","关于与开源许可","刷新应用列表","全部应用与管理","导入本地壁纸","设为默认桌面","媒体音量","屏保休眠定时","立即进入屏保",
+                "我的壁纸库","桌面天气探测","手动添加应用入口"};
         final String[] filterNames={"全部","可卸载","收藏","已隐藏","系统"};
         final Runnable frame=new Runnable(){
             public void run(){
@@ -985,7 +1206,9 @@ public final class LiteActivity extends Activity {
             wake();
         }
         ArrayList<App> activeRowApps(){
-            return activeRow==1&&!favorites.isEmpty()?favorites:apps;
+            if(activeRow==1&&!favorites.isEmpty())return favorites;
+            if(activeRow==2&&!tvInputs.isEmpty())return tvInputs;
+            return apps;
         }
         void enterAmbient(){
             ambient=true;
@@ -1175,10 +1398,10 @@ public final class LiteActivity extends Activity {
             }
         }
         void restoreState(Bundle saved){
-            page=Math.max(0,Math.min(8,saved.getInt("page",0)));
+            page=Math.max(0,Math.min(11,saved.getInt("page",0)));
             choice=saved.getInt("choice",0);
             top=Math.max(0,Math.min(2,saved.getInt("top",0)));
-            activeRow=Math.max(0,Math.min(1,saved.getInt("activeRow",0)));
+            activeRow=Math.max(0,Math.min(2,saved.getInt("activeRow",0)));
             allFilter=Math.max(0,Math.min(filterNames.length-1,saved.getInt("allFilter",0)));
             allQuery=saved.getString("allQuery","");
             if(allQuery==null)allQuery="";
@@ -1187,7 +1410,7 @@ public final class LiteActivity extends Activity {
             managedId=saved.getString("managed");
             history.clear();
             int[] parents=saved.getIntArray("parents");
-            if(parents!=null)for(int i=0;i+1<Math.min(12,parents.length);i+=2)history.addLast(new int[]{Math.max(0,Math.min(8,parents[i])),Math.max(0,
+            if(parents!=null)for(int i=0;i+1<Math.min(12,parents.length);i+=2)history.addLast(new int[]{Math.max(0,Math.min(11,parents[i])),Math.max(0,
                     parents[i+1])});
             if(page==2){
                 draft=new PreviewPreferences(prefs);
@@ -1268,6 +1491,10 @@ public final class LiteActivity extends Activity {
                 Bitmap old=wallpaper;
                 wallpaper=null;
                 if(old!=null&&!old.isRecycled())old.recycle();
+                wallTopLeftLum=0.14f;
+                wallTopRightLum=0.14f;
+                wallShelfLum=0.14f;
+                clock.setTopRightLuminance(wallTopRightLum);
                 invalidate();
                 return;
             }
@@ -1276,13 +1503,28 @@ public final class LiteActivity extends Activity {
                 BitmapFactory.Options o=new BitmapFactory.Options();
                 o.inSampleSize=1;
                 o.inPreferredConfig=Bitmap.Config.RGB_565;
-                File custom=new File(getFilesDir(),"custom-wallpaper.jpg");
-                if(wall==2&&custom.isFile()){
-                    FileInputStream in=new FileInputStream(custom);
-                    try{
-                        next=BitmapFactory.decodeStream(in,null,o);
-                    }finally{
-                        in.close();
+                if(wall==2){
+                    String activeName=prefs.getString("active_custom_wall","");
+                    File custom=null;
+                    if(activeName!=null&&activeName.length()>0&&activeName.indexOf('/')<0&&activeName.indexOf('\\')<0&&activeName.indexOf("..")<0){
+                        File candidate="custom-wallpaper.jpg".equals(activeName)?new File(getFilesDir(),activeName):new File(new File(getFilesDir(),"wallpapers"),activeName);
+                        if(candidate.isFile())custom=candidate;
+                    }
+                    if(custom==null){
+                        ArrayList<String[]> list=customWallpapers();
+                        if(!list.isEmpty()){
+                            String fn=list.get(0)[0];
+                            File candidate="custom-wallpaper.jpg".equals(fn)?new File(getFilesDir(),fn):new File(new File(getFilesDir(),"wallpapers"),fn);
+                            if(candidate.isFile())custom=candidate;
+                        }
+                    }
+                    if(custom!=null&&custom.isFile()){
+                        FileInputStream in=new FileInputStream(custom);
+                        try{
+                            next=BitmapFactory.decodeStream(in,null,o);
+                        }finally{
+                            in.close();
+                        }
                     }
                 }
                 if(next==null){
@@ -1294,6 +1536,10 @@ public final class LiteActivity extends Activity {
                     }
                 }
             }catch(Exception ignored){}
+            wallTopLeftLum=next!=null?DesktopContrast.sampleTopLeftLuminance(next):0.16f;
+            wallTopRightLum=next!=null?DesktopContrast.sampleTopRightLuminance(next):0.16f;
+            wallShelfLum=next!=null?DesktopContrast.sampleShelfLuminance(next):0.16f;
+            clock.setTopRightLuminance(wallTopRightLum);
             Bitmap old=wallpaper;
             wallpaper=next;
             if(old!=null&&!old.isRecycled())old.recycle();
@@ -1325,6 +1571,7 @@ public final class LiteActivity extends Activity {
         }
         void open(int which){
             if(which==page)return;
+            edgeOpen=false;
             if(which==1&&page!=0)closePage();
             history.push(new int[]{page,choice});
             wake();
@@ -1336,6 +1583,9 @@ public final class LiteActivity extends Activity {
                 allFilter=0;
                 allQuery="";
                 rebuildFilteredApps();
+            }
+            if(which==11){
+                host.scanManualActivities();
             }
             if((which==7||which==8)&&managedId!=null){
                 ArrayList<App> list=activeRowApps();
@@ -1351,6 +1601,7 @@ public final class LiteActivity extends Activity {
             invalidate();
         }
         void closePage(){
+            edgeOpen=false;
             draft=null;
             page=0;
             choice=0;
@@ -1412,11 +1663,11 @@ public final class LiteActivity extends Activity {
             int aB=(b>>>24)&255,rB=(b>>>16)&255,gB=(b>>>8)&255,bB=b&255;
             return Color.argb((int)(aA+(aB-aA)*t),(int)(rA+(rB-rA)*t),(int)(gA+(gB-gA)*t),(int)(bA+(bB-bA)*t));
         }
-        void drawHeaderIcon(Canvas c,int idx,float cx,float cy,float focus){
+        void drawHeaderIcon(Canvas c,int idx,float cx,float cy,float focus,boolean bright){
             c.save();
             c.translate(cx,cy);
-            int stroke=blendColor(0xFFD2D8EA,0xFFFFFFFF,focus);
-            int accent=blendColor(0x88C4A8FF,0xFFD5BEFF,focus);
+            int stroke=bright?blendColor(0xCC141A24,DesktopContrast.INK_COLOR,focus):blendColor(0xFFD2D8EA,0xFFFFFFFF,focus);
+            int accent=bright?blendColor(0xBB6B46C1,0xFF6B46C1,focus):blendColor(0x88C4A8FF,0xFFD5BEFF,focus);
             if(idx==0){
                 // Official MarcoTV 3-layer slanted Purple Stacked Cards brand mark
                 float spread=2.2f*focus;
@@ -1429,19 +1680,24 @@ public final class LiteActivity extends Activity {
                 c.drawRoundRect(rect,3.2f,3.2f,p);
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(1.2f);
-                p.setColor(0x88E5D2FF);
+                p.setColor(bright?0x88141A24:0x88E5D2FF);
                 c.drawRoundRect(rect,3.2f,3.2f,p);
                 p.setStyle(Paint.Style.FILL);
                 p.setColor(blendColor(0xD0C7A9FF,0xEED9C4FF,focus));
                 rect.set(-10.4f+spread*0.25f,-2.2f+spread*0.3f,12.4f+spread*0.25f,7.0f+spread*0.3f);
                 c.drawRoundRect(rect,3.6f,3.6f,p);
                 p.setStyle(Paint.Style.STROKE);
-                p.setColor(0xB8FFF8FF);
+                p.setColor(bright?0x88141A24:0xB8FFF8FF);
                 c.drawRoundRect(rect,3.6f,3.6f,p);
                 p.setStyle(Paint.Style.FILL);
                 p.setColor(blendColor(0xF2FCF7FE,Color.WHITE,focus));
                 rect.set(-14.8f-spread*0.6f,-11.0f-spread*0.85f,10.2f-spread*0.6f,1.0f-spread*0.85f);
                 c.drawRoundRect(rect,4.2f,4.2f,p);
+                if(bright){
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setColor(0x55141A24);
+                    c.drawRoundRect(rect,4.2f,4.2f,p);
+                }
             }else if(idx==1){
                 float spread=3.5f*focus;
                 p.setStyle(Paint.Style.FILL);
@@ -1531,28 +1787,36 @@ public final class LiteActivity extends Activity {
             }else c.drawColor(0xFF122B40);
             p.setColor(Color.argb(ClockScene.dim(a,idle),0,0,0));
             c.drawRect(0,0,1920,1080,p);
+            clock.setTopRightLuminance(wallTopRightLum);
+            clock.setWeather(host.localWeather,page==2&&choice>=22&&choice<=28);
             clock.draw(c,a,idle,true);
             if(idle>.8f){
                 c.restore();
                 return;
             }
+            int dimPct=a.getInt("wallpaper_dim",10);
+            boolean brightHeader=DesktopContrast.isBright(DesktopContrast.effectiveLuminance(wallTopLeftLum,dimPct));
+            boolean brightShelf=DesktopContrast.isBright(DesktopContrast.effectiveLuminance(wallShelfLum,dimPct));
             float[] btnL={100,368,676},btnR={340,648,892};
             String[] btnLabels={"MARCO TV","Magic Desktop","全部应用"};
             for(int i=0;i<3;i++){
                 float f=headerFocus[i].value;
                 if(f>0.01f){
-                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(185*f),64,54,104));
+                    box(c,btnL[i],72,btnR[i],144,20,brightHeader?Color.argb((int)(145*f),20,26,36):Color.argb((int)(185*f),64,54,104));
                     p.setStyle(Paint.Style.STROKE);
                     p.setStrokeWidth(2f);
-                    box(c,btnL[i],72,btnR[i],144,20,Color.argb((int)(175*f),206,184,255));
+                    box(c,btnL[i],72,btnR[i],144,20,brightHeader?Color.argb((int)(165*f),20,26,36):Color.argb((int)(175*f),206,184,255));
                     p.setStyle(Paint.Style.FILL);
                 }
-                drawHeaderIcon(c,i,btnL[i]+34,108,f);
-                text(c,btnLabels[i],btnL[i]+66,118,26,blendColor(0xFFD5E6EE,Color.WHITE,f),i==0||f>0.35f);
+                drawHeaderIcon(c,i,btnL[i]+34,108,f,brightHeader);
+                int hdrText=brightHeader?blendColor(0xCC141A24,DesktopContrast.INK_COLOR,f):blendColor(0xFFD5E6EE,Color.WHITE,f);
+                if(brightHeader&&f<=0.2f)text(c,btnLabels[i],btnL[i]+66,119.5f,26,0x99FFFFFF,i==0||f>0.35f);
+                text(c,btnLabels[i],btnL[i]+66,118,26,hdrText,i==0||f>0.35f);
             }
             int globalHPercent=a.getInt("card_height",100);
             int globalDPercent=a.getInt("card_depth",0);
             int globalR=a.getInt("card_radius",32);
+            int surfacePct=LiteSettings.clamp(17,a.getInt("card_surface",55));
             float focusZoom=LiteSettings.focusScale(a.getInt("card_scale",12));
             int labelAlpha=Math.round(255*LiteSettings.clamp(15,a.getInt("label_opacity",75))/100f);
             float baseH=LiteSettings.height(globalHPercent);
@@ -1567,12 +1831,19 @@ public final class LiteActivity extends Activity {
                 }
             }
             boolean showingFav=activeRow==1&&!favorites.isEmpty();
-            ArrayList<App> rowApps=showingFav?favorites:apps;
-            String rowTitle=showingFav?"收藏（"+favorites.size()+"）":"我的应用";
-            text(c,rowTitle,112,y-baseH/2-52,32,Color.WHITE,true);
-            if(!favorites.isEmpty()){
-                String switchHint=showingFav?"▲ 按上键返回「我的应用」":"▼ 按下键查看「收藏（"+favorites.size()+"）」";
-                text(c,switchHint,340,y-baseH/2-54,21,0xAA9EC5D6,false);
+            boolean showingInputs=activeRow==2&&!tvInputs.isEmpty();
+            ArrayList<App> rowApps=showingFav?favorites:(showingInputs?tvInputs:apps);
+            String rowTitle=showingFav?"收藏（"+favorites.size()+"）":(showingInputs?"输入源（"+tvInputs.size()+"）":"我的应用");
+            drawShelfBadge(c,showingInputs?2:(showingFav?1:0),130,y-baseH/2-62,brightShelf);
+            int shelfTitleColor=brightShelf?DesktopContrast.INK_COLOR:Color.WHITE;
+            if(brightShelf)text(c,rowTitle,162,y-baseH/2-50.5f,32,0xB0FFFFFF,true);
+            text(c,rowTitle,162,y-baseH/2-52,32,shelfTitleColor,true);
+            String switchHint=buildRowHint(showingFav,showingInputs);
+            if(switchHint.length()>0){
+                p.setTypeface(boldFace);
+                p.setTextSize(32);
+                float hintX=Math.max(350f,184f+p.measureText(rowTitle));
+                text(c,switchHint,hintX,y-baseH/2-54,21,brightShelf?0xCC141A24:0xAA9EC5D6,false);
             }
             if(movingId!=null){
                 box(c,520,210,1400,268,28,0xDD1A3A4F);
@@ -1582,7 +1853,7 @@ public final class LiteActivity extends Activity {
                 p.setStyle(Paint.Style.FILL);
                 text(c,"◀  拿起移动中 · 左右调整 · 确定放下 · 返回取消  ▶",568,248,24,0xFFE8FAFF,true);
             }
-            if(rowApps.isEmpty())text(c,status,112,y,28,0xFFC2D3DF,false);
+            if(rowApps.isEmpty())text(c,status,112,y,28,brightShelf?0xCC141A24:0xFFC2D3DF,false);
             computeCardLayout(a,rowApps);
             float maxCardHalf=baseH/2f;
             for(int i=0;i<rowApps.size();i++){
@@ -1594,7 +1865,7 @@ public final class LiteActivity extends Activity {
                 float x=cardCenters[i]-scroll.value+(page==2&&choice==10?demo.value:0);
                 if(x+w<-80||x-w>2000)continue;
                 boolean isGrabbed=movingId!=null&&movingId.equals(app.id);
-                boolean focus=i==selected&&(!topFocus||(page==2&&choice==10)||page==7||page==8);
+                boolean focus=i==selected&&(!topFocus||(page==2&&choice==10)||page==7||page==8)&&!edgeOpen;
                 float z=isGrabbed?Math.max(focusZoom,1.12f):(focus?focusZoom:1f);
                 float cy=y-(isGrabbed?22:(focus?10:0));
                 float hw=w*z/2f,hh=h*z/2f;
@@ -1639,6 +1910,12 @@ public final class LiteActivity extends Activity {
                     p.setShader(colorCover>=0?colorCoverFills[colorCover]:(focus?focusFill:cardFill));
                     c.drawRoundRect(rect,radius,radius,p);
                     p.setShader(null);
+                    if(surfacePct>0){
+                        int sheenA=Math.round((focus?64f:38f)*surfacePct/100f);
+                        p.setShader(new LinearGradient(x-hw,cy-hh,x+hw*0.4f,cy+hh*0.4f,new int[]{Color.argb(sheenA,255,255,255),0x00FFFFFF},new float[]{0f,1f},Shader.TileMode.CLAMP));
+                        c.drawRoundRect(rect,radius,radius,p);
+                        p.setShader(null);
+                    }
                     if(app.icon!=null&&!app.icon.isRecycled()){
                         float sz=Math.min(104f,Math.min(w,h)-26f)*z;
                         if(sz>20f){
@@ -1660,23 +1937,119 @@ public final class LiteActivity extends Activity {
                 // Rim stroke
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(isGrabbed?4f:(focus?3f:1.2f));
-                box(c,x-hw,cy-hh,x+hw,cy+hh,radius,isGrabbed?0xFF8CD6F0:(focus?0xE0D4F2F8:0x28FFFFFF));
+                int unfocusedRim=brightShelf?0x38141A24:0x28FFFFFF;
+                box(c,x-hw,cy-hh,x+hw,cy+hh,radius,isGrabbed?0xFF8CD6F0:(focus?(brightShelf?0xE8141A24:0xE0D4F2F8):unfocusedRim));
                 p.setStyle(Paint.Style.FILL);
                 // Card title below card (respects label_opacity for unfocused cards)
                 int lAlpha=focus?255:labelAlpha;
                 if(lAlpha>8){
                     float labelY=Math.min(1038f,y+Math.max(baseH,h)/2f+48f);
                     String trimmed=trim(app.label,Math.max(120f,w-10f),26);
-                    text(c,trimmed,x-w/2f+6,labelY+2,26,Color.argb(Math.round(135*lAlpha/255f),0,0,0),focus);
-                    text(c,trimmed,x-w/2f+5,labelY,26,focus?Color.WHITE:Color.argb(lAlpha,189,208,222),focus);
+                    int haloColor=brightShelf?Color.argb(Math.round(175*lAlpha/255f),255,255,255):Color.argb(Math.round(135*lAlpha/255f),0,0,0);
+                    int textInk=brightShelf?(focus?DesktopContrast.INK_COLOR:Color.argb(lAlpha,20,26,36)):(focus?Color.WHITE:Color.argb(lAlpha,189,208,222));
+                    text(c,trimmed,x-w/2f+6,labelY+(brightShelf?1.5f:2f),26,haloColor,focus);
+                    text(c,trimmed,x-w/2f+5,labelY,26,textInk,focus);
                 }
             }
             float bottomLabel=y+maxCardHalf+48f;
             float hintAlpha=Math.max(0f,Math.min(1f,(955f-bottomLabel)/55f));
             if(hintAlpha>0.05f&&movingId==null){
-                text(c,"↑ 顶栏   ← → 选择   确定打开   长按确定管理/卸载/换封面",112,1022,22,Color.argb((int)(200*hintAlpha),165,190,206),false);
+                int hintInk=brightShelf?Color.argb((int)(210*hintAlpha),20,26,36):Color.argb((int)(200*hintAlpha),165,190,206);
+                text(c,"↑ 顶栏   ← → 选择（首张左按开快捷栏）   确定打开   长按管理",112,1022,22,hintInk,false);
+            }
+            if(edgeOpen&&page==0){
+                drawEdgeBar(c);
             }
             c.restore();
+        }
+        String buildRowHint(boolean showingFav,boolean showingInputs){
+            if(showingFav){
+                return !tvInputs.isEmpty()?"▲ 我的应用 · ▼ 输入源":"▲ 按上键返回「我的应用」";
+            }
+            if(showingInputs){
+                return !favorites.isEmpty()?"▲ 按上键返回「收藏」":"▲ 按上键返回「我的应用」";
+            }
+            if(!favorites.isEmpty()&&!tvInputs.isEmpty())return "▼ 收藏 / 输入源";
+            if(!favorites.isEmpty())return "▼ 按下键查看「收藏（"+favorites.size()+"）」";
+            if(!tvInputs.isEmpty())return "▼ 按下键查看「输入源（"+tvInputs.size()+"）」";
+            return "";
+        }
+        void drawShelfBadge(Canvas c,int rowKind,float cx,float cy,boolean bright){
+            c.save();
+            c.translate(Math.round(cx),Math.round(cy));
+            p.setShader(null);
+            rect.set(-18,-18,18,18);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(bright?0x22141A24:0x28FFFFFF);
+            c.drawRoundRect(rect,10,10,p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.5f);
+            p.setColor(bright?0x42141A24:0x4EFFFFFF);
+            rect.inset(0.75f,0.75f);
+            c.drawRoundRect(rect,9.5f,9.5f,p);
+            p.setStyle(Paint.Style.FILL);
+            int glyphInk=bright?DesktopContrast.INK_COLOR:Color.WHITE;
+            if(rowKind==1){
+                p.setColor(bright?0xFFD98800:0xFFFFE082);
+                path.reset();
+                for(int i=0;i<10;i++){
+                    double ang=-Math.PI/2+i*Math.PI/5.0;
+                    float r=(i%2==0)?10.5f:4.6f;
+                    float px=(float)(Math.cos(ang)*r),py=(float)(Math.sin(ang)*r)+0.6f;
+                    if(i==0)path.moveTo(px,py);else path.lineTo(px,py);
+                }
+                path.close();
+                c.drawPath(path,p);
+            }else if(rowKind==2){
+                p.setColor(glyphInk);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(2.4f);
+                path.reset();
+                path.moveTo(-4,-8);
+                path.lineTo(8,-8);
+                path.lineTo(8,8);
+                path.lineTo(-4,8);
+                c.drawPath(path,p);
+                c.drawLine(-10,0,2,0,p);
+                c.drawLine(-2,-4,2,0,p);
+                c.drawLine(-2,4,2,0,p);
+                p.setStyle(Paint.Style.FILL);
+            }else{
+                p.setColor(glyphInk);
+                rect.set(-9,-9,-1.5f,-1.5f);
+                c.drawRoundRect(rect,2.4f,2.4f,p);
+                rect.set(-9,1.5f,-1.5f,9);
+                c.drawRoundRect(rect,2.4f,2.4f,p);
+                rect.set(1.5f,1.5f,9,9);
+                c.drawRoundRect(rect,2.4f,2.4f,p);
+                p.setColor(bright?0xFF1688D8:0xFF7AD8FF);
+                rect.set(1.5f,-9,9,-1.5f);
+                c.drawRoundRect(rect,2.4f,2.4f,p);
+            }
+            c.restore();
+        }
+        void drawEdgeBar(Canvas c){
+            box(c,0,0,1920,1080,0,0x55060D16);
+            box(c,28,240,308,770,26,0xEE142230);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.5f);
+            box(c,28,240,308,770,26,0x55A8D8E6);
+            p.setStyle(Paint.Style.FILL);
+            text(c,"快捷导航",54,290,22,0xFF9EC5D6,true);
+            String[] items={"全部应用","添加应用入口","我的壁纸库","桌面天气","设置菜单"};
+            for(int i=0;i<items.length;i++){
+                float iy=320+i*76;
+                boolean foc=i==edgeChoice;
+                box(c,46,iy,290,iy+62,14,foc?0xFF335B75:0xFF1D2F40);
+                if(foc){
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(2f);
+                    box(c,46,iy,290,iy+62,14,0xCC9EE0EE);
+                    p.setStyle(Paint.Style.FILL);
+                }
+                text(c,items[i],68,iy+40,23,Color.WHITE,foc);
+            }
+            text(c,"→ / 返回 收起",54,740,18,0xFF8FAFC0,false);
         }
         int count(){
             if(page==1)return menu.length;
@@ -1685,14 +2058,22 @@ public final class LiteActivity extends Activity {
             if(page==6)return Math.max(1,filteredApps.size());
             if(page==7)return 5;
             if(page==8)return 2+LiteSettings.COVER_NAMES.length;
+            if(page==9){
+                ArrayList<String[]> cw=host.customWallpapers();
+                return 5+cw.size()+(cw.isEmpty()?1:2);
+            }
+            if(page==10)return 3;
+            if(page==11)return (manualScanning||manualActivities.isEmpty())?1:manualActivities.size();
             return 1;
         }
         String value(int i){
             int v=readParam(appearance(),i);
             if(i==3)return ClockScene.STYLES[LiteSettings.clamp(i,v)];
-            if(i==10||i==13)return v==0?"关闭":"开启";
-            if(i==0||i==1||i==11||i==12||i==14||i==15||i==16)return v+"%";
-            if(i==4)return v+"°";
+            if(i==18)return DesktopContrast.COLOR_MODE_NAMES[LiteSettings.clamp(i,v)];
+            if(i==26)return WeatherSnapshot.PRECIP_MODES[LiteSettings.clamp(i,v)];
+            if(i==10||LiteSettings.isBool(i))return v==0?"关闭":"开启";
+            if(i==0||i==1||i==11||i==12||i==14||i==15||i==16||i==17||i==20||i==21||i==28)return v+"%";
+            if(i==4||i==19)return v+"°";
             return Integer.toString(v);
         }
         String customSizeValue(App a,int idx){
@@ -1718,6 +2099,9 @@ public final class LiteActivity extends Activity {
             else if(page==6)heading="全部应用与管理（"+filteredApps.size()+"/"+allApps.size()+"）";
             else if(page==7)heading=managed!=null?trim("尺寸 · "+managed.label,width-64,32):"自定义卡片尺寸";
             else if(page==8)heading=managed!=null?trim("封面 · "+managed.label,width-64,32):"更换卡片封面";
+            else if(page==9)heading="我的壁纸库";
+            else if(page==10)heading="桌面天气探测";
+            else if(page==11)heading="手动添加应用入口";
             else heading="设置";
             text(c,heading,left+32,108,34,Color.WHITE,true);
             if(page==4||page==5){
@@ -1776,8 +2160,15 @@ public final class LiteActivity extends Activity {
                 box(c,1560,124,1846,160,14,allQuery.length()>0?0xFF345E73:0xFF213242);
                 text(c,searchPill,1580,149,20,allQuery.length()>0?Color.WHITE:0xFF9FB9C8,false);
             }
-            int listTop=page==6?174:(page==3?158:155);
-            int rows=7;
+            if(page==10){
+                String probeMsg=host.lastWeatherProbe!=null?host.lastWeatherProbe.summary():"尚未探测本机天气，请点击下方“立即探测本机系统天气”。";
+                String[] pLines=probeMsg.split("\n");
+                for(int pi=0;pi<Math.min(4,pLines.length);pi++){
+                    text(c,trim(pLines[pi],width-64,22),left+32,162+pi*46,22,0xFFC1D4DE,false);
+                }
+            }
+            int listTop=page==6?174:(page==10?380:(page==3?158:155));
+            int rows=page==10?4:7;
             int rowStep=page==6?108:110;
             int total=count();
             int start=Math.max(0,Math.min(choice-2,total-rows));
@@ -1855,6 +2246,35 @@ public final class LiteActivity extends Activity {
                         boolean active=managed!=null&&LiteSettings.coverColorIndex(managed.cover)==ci;
                         title="主题纯色 · "+LiteSettings.COVER_NAMES[ci]+(active?"（当前）":"");
                     }
+                }else if(page==9){
+                    int[] builtinIds={0,1,3,4,5};
+                    ArrayList<String[]> cw=host.customWallpapers();
+                    int curWall=prefs.getInt("wallpaper",0);
+                    String activeCustom=prefs.getString("active_custom_wall","");
+                    if(i<5){
+                        int wid=builtinIds[i];
+                        title="内置 · "+LiteSettings.wallpaperName(wid)+(curWall==wid?"（使用中）":"");
+                    }else if(i<5+cw.size()){
+                        String[] ent=cw.get(i-5);
+                        boolean active=curWall==2&&(ent[0].equals(activeCustom)||(activeCustom.length()==0&&i==5));
+                        title="本地导入 · "+ent[1]+(active?"（使用中）":"");
+                    }else if(i==5+cw.size()){
+                        title="从本地相册 / 存储导入新壁纸…";
+                    }else{
+                        title="删除当前导入壁纸";
+                    }
+                }else if(page==10){
+                    if(i==0)title="首页显示天气："+(prefs.getBoolean("weather_enabled",true)?"已开启":"已关闭");
+                    else if(i==1)title="立即探测本机系统天气";
+                    else title="自定义天气图标与显示项…";
+                }else if(page==11){
+                    if(manualScanning)title="正在扫描本机可启动 Activity…";
+                    else if(manualActivities.isEmpty())title="未发现额外的可启动 Activity";
+                    else{
+                        String[] entry=manualActivities.get(i);
+                        boolean added=prefs.contains("manual:"+entry[0]);
+                        title=(added?"[已添加] ":"")+entry[2]+"（"+entry[0]+"）";
+                    }
                 }else{
                     title=i<LiteSettings.KEYS.length?LiteSettings.NAMES[i]+"  "+value(i):i==LiteSettings.KEYS.length?"保存":i==LiteSettings.KEYS.length+1?"取消":"恢复默认值";
                 }
@@ -1888,7 +2308,7 @@ public final class LiteActivity extends Activity {
                     c.drawCircle(x,y+71,9,p);
                 }
             }
-            String footer=page==2?"左右调整 · 保存才应用 · 返回撤销":page==7?"左右调整即时生效 · 返回上级":page==8?"上下选择封面 · 确定应用 · 返回上级":page==6?"上下选应用 · 左右切分类 · 菜单键搜索 · 确定管理":"上下选择 · 确定进入 · 返回关闭";
+            String footer=page==2?"左右调整 · 保存才应用 · 返回撤销":page==7?"左右调整即时生效 · 返回上级":page==8?"上下选择封面 · 确定应用 · 返回上级":page==6?"上下选应用 · 左右切分类 · 菜单键搜索 · 确定管理":page==9?"上下选择壁纸 · 确定应用或导入/删除":page==10?"探测本机天气数据 · 自定义图标与温度显示":page==11?"上下选择非桌面 Activity 入口 · 确定添加/移除":"上下选择 · 确定进入 · 返回关闭";
             text(c,footer,left+32,986,22,0xFFA5C4D2,false);
         }
         float customSliderRatio(App a,int idx){
@@ -1929,13 +2349,20 @@ public final class LiteActivity extends Activity {
                 return;
             }
             if(page!=2||choice>=LiteSettings.KEYS.length)return;
-            int step=choice==7?10:(choice==11||choice==12||choice==15||choice==16?5:1);
+            int step=choice==7?10:(choice==19?10:(choice==11||choice==12||choice==15||choice==16||choice==17||choice==20||choice==21||choice==28?5:1));
             int cur=readParam(draft,choice);
             writeDraft(draft,choice,cur+direction*step);
             previewChanged();
         }
         void activate(){
             if(page==0){
+                if(edgeOpen){
+                    int[] targets={6,11,9,10,1};
+                    int targetPage=targets[Math.max(0,Math.min(targets.length-1,edgeChoice))];
+                    edgeOpen=false;
+                    open(targetPage);
+                    return;
+                }
                 if(movingId!=null){
                     finishMove();
                     return;
@@ -1945,6 +2372,61 @@ public final class LiteActivity extends Activity {
                     ArrayList<App> list=activeRowApps();
                     if(!list.isEmpty())host.launch(list.get(Math.min(selected,list.size()-1)));
                 }
+                return;
+            }
+            if(page==9){
+                int[] builtinIds={0,1,3,4,5};
+                ArrayList<String[]> cw=host.customWallpapers();
+                if(choice<5){
+                    prefs.edit().putInt("wallpaper",builtinIds[choice]).apply();
+                    loadWallpaper();
+                    toast("已切换壁纸："+LiteSettings.wallpaperName(builtinIds[choice]));
+                }else if(choice<5+cw.size()){
+                    String[] ent=cw.get(choice-5);
+                    prefs.edit().putInt("wallpaper",2).putString("active_custom_wall",ent[0]).apply();
+                    loadWallpaper();
+                    toast("已应用壁纸："+ent[1]);
+                }else if(choice==5+cw.size()){
+                    host.pickWallpaper();
+                }else if(!cw.isEmpty()){
+                    String active=prefs.getString("active_custom_wall","");
+                    String target=active.length()>0?active:cw.get(0)[0];
+                    host.deleteCustomWallpaper(target);
+                    choice=Math.max(0,Math.min(choice,count()-1));
+                }
+                invalidate();
+                return;
+            }
+            if(page==10){
+                if(choice==0){
+                    boolean next=!prefs.getBoolean("weather_enabled",true);
+                    prefs.edit().putBoolean("weather_enabled",next).apply();
+                    toast(next?"首页天气已开启":"首页天气已关闭");
+                }else if(choice==1){
+                    host.probeWeatherAsync(true);
+                }else{
+                    open(2);
+                    choice=22;
+                }
+                invalidate();
+                return;
+            }
+            if(page==11){
+                if(!manualScanning&&choice>=0&&choice<manualActivities.size()){
+                    String[] ent=manualActivities.get(choice);
+                    boolean exists=prefs.contains("manual:"+ent[0]);
+                    SharedPreferences.Editor ed=prefs.edit();
+                    if(exists){
+                        ed.remove("manual:"+ent[0]);
+                        toast("已移除入口："+ent[2]);
+                    }else{
+                        ed.putString("manual:"+ent[0],ent[1]).putBoolean("hidden:"+ent[0],false);
+                        toast("已添加到桌面："+ent[2]);
+                    }
+                    ed.apply();
+                    host.loadApps();
+                }
+                invalidate();
                 return;
             }
             if(page==3){
@@ -2082,6 +2564,15 @@ public final class LiteActivity extends Activity {
                     closePage();
                     enterAmbient();
                     break;
+                case 16:
+                    open(9);
+                    break;
+                case 17:
+                    open(10);
+                    break;
+                case 18:
+                    open(11);
+                    break;
             }
             invalidate();
         }
@@ -2103,6 +2594,11 @@ public final class LiteActivity extends Activity {
                 return true;
             }
             if(key==KeyEvent.KEYCODE_BACK){
+                if(edgeOpen&&page==0){
+                    edgeOpen=false;
+                    invalidate();
+                    return true;
+                }
                 if(movingId!=null){
                     cancelMove(true);
                     return true;
@@ -2137,6 +2633,13 @@ public final class LiteActivity extends Activity {
             }
             if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){
                 int d=key==KeyEvent.KEYCODE_DPAD_LEFT?-1:1;
+                if(edgeOpen&&page==0){
+                    if(key==KeyEvent.KEYCODE_DPAD_RIGHT){
+                        edgeOpen=false;
+                        invalidate();
+                    }
+                    return true;
+                }
                 if(page==2||page==7||(page==1&&choice==13))change(d);
                 else if(page==6){
                     allFilter=(allFilter+d+filterNames.length)%filterNames.length;
@@ -2158,6 +2661,12 @@ public final class LiteActivity extends Activity {
                         top=Math.max(0,Math.min(2,top+d));
                         syncHeaderTargets();
                     }else{
+                        if(key==KeyEvent.KEYCODE_DPAD_LEFT&&selected==0&&event.getRepeatCount()==0){
+                            edgeOpen=true;
+                            edgeChoice=0;
+                            invalidate();
+                            return true;
+                        }
                         ArrayList<App> list=activeRowApps();
                         if(!list.isEmpty()){
                             selected=Math.max(0,Math.min(list.size()-1,selected+d));
@@ -2171,10 +2680,21 @@ public final class LiteActivity extends Activity {
             }
             if(key==KeyEvent.KEYCODE_DPAD_UP||key==KeyEvent.KEYCODE_DPAD_DOWN){
                 if(movingId!=null)return true;
+                if(edgeOpen&&page==0){
+                    edgeChoice=Math.max(0,Math.min(4,edgeChoice+(key==KeyEvent.KEYCODE_DPAD_UP?-1:1)));
+                    invalidate();
+                    return true;
+                }
                 if(page!=0){
                     choice=Math.max(0,Math.min(count()-1,choice+(key==KeyEvent.KEYCODE_DPAD_UP?-1:1)));
                 }else if(key==KeyEvent.KEYCODE_DPAD_UP){
-                    if(activeRow==1){
+                    if(activeRow==2){
+                        activeRow=!favorites.isEmpty()?1:0;
+                        selected=Math.min(selected,Math.max(0,activeRowApps().size()-1));
+                        rowSpring.target(activeRow);
+                        scroll.target(targetScroll(selected));
+                        scheduleMotion();
+                    }else if(activeRow==1){
                         activeRow=0;
                         selected=Math.min(selected,Math.max(0,apps.size()-1));
                         rowSpring.target(0);
@@ -2188,10 +2708,24 @@ public final class LiteActivity extends Activity {
                     if(topFocus){
                         topFocus=false;
                         syncHeaderTargets();
-                    }else if(activeRow==0&&!favorites.isEmpty()){
-                        activeRow=1;
-                        selected=Math.min(selected,Math.max(0,favorites.size()-1));
-                        rowSpring.target(1);
+                    }else if(activeRow==0){
+                        if(!favorites.isEmpty()){
+                            activeRow=1;
+                            selected=Math.min(selected,Math.max(0,favorites.size()-1));
+                            rowSpring.target(1);
+                            scroll.target(targetScroll(selected));
+                            scheduleMotion();
+                        }else if(!tvInputs.isEmpty()){
+                            activeRow=2;
+                            selected=Math.min(selected,Math.max(0,tvInputs.size()-1));
+                            rowSpring.target(2);
+                            scroll.target(targetScroll(selected));
+                            scheduleMotion();
+                        }
+                    }else if(activeRow==1&&!tvInputs.isEmpty()){
+                        activeRow=2;
+                        selected=Math.min(selected,Math.max(0,tvInputs.size()-1));
+                        rowSpring.target(2);
                         scroll.target(targetScroll(selected));
                         scheduleMotion();
                     }
@@ -2246,12 +2780,13 @@ public final class LiteActivity extends Activity {
                         px+=124f;
                     }
                 }
-                int listTop=page==6?174:(page==3?158:155);
+                int listTop=page==6?174:(page==10?380:(page==3?158:155));
                 int rowStep=page==6?108:110;
+                int visibleRows=page==10?4:7;
                 if(page==4||page==5){
                     backPage();
-                }else if(x>left&&y>=listTop&&y<listTop+7*rowStep){
-                    int start=Math.max(0,Math.min(choice-2,count()-7));
+                }else if(x>left&&y>=listTop&&y<listTop+visibleRows*rowStep){
+                    int start=Math.max(0,Math.min(choice-2,count()-visibleRows));
                     choice=Math.min(count()-1,start+(int)((y-listTop)/rowStep));
                     if(page==2&&choice<LiteSettings.KEYS.length&&y-(listTop+(choice-start)*rowStep)>55){
                         float ratio=Math.max(0,Math.min(1,(x-1332)/493));

@@ -88,7 +88,7 @@ def build(restricted=False, release=False):
         tree.write(manifest, encoding='utf-8', xml_declaration=True)
     run(executable(TOOLS,'aapt2'), 'link', '-o', BUILD / 'resources.apk', '--manifest', manifest,
         '-I', ANDROID, '--auto-add-overlay', '-A', SOURCE / 'assets', BUILD / 'resources.zip')
-    excluded_from_apk = {'BackgroundPlaybackSession.java', 'WeatherRefreshPolicy.java'}
+    excluded_from_apk = {'BackgroundPlaybackSession.java'}
     sources = sorted(p for p in (SOURCE / 'java').rglob('*.java') if p.name not in excluded_from_apk)
     if restricted:
         edition = BUILD / 'generated/BuildEdition.java'

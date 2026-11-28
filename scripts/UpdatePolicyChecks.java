@@ -49,6 +49,15 @@ public final class UpdatePolicyChecks {
         check("official_download_fallback",UpdatePolicy.downloads("0.12.0")[1].equals(good));
         for(String url:new String[]{mirror.replace("wlj9919","wlj999"),mirror.replace(".top/",".top.evil/"),mirror.replace("/MarcoTV-","/nested/MarcoTV-"),mirror+"?token=a",mirror.replace("https:","http:"),mirror.replace("/MarcoTV-","/%4darcoTV-"),mirror.replace("/MarcoTV-","/../MarcoTV-")})
             check("unsafe_mirror_url_"+passed,!UpdatePolicy.apkUrl(url));
+        for(String wallpaperUrl:new String[]{
+                "https://marcotv.wlj9919.top/wallpapers/catalog.json",
+                "https://marcotv.wlj9919.top/wallpapers/full/01.apk",
+                "https://marcotv.wlj9919.top/wallpapers/",
+                "https://pilipala9919.github.io/MarcoTV/wallpapers/catalog.json"
+        }){
+            check("wallpaper_url_rejected_by_update_policy_"+passed,!UpdatePolicy.apkUrl(wallpaperUrl));
+            invalid("wallpaper_url_rejected_in_release_validation_"+passed,21,"0.12.0",23,123,hash,wallpaperUrl,false,"stable");
+        }
         boolean rejectedVersion=false;try{UpdatePolicy.downloads("../../evil");}catch(IllegalArgumentException e){rejectedVersion=true;}check("download_version_injection_rejected",rejectedVersion);
         check("valid_range_continues",UpdatePolicy.resumeOffset(20,206,"bytes 20-99/100",100)==20);
         check("ignored_range_restarts_without_append",UpdatePolicy.resumeOffset(20,200,null,100)==0);
